@@ -101,7 +101,11 @@ exports.publicWallets = {
 
 /***** DON'T copy this into set.js */
 try {
-  Object.assign(exports, require("./set"));
+  const optionalRequire = eval("require");
+  Object.assign(exports, optionalRequire(`${process.cwd()}/set.js`));
 } catch (e) {
-  if (e.code != "MODULE_NOT_FOUND") throw e;
+  if (!["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"].includes(e?.code)) {
+    // Ignore browser bundles where require/process are unavailable.
+    if (!/require|process/.test(e?.message || "")) throw e;
+  }
 } // catch missing set.js file
