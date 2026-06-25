@@ -99,13 +99,4 @@ exports.publicWallets = {
   // yb24: "0x21eb436144d38d07d8e0c41b706c02c65b771f45",
 };
 
-/***** DON'T copy this into set.js */
-try {
-  const optionalRequire = eval("require");
-  Object.assign(exports, optionalRequire(`${process.cwd()}/set.js`));
-} catch (e) {
-  if (!["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"].includes(e?.code)) {
-    // Ignore browser bundles where require/process are unavailable.
-    if (!/require|process/.test(e?.message || "")) throw e;
-  }
-} // catch missing set.js file
+exports.walletNotes = {};
