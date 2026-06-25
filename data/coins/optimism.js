@@ -1,0 +1,77 @@
+const optimism = {
+  ETH: { native: true, decimals: 18, name: "Ethereum", type: "native" },
+  WETH: {
+    address: "0x4200000000000000000000000000000000000006",
+    decimals: 18,
+    name: "Wrapped Ether",
+    type: "wrapped",
+  },
+  OP: {
+    address: "0x4200000000000000000000000000000000000042",
+    decimals: 18,
+    name: "Optimism",
+    type: "governance",
+  },
+  USDC: {
+    address: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+    decimals: 6,
+    name: "USD Coin",
+    type: "stablecoin",
+  },
+  "USDC.E": {
+    address: "0x7f5c764cbc14f9669b88837ca1490cca17c31607",
+    decimals: 6,
+    name: "Bridged USDC",
+    type: "stablecoin",
+  },
+  USDT: {
+    address: "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58",
+    decimals: 6,
+    name: "Tether USD",
+    type: "stablecoin",
+  },
+  DAI: {
+    address: "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1",
+    decimals: 18,
+    name: "Dai Stablecoin",
+    type: "stablecoin",
+  },
+  WBTC: {
+    address: "0x68f180fcce6836688e9084f035309e29bf0a2095",
+    decimals: 8,
+    name: "Wrapped BTC",
+    type: "wrapped",
+  },
+  wstETH: {
+    address: "0x1f32b1c2345538c0c6f582fcb022739c4a194ebb",
+    decimals: 18,
+    name: "Wrapped liquid staked Ether 2.0",
+    type: "yield",
+  },
+  // LINK: {
+  //   address: "0x350a791bfc2c21f9ed5d10980dad2e2638ffa7f6",
+  //   decimals: 18,
+  //   name: "ChainLink Token",
+  //   type: "oracle",
+  // },
+  // SNX: {
+  //   address: "0x8700daec35af8ff88c16bdf0418774cb3d7599b4",
+  //   decimals: 18,
+  //   name: "Synthetix Network Token",
+  //   type: "governance",
+  // },
+  // VELO: {
+  //   address: "0x9560e827af36c94d2ac33a39bce1fe78631088db",
+  //   decimals: 18,
+  //   name: "Velodrome",
+  //   type: "trading",
+  // },
+  aOptUSDCn: {
+    address: "0x38d693cE1dF5AaDF7bC62595A37D667aD57922e5",
+    decimals: 6,
+    name: "Aave Optimism USDCn",
+    type: "lending",
+  },
+};
+
+export default optimism;

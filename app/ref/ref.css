@@ -1,0 +1,53 @@
+.refPage {
+  line-height: 1.45;
+  max-width: 980px;
+  padding-bottom: 40px;
+}
+
+.refSection {
+  border-top: 1px solid #333;
+  margin-top: 14px;
+  padding-top: 10px;
+}
+
+.refSection h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+  text-transform: lowercase;
+}
+
+.refSection p {
+  margin: 0;
+}
+
+.refSection ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.refTable {
+  border-collapse: collapse;
+  font-size: 14px;
+  width: 100%;
+}
+
+.refTable th,
+.refTable td {
+  border-bottom: 1px solid #2b2b2b;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.refTable th {
+  color: #ddd;
+  font-weight: 600;
+  white-space: nowrap;
+  width: 220px;
+}
+
+.refTable td,
+.refSection li,
+.refSection p {
+  color: #cfcfcf;
+}

@@ -1,0 +1,11 @@
+select {
+  background-color: black;
+  border-color: grey;
+  color: rgb(250, 204, 15);
+}
+select.green {
+  background-color: black;
+  border-color: grey;
+  /* color: rgb(34, 193, 34); */
+  color: hsl(120, 80%, 70%);
+}

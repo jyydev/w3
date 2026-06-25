@@ -1,0 +1,351 @@
+:root {
+  --navleftSpace: 8px;
+}
+.navbar/*Navbar container*/ {
+  /* overflow: hidden; */
+  /* overflow-y: visible;
+  overflow-x: hidden; */
+  background-color: black;
+  font-family: Arial;
+  padding: 4px 16px 4px 0;
+  margin: 4px 0 8px 0;
+  border-bottom: 1px solid #333;
+
+  position: sticky;
+  left: 0;
+  width: 100vw;
+  z-index: 40;
+}
+.navbar::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+.navbar a,
+.navbar .tx {
+  float: left;
+  font-size: 16px;
+  color: white;
+  text-align: center;
+  padding: 6px 0px 6px var(--navleftSpace);
+  text-decoration: none;
+}
+.navbar .tx/*not link*/ {
+  color: var(--gray);
+}
+
+/* The dropdown container */
+.dropdown {
+  float: left;
+  overflow: hidden;
+}
+
+/* Dropdown button */
+.dropdown .dropbtn {
+  display: inline-block;
+  font-size: 16px;
+  border: none;
+  outline: none;
+  color: #ddd;
+  padding: 6px 4px 6px 4px;
+  background-color: inherit;
+  font-family: inherit; /* Important for vertical align on mobile phones */
+  margin: 0; /* Important for vertical align on mobile phones */
+}
+.dropdown .dropbtn {
+  margin-left: -4px;
+}
+.dropdown.title/*with title on left*/ .dropbtn {
+  margin-left: var(--navleftSpace);
+}
+.navbar a.navTitleLink {
+  float: none;
+  text-align: left;
+  text-decoration: none;
+}
+
+.walletNavGroup {
+  float: left;
+  display: flex;
+  align-items: center;
+}
+
+.walletNavGroup .dropdown {
+  float: none;
+}
+
+/* Add a red background color to navbar links on hover */
+.navbar a:hover,
+.dropdown:hover .dropbtn {
+  color: var(--orange);
+}
+
+/* Dropdown content (hidden by default) */
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #222;
+  min-width: 120px;
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+  z-index: 50;
+}
+
+/* Links inside the dropdown */
+.dropdown-content a {
+  float: none;
+  color: white;
+  padding: 12px 16px;
+  text-decoration: none;
+  display: block;
+  text-align: left;
+}
+
+.dropdown-content a:hover {
+  background-color: #333;
+}
+
+.dropdown-content.navMenuTree {
+  min-width: 150px;
+  overflow: visible;
+}
+
+.navMenuTree a {
+  white-space: nowrap;
+}
+
+.navSubmenu {
+  position: relative;
+}
+
+.navMenuRow {
+  display: flex;
+  align-items: center;
+  background-color: #222;
+}
+
+.navMenuRow a {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.navSubmenuCaret {
+  flex: 0 0 auto;
+  color: #aaa;
+  padding: 0 10px 0 4px;
+  line-height: 1;
+}
+
+.navSubmenuContent {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 100%;
+  min-width: 150px;
+  background-color: #222;
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+  z-index: 60;
+}
+
+.navSubmenu:hover > .navSubmenuContent {
+  display: block;
+}
+
+.navMenuRow:hover,
+.navSubmenuContent a:hover {
+  background-color: #333;
+}
+
+.navMenuTree .walletLeaf {
+  color: #ddd;
+}
+
+.navFavBtn {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: #777;
+  padding: 0 5px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.navFavBtn:hover,
+.navFavBtn.active {
+  color: var(--orange);
+}
+
+.navTrashBtn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #888;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.navTrashBtn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.navTrashBtn:hover {
+  color: #ff7b7b;
+}
+
+.navQuickFavs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+  max-width: 360px;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.navQuickFav {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: grab;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.navQuickFav:hover {
+  transform: translateY(-1px);
+}
+
+.navQuickFav:active {
+  cursor: grabbing;
+}
+
+.navQuickFav.dragging {
+  opacity: 0.45;
+  transform: scale(0.94);
+}
+
+.navQuickFav.dropBefore,
+.navQuickFav.dropAfter {
+  transform: translateY(-2px);
+}
+
+.navQuickFav.dropBefore::before,
+.navQuickFav.dropAfter::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--orange);
+  box-shadow: 0 0 8px rgba(255, 145, 0, 0.65);
+}
+
+.navQuickFav.dropBefore::before {
+  left: -2px;
+}
+
+.navQuickFav.dropAfter::after {
+  right: -2px;
+}
+
+.navbar .navQuickFav a {
+  float: none;
+  display: inline-flex;
+  align-items: center;
+  max-width: 78px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 6px 3px;
+  color: #bbb;
+  font-size: 13px;
+  line-height: 16px;
+  cursor: grab;
+}
+
+.navQuickFav:active a {
+  cursor: grabbing;
+}
+
+.navbar .navQuickFav a:hover {
+  color: var(--orange);
+  background: transparent;
+}
+
+.navQuickFavCard {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 230px;
+  max-width: 360px;
+  padding: 8px 10px;
+  background: #1d1d1d;
+  border: 1px solid #444;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+  color: #ddd;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+  z-index: 90;
+}
+
+.navQuickFav:hover .navQuickFavCard {
+  display: grid;
+  gap: 4px;
+}
+
+.navQuickFavTitle {
+  color: white;
+  font-size: 13px;
+}
+
+.navQuickUnfav {
+  width: fit-content;
+  margin-top: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--orange);
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.navQuickUnfav:hover {
+  color: white;
+}
+
+/* title section for links below inside the dropdown */
+.dropdown-content .section {
+  float: none;
+  color: gray;
+  padding: 12px 16px;
+  text-decoration: none;
+  display: block;
+  text-align: left;
+  /* border-top: 1px dotted #555; */
+}
+
+/* Show the dropdown menu on hover */
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+
+.custom-caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  /* border-top: 4px solid white; */
+  margin-left: 4px;
+  margin-bottom: 2px; /* position higher */
+  border-top: 6px solid;
+}

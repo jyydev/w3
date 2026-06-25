@@ -1,0 +1,64 @@
+const avalanche = {
+  AVAX: {
+    native: true,
+    decimals: 18,
+    name: "Avalanche",
+    type: "native",
+  },
+  WAVAX: {
+    address: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+    decimals: 18,
+    name: "Wrapped AVAX",
+    type: "wrapped",
+  },
+  USDC: {
+    address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+    decimals: 6,
+    name: "USD Coin",
+    type: "stablecoin",
+  },
+  USDT: {
+    address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7",
+    decimals: 6,
+    name: "TetherToken",
+    type: "stablecoin",
+  },
+  "USDC.E": {
+    address: "0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664",
+    decimals: 6,
+    name: "USD Coin",
+    type: "stablecoin",
+  },
+  "USDT.E": {
+    address: "0xc7198437980c041c805A1EDcbA50c1Ce5db95118",
+    decimals: 6,
+    name: "Tether USD",
+    type: "stablecoin",
+  },
+  "DAI.E": {
+    address: "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70",
+    decimals: 18,
+    name: "Dai Stablecoin",
+    type: "stablecoin",
+  },
+  "BTC.B": {
+    address: "0x152b9d0FdC40C096757F570A51E494bd4b943E50",
+    decimals: 8,
+    name: "Bitcoin",
+    type: "wrapped",
+  },
+  "WBTC.E": {
+    address: "0x50b7545627a5162F82A992c33b87aDc75187B218",
+    decimals: 8,
+    name: "Wrapped BTC",
+    type: "wrapped",
+  },
+  "WETH.E": {
+    address: "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
+    decimals: 18,
+    name: "Wrapped Ether",
+    type: "wrapped",
+  },
+};
+
+export default avalanche;
