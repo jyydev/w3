@@ -252,6 +252,9 @@ function Wallet({
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
   let [localWalletData, setLocalWalletData] = useState(null);
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
+  let [checkingLocalWallet, setCheckingLocalWallet] = useState(
+    Boolean(requestedWallet || selectedWallet == "all") && !selectedAddress && !selectedWalletName,
+  );
   const basePath = String(routeBase || "/w").startsWith("/")
     ? String(routeBase || "/w").replace(/\/+$/, "") || "/w"
     : "/w";
@@ -328,6 +331,8 @@ function Wallet({
   const walletEntryByName = getWalletEntryByName();
   const rows = getRows();
   const displayRows = getDisplayRows();
+  const showLocalWalletLoading =
+    !displayRows.length && (loadingLocalWallet || checkingLocalWallet);
   const visibleChainList = getVisibleChainList();
   const walletFilterValue = selectedWalletName
     ? `__walletName__:${selectedWalletName}`
@@ -483,19 +488,39 @@ function Wallet({
   ]);
 
   useEffect(() => {
+    setCheckingLocalWallet(
+      Boolean(requestedWallet || selectedWallet == "all") &&
+        !selectedAddress &&
+        !selectedWalletName,
+    );
+  }, [requestedWallet, selectedWallet, selectedAddress, selectedWalletName, walletType]);
+
+  useEffect(() => {
     const useLocal = useLocalStorageEditor();
     setUseLocalEditorStore(useLocal);
     if (useLocal) refreshLocalWalletFiles();
+    else setCheckingLocalWallet(false);
   }, [walletType]);
 
   useEffect(() => {
     setLocalWalletData(null);
-    if (!useLocalEditorStore || (!localRequestedWallet && !localAllWallets)) return;
+    if (!useLocalEditorStore) {
+      setCheckingLocalWallet(false);
+      return;
+    }
+    if (!localRequestedWallet && !localAllWallets) {
+      setCheckingLocalWallet(false);
+      return;
+    }
 
     const entries = readLocalWalletEntries(walletType, localWalletLoadSource);
-    if (!entries.length) return;
+    if (!entries.length) {
+      setCheckingLocalWallet(false);
+      return;
+    }
 
     let cancelled = false;
+    setCheckingLocalWallet(false);
     setLoadingLocalWallet(true);
     getLocalWalletBalanceData({
       walletType,
@@ -2504,7 +2529,7 @@ function Wallet({
     return (
       <>
         <TotalRow />
-        {loadingLocalWallet && !displayRows.length && (
+        {showLocalWalletLoading && (
           <tr>
             <td
               className="gray"
@@ -2599,7 +2624,7 @@ function Wallet({
   return (
     <div>
       {renderTable(renderRows())}
-      {!rows.length && !loadingLocalWallet && <div className="gray">no wallets</div>}
+      {!rows.length && !showLocalWalletLoading && <div className="gray">no wallets</div>}
       <NoBalanceMsg />
       {CustomCoinConfirmModal()}
     </div>
