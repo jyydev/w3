@@ -3,6 +3,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { revalidatePath } from "next/cache";
+import { projectFileWriteBlockedResult } from "../projectFileWrites";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallet");
 const walletTypes = new Set(["evm", "solana"]);
@@ -80,6 +81,10 @@ export async function deleteWalletEntry({
   name = "",
   address = "",
 } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const walletName = String(name || "").trim();
   const walletAddress = String(address || "").trim();
   if (!walletName || !walletAddress) {
@@ -130,6 +135,10 @@ export async function deleteEmptyWalletPath({
   source = "",
   kind = "file",
 } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const deleteKind = kind == "folder" ? "folder" : "file";
 
   if (deleteKind == "folder") {
@@ -170,6 +179,10 @@ export async function addWalletEntry({
   name = "",
   address = "",
 } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const type = getWalletType(walletType);
   const walletName = cleanWalletName(name);
   const walletAddress = String(address || "").trim();

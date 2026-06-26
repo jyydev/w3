@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import {
+  hasLocalEditorFile,
+  listLocalEditorFiles,
+  readLocalEditorFile,
+  saveLocalEditorFile,
+  useLocalStorageEditor,
+} from "../browserEditorStorage";
 import { editorCookieMaxAge, editorFileCookie } from "./editorSettings";
 
 async function editorRequest(url, op) {
@@ -23,6 +30,7 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
   const [draftFile, setDraftFile] = useState(initialFile);
   const [content, setContent] = useState(initialContent);
   const [savedContent, setSavedContent] = useState(initialContent);
+  const [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const dirty = content != savedContent || draftFile != file;
@@ -33,12 +41,42 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
     [files],
   );
 
+  function getSaveContent() {
+    return /\.json$/i.test(trimmedDraftFile) && !String(content ?? "").trim()
+      ? "{}"
+      : content;
+  }
+
   useEffect(() => {
     rememberEditorFile(file);
   }, [file]);
 
+  useEffect(() => {
+    const useLocal = useLocalStorageEditor();
+    setUseLocalEditorStore(useLocal);
+    if (!useLocal) return;
+
+    const nextFiles = listLocalEditorFiles(initialFiles);
+    const nextContent = file ? readLocalEditorFile(file, content) : content;
+    setFiles(nextFiles);
+    setContent(nextContent);
+    setSavedContent(nextContent);
+  }, []);
+
   function loadFile(nextFile) {
     setDraftFile(nextFile);
+    if (useLocalEditorStore && hasLocalEditorFile(nextFile)) {
+      const nextFiles = listLocalEditorFiles(files);
+      const nextContent = readLocalEditorFile(nextFile, "");
+      setFiles(nextFiles);
+      setFile(nextFile);
+      setDraftFile(nextFile);
+      setContent(nextContent);
+      setSavedContent(nextContent);
+      rememberEditorFile(nextFile);
+      return;
+    }
+
     startTransition(() => {
       editorRequest(`/editor/api?file=${encodeURIComponent(nextFile)}`)
         .then((res) => {
@@ -68,6 +106,25 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
   function saveFile() {
     if (isPending || !trimmedDraftFile) return;
 
+    if (useLocalEditorStore) {
+      try {
+        const saveContent = getSaveContent();
+        if (/\.json$/i.test(trimmedDraftFile)) JSON.parse(saveContent);
+
+        const res = saveLocalEditorFile(trimmedDraftFile, saveContent);
+        setFiles(res.files);
+        setFile(res.file);
+        setDraftFile(res.file);
+        setContent(res.content);
+        setSavedContent(res.content);
+        rememberEditorFile(res.file);
+        toast.success(`saved local ${res.file}`);
+      } catch (e) {
+        toast.error(e.message);
+      }
+      return;
+    }
+
     startTransition(() => {
       editorRequest("/editor/api", {
         method: "POST",
@@ -93,6 +150,25 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
       "Save this editor coin file and append new coins into data/coins? You still need to git push after saving.",
     );
     if (!ok) return;
+
+    if (useLocalEditorStore) {
+      try {
+        const saveContent = getSaveContent();
+        if (/\.json$/i.test(trimmedDraftFile)) JSON.parse(saveContent);
+
+        const res = saveLocalEditorFile(trimmedDraftFile, saveContent);
+        setFiles(res.files);
+        setFile(res.file);
+        setDraftFile(res.file);
+        setContent(res.content);
+        setSavedContent(res.content);
+        rememberEditorFile(res.file);
+        toast.success(`saved local ${res.file}; global store is local-dev only`);
+      } catch (e) {
+        toast.error(e.message);
+      }
+      return;
+    }
 
     startTransition(() => {
       editorRequest("/editor/api", {

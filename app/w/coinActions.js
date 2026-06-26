@@ -12,6 +12,7 @@ import {
 import { ethers } from "ethers";
 import baseCoinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
+import { projectFileWriteBlockedResult } from "../projectFileWrites";
 
 const customCoinDir = path.join(process.cwd(), "data", "editor", "coins");
 const metadataProgramId = new PublicKey(
@@ -504,6 +505,10 @@ export async function addCustomCoin({
   name = "",
   type = "",
 } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const validated = validateCoinAddress({ chain, address });
   if (validated.error) return { ok: 0, msg: validated.error };
 

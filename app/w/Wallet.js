@@ -10,6 +10,13 @@ import solanaIcon from "@/data/img/solana.svg";
 import { pc } from "@/fn/basic";
 import { ckPrefix, walletNotes } from "@/sets";
 import { useRouter } from "next/navigation";
+import {
+  addLocalCustomCoin,
+  addLocalWalletEntry,
+  listLocalEditorFiles,
+  setLocalLineFileValue,
+  useLocalStorageEditor,
+} from "../browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
 import { addCustomCoin, previewCustomCoin } from "./coinActions";
 import { addWalletEntry, deleteWalletEntry } from "./walletActions";
@@ -236,9 +243,14 @@ function Wallet({
   let [openCoinSettingsChain, setOpenCoinSettingsChain] = useState("");
   let [favAddrs, setFavAddrs] = useState([]);
   let [connectedWallet, setConnectedWallet] = useState(null);
+  let [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
+  let [localWalletFiles, setLocalWalletFiles] = useState([]);
   const basePath = String(routeBase || "/w").startsWith("/")
     ? String(routeBase || "/w").replace(/\/+$/, "") || "/w"
     : "/w";
+  const saveWalletFileOptions = [
+    ...new Set([...walletFileOptions, ...localWalletFiles]),
+  ].sort((a, b) => a.localeCompare(b));
   const chainList = Array.isArray(data) ? data : data ? [data] : [];
   const chainDataKey = chainList
     .map(
@@ -380,6 +392,21 @@ function Wallet({
     });
   }
 
+  function refreshLocalWalletFiles() {
+    if (!useLocalStorageEditor()) {
+      setLocalWalletFiles([]);
+      return;
+    }
+
+    const prefix = `wallet/${walletType}/`;
+    setLocalWalletFiles(
+      listLocalEditorFiles()
+        .filter((file) => file.startsWith(prefix) && file.endsWith(".txt"))
+        .map((file) => file.slice(prefix.length).replace(/\.txt$/i, ""))
+        .sort((a, b) => a.localeCompare(b)),
+    );
+  }
+
   function toggleRowSort(sortKey) {
     setRowSort((prev) => {
       const next = prev == sortKey ? "" : sortKey;
@@ -398,6 +425,12 @@ function Wallet({
     walletType,
     chainDataKey,
   ]);
+
+  useEffect(() => {
+    const useLocal = useLocalStorageEditor();
+    setUseLocalEditorStore(useLocal);
+    if (useLocal) refreshLocalWalletFiles();
+  }, [walletType]);
 
   useEffect(() => {
     if (!loadingWallet) return;
@@ -432,9 +465,10 @@ function Wallet({
   }, [selectedAddress]);
 
   useEffect(() => {
-    setAddWalletFile(defaultAddWalletFile);
-    setDraftWalletFile(defaultAddWalletFile);
-  }, [defaultAddWalletFile, walletFileKey, walletType]);
+    const nextDefault = defaultAddWalletFile || saveWalletFileOptions[0] || "";
+    setAddWalletFile(nextDefault);
+    setDraftWalletFile(nextDefault);
+  }, [defaultAddWalletFile, walletFileKey, walletType, localWalletFiles.join("|")]);
 
   useEffect(() => {
     setDisabledWalletList(disabledWallets || []);
@@ -585,6 +619,13 @@ function Wallet({
 
     setOffCoinsM(next);
     try {
+      if (useLocalEditorStore) {
+        const res = setLocalLineFileValue(`cookie/offCoins/${chain}.txt`, coin, off);
+        if (!res.ok) throw new Error(res.msg || "local coin update failed");
+        toast.success(`saved ${chain} ${coin} locally`);
+        return;
+      }
+
       const res = await toggleOffCoin({ chain, coin, off });
       if (!res.ok) throw new Error("server coin update failed");
       router.refresh();
@@ -610,6 +651,13 @@ function Wallet({
       : offAddrList.filter((entry) => getNameDisableKey(entry) != nameKey);
     setOffAddrList(next);
     try {
+      if (useLocalEditorStore) {
+        const res = setLocalLineFileValue("cookie/offAddr.txt", name, off);
+        if (!res.ok) throw new Error(res.msg || "local wallet update failed");
+        toast.success(`saved ${name} locally`);
+        return;
+      }
+
       const res = await toggleOffAddr({ name, off });
       if (!res.ok) throw new Error("server wallet update failed");
       router.refresh();
@@ -915,6 +963,36 @@ function Wallet({
 
     setAddingCoin(true);
     try {
+      if (useLocalEditorStore) {
+        const coin = String(customCoinDraft.coin || customCoinPreview.coin || "").trim();
+        const entry = {
+          address: customCoinPreview.entry?.address,
+          decimals: customCoinPreview.entry?.decimals,
+          name: customCoinDraft.name || customCoinPreview.entry?.name || coin,
+          type:
+            customCoinDraft.customType.trim() ||
+            customCoinDraft.type ||
+            customCoinPreview.entry?.type ||
+            "token",
+        };
+        const res = addLocalCustomCoin({
+          chain: customCoinPreview.chain,
+          coin,
+          entry,
+        });
+        if (!res.ok) throw new Error(res.msg || "add local custom coin failed");
+        if (res.exists) {
+          toast(`${res.chain} ${res.coin} exists locally`);
+          clearCustomCoinPreview();
+          return;
+        }
+
+        setCustomCoinAddress("");
+        clearCustomCoinPreview();
+        toast.success(`saved local ${res.chain} ${res.coin}`);
+        return;
+      }
+
       const res = await addCustomCoin({
         chain: customCoinPreview.chain,
         address: customCoinPreview.entry?.address,
@@ -949,6 +1027,34 @@ function Wallet({
 
     setAddingWallet(true);
     try {
+      if (useLocalEditorStore) {
+        const res = addLocalWalletEntry({
+          walletType,
+          source: file,
+          name,
+          address,
+        });
+        if (!res.ok) throw new Error(res.msg || "add local wallet failed");
+        if (res.exists) {
+          toast(
+            res.reason == "address"
+              ? `address exists locally as ${res.name}`
+              : `${name} exists locally`,
+          );
+          return;
+        }
+
+        setAddWalletName("");
+        setAddWalletFile(file);
+        refreshLocalWalletFiles();
+        toast.success(`saved local ${name}`);
+        if (address != selectedAddress) {
+          setLoadingWallet(true);
+          router.push(getAddressUrl(address));
+        }
+        return;
+      }
+
       const res = await addWalletEntry({
         walletType,
         source: file,
@@ -2119,12 +2225,12 @@ function Wallet({
                   <select
                     value={addWalletFile}
                     onChange={selectAddWalletFile}
-                    disabled={addingWallet || !walletFileOptions.length}
+                    disabled={addingWallet || !saveWalletFileOptions.length}
                   >
-                    {!walletFileOptions.length && (
+                    {!saveWalletFileOptions.length && (
                       <option value="">new file</option>
                     )}
-                    {walletFileOptions.map((file) => (
+                    {saveWalletFileOptions.map((file) => (
                       <option key={file} value={file}>
                         {file}
                       </option>

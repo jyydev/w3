@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import {
+  setLocalLineFileValue,
+  useLocalStorageEditor,
+} from "../browserEditorStorage";
 import { toggleOffChain } from "./chainActions";
 import {
   alchemyMinUsdCookie,
@@ -39,6 +43,7 @@ function WalletSettings({
   const [offM, setOffM] = useState(() =>
     Object.fromEntries(offChains.map((chain) => [chain, true])),
   );
+  const [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
 
   useEffect(() => {
     setDisabledM(
@@ -58,6 +63,10 @@ function WalletSettings({
     setAlchemyMinUsdDraft(String(alchemyMinUsd));
   }, [alchemyMinUsd]);
 
+  useEffect(() => {
+    setUseLocalEditorStore(useLocalStorageEditor());
+  }, []);
+
   function toggleChain(chain) {
     const next = { ...disabledM, [chain]: !disabledM[chain] };
     const disabled = chains.filter((chain) => next[chain]);
@@ -76,6 +85,13 @@ function WalletSettings({
 
     setOffM(next);
     try {
+      if (useLocalEditorStore) {
+        const res = setLocalLineFileValue("cookie/offChains.txt", chain, off);
+        if (!res.ok) throw new Error(res.msg || "local chain update failed");
+        toast.success(`saved ${chain} locally`);
+        return;
+      }
+
       const res = await toggleOffChain({ chain, off });
       if (!res.ok) throw new Error("server chain update failed");
       router.refresh();
@@ -148,7 +164,7 @@ function WalletSettings({
         {tab == "chains" ? (
           <>
             <span className="gray">
-              on is browser cookie. server writes offChains.txt.
+              on is browser cookie. server uses offChains.txt locally, localStorage remotely.
             </span>
             <table className="coinSettingsTable walletChainSettingsTable">
               <thead>

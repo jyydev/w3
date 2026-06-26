@@ -3,6 +3,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { revalidatePath } from "next/cache";
+import { projectFileWriteBlockedResult } from "../projectFileWrites";
 
 const cookieDir = path.join(process.cwd(), "data", "editor", "cookie");
 const offChainsFile = path.join(cookieDir, "offChains.txt");
@@ -54,6 +55,10 @@ export async function readOffChains(availableChains = []) {
 }
 
 export async function toggleOffChain({ chain = "", off = false } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const clean = cleanChain(chain);
   const offSet = new Set(parseLines(await readOffChainsRaw()));
 
@@ -100,6 +105,10 @@ export async function toggleOffCoin({
   coin = "",
   off = false,
 } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const clean = cleanLineValue(coin);
   const offSet = new Set(parseLines(await readOffCoinRaw(chain)));
 
@@ -131,6 +140,10 @@ export async function readOffAddrs() {
 }
 
 export async function toggleOffAddr({ name = "", off = false } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
   const clean = cleanLineValue(name);
   const cleanKey = clean.toLowerCase();
   const offList = parseLines(await readOffAddrRaw()).filter(

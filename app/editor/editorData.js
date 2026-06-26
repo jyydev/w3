@@ -1,6 +1,10 @@
 import fs from "fs/promises";
 import path from "path";
 import coinM from "../../fn/coinM.js";
+import {
+  assertProjectFileWrites,
+  projectFileWritesDisabled,
+} from "../projectFileWrites";
 
 const editorDataDir = path.join(process.cwd(), "data", "editor");
 const globalCoinDir = path.join(process.cwd(), "data", "coins");
@@ -75,7 +79,7 @@ async function walkEditorData(dir = editorDataDir, base = "") {
 }
 
 export async function listEditorDataFiles() {
-  await ensureEditorDataDir();
+  if (!projectFileWritesDisabled()) await ensureEditorDataDir();
   return (await walkEditorData()).sort((a, b) => a.localeCompare(b));
 }
 
@@ -89,6 +93,8 @@ export async function readEditorDataFile(file) {
 }
 
 export async function saveEditorDataFile(file, content) {
+  assertProjectFileWrites();
+
   const { fullPath, relative, ext } = resolveEditorDataFile(file);
   const saveContent =
     ext == ".json" && !String(content ?? "").trim() ? "{}" : (content ?? "");
@@ -152,6 +158,8 @@ function isPlainObject(value) {
 }
 
 async function appendGlobalCoins(chain, coins) {
+  assertProjectFileWrites();
+
   if (!isPlainObject(coins)) throw new Error("Coin JSON must be an object");
 
   const fileBase = coinFileM[chain];
