@@ -8,11 +8,14 @@ import debankIcon from "@/data/img/debank.png";
 import ethereumIcon from "@/data/img/ethereum.svg";
 import solanaIcon from "@/data/img/solana.svg";
 import { pc } from "@/fn/basic";
+import permanentCoinM from "@/fn/coinM";
 import { ckPrefix, walletNotes } from "@/sets";
 import { useRouter } from "next/navigation";
+import { Fragment } from "react";
 import {
   addLocalCustomCoin,
   addLocalWalletEntry,
+  deleteLocalCustomCoin,
   deleteLocalWalletEntry,
   getAllLocalCustomCoinM,
   hasLocalWalletSource,
@@ -24,7 +27,7 @@ import {
   useLocalStorageEditor,
 } from "../browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
-import { addCustomCoin, previewCustomCoin } from "./coinActions";
+import { addCustomCoin, deleteCustomCoin, previewCustomCoin } from "./coinActions";
 import { getLocalWalletBalanceData } from "./localWalletActions";
 import { addWalletEntry, deleteWalletEntry } from "./walletActions";
 import {
@@ -200,6 +203,7 @@ const walletNotFoundValue = "__not_found__";
 function Wallet({
   routeBase = "/w",
   customCoinChains = [],
+  customCoinM = {},
   data,
   walletFiles = [],
   walletFilesM = {},
@@ -247,6 +251,7 @@ function Wallet({
   let [copiedAddress, setCopiedAddress] = useState("");
   let [copiedAddressSource, setCopiedAddressSource] = useState("");
   let [deletingWalletKey, setDeletingWalletKey] = useState("");
+  let [deletingCoinKey, setDeletingCoinKey] = useState("");
   let [disabledWalletList, setDisabledWalletList] = useState(disabledWallets);
   let [offAddrList, setOffAddrList] = useState(offAddrs);
   let [walletSettingSort, setWalletSettingSort] = useState("");
@@ -269,6 +274,7 @@ function Wallet({
     Boolean(requestedWallet || selectedWallet == "all" || selectedWalletName) &&
       !selectedAddress,
   );
+  const editableCustomCoinM = useLocalEditorStore ? localCustomCoinM : customCoinM;
   const basePath = String(routeBase || "/w").startsWith("/")
     ? String(routeBase || "/w").replace(/\/+$/, "") || "/w"
     : "/w";
@@ -929,6 +935,42 @@ function Wallet({
     }
   }
 
+  async function deleteEditorCoin(e, chain, coin) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const editableCoins = editableCustomCoinM?.[chain] || {};
+    if (!Object.prototype.hasOwnProperty.call(editableCoins, coin)) {
+      toast.error(`${chain} ${coin} is not an editor coin`);
+      return;
+    }
+
+    const ok = window.confirm(`Delete ${chain} ${coin} from editor coins?`);
+    if (!ok) return;
+
+    const key = `${chain}:${coin}`;
+    setDeletingCoinKey(key);
+
+    try {
+      if (useLocalEditorStore) {
+        const res = deleteLocalCustomCoin({ chain, coin });
+        if (!res.ok) throw new Error(res.msg || "delete local coin failed");
+        toast.success(`deleted local ${chain} ${coin}`);
+        refreshLocalStorageEditorData(true);
+        return;
+      }
+
+      const res = await deleteCustomCoin({ chain, coin });
+      if (!res.ok) throw new Error(res.msg || "delete custom coin failed");
+      toast.success(`deleted ${chain} ${coin}`);
+      router.refresh();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setDeletingCoinKey("");
+    }
+  }
+
   async function toggleServerWallet(entry) {
     const name = getWalletServerName(entry);
     const nameKey = getNameDisableKey(name);
@@ -1578,30 +1620,73 @@ function Wallet({
     const sortKey = coinSettingSortM[chain] || "";
     const disabled = new Set(disabledCoinsM[chain] || []);
     const serverDisabled = new Set(offCoinsM[chain] || []);
-    const coins = Object.entries(chainE.coinInfoM || {})
+    const editorCoinM = editableCustomCoinM?.[chain] || {};
+    const permanentCoins = permanentCoinM?.[chain] || {};
+    const discoveredCoins = new Set(chainE.discoveredCoins || []);
+    const sourceIndexM = {
+      permanent: Object.fromEntries(
+        Object.keys(permanentCoins).map((coin, index) => [coin, index]),
+      ),
+      editor: Object.fromEntries(
+        Object.keys(editorCoinM).map((coin, index) => [coin, index]),
+      ),
+      alchemy: Object.fromEntries(
+        [...discoveredCoins].map((coin, index) => [coin, index]),
+      ),
+    };
+    const coinRows = Object.entries(chainE.coinInfoM || {})
       .map(([coin, coinE], index) => ({
         coin,
         name: coinE?.name || "",
         index,
-      }))
-      .sort((a, b) => {
-        if (!sortKey) return a.index - b.index;
-        if (sortKey == "on") {
-          const enabledDiff =
-            Number(disabled.has(a.coin)) - Number(disabled.has(b.coin));
-          if (enabledDiff) return enabledDiff;
-          return a.coin.localeCompare(b.coin, undefined, {
-            sensitivity: "base",
-          });
-        }
+        removable: Object.prototype.hasOwnProperty.call(editorCoinM, coin),
+        source: Object.prototype.hasOwnProperty.call(editorCoinM, coin)
+          ? "editor"
+          : discoveredCoins.has(coin) || coinE?.source == "alchemy"
+            ? "alchemy"
+            : "permanent",
+      }));
+    const groupList = [
+      ["permanent", "server"],
+      ["editor", "added"],
+      ["alchemy", "discovery"],
+    ];
 
-        const valueA = sortKey == "name" ? a.name || a.coin : a.coin;
-        const valueB = sortKey == "name" ? b.name || b.coin : b.coin;
-        const diff = valueA.localeCompare(valueB, undefined, {
+    function sortCoinSettings(a, b) {
+      if (!sortKey) return a.index - b.index;
+      if (sortKey == "on") {
+        const enabledDiff =
+          Number(disabled.has(a.coin)) - Number(disabled.has(b.coin));
+        if (enabledDiff) return enabledDiff;
+        return a.coin.localeCompare(b.coin, undefined, {
           sensitivity: "base",
         });
-        return diff || a.index - b.index;
+      }
+
+      const valueA = sortKey == "name" ? a.name || a.coin : a.coin;
+      const valueB = sortKey == "name" ? b.name || b.coin : b.coin;
+      const diff = valueA.localeCompare(valueB, undefined, {
+        sensitivity: "base",
       });
+      return diff || a.index - b.index;
+    }
+
+    const groupedCoins = groupList
+      .map(([source, label]) => [
+        source,
+        label,
+        coinRows
+          .filter((entry) => entry.source == source)
+          .sort((a, b) => {
+            const sorted = sortCoinSettings(a, b);
+            if (sorted) return sorted;
+            return (
+              (sourceIndexM[source]?.[a.coin] ?? a.index) -
+              (sourceIndexM[source]?.[b.coin] ?? b.index)
+            );
+          }),
+      ])
+      .filter(([, , entries]) => entries.length);
 
     return (
       <span
@@ -1658,31 +1743,54 @@ function Wallet({
               </tr>
             </thead>
             <tbody>
-              {coins.map(({ coin, name }) => (
-                <tr
-                  key={coin}
-                  className="coinSettingsRow"
-                  onClick={() => toggleCoinEnabled(chain, coin)}
-                >
-                  <td>{coin}</td>
-                  <td>{name || <span className="gray">-</span>}</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={!disabled.has(coin)}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => toggleCoinEnabled(chain, coin)}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={!serverDisabled.has(coin)}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => toggleServerCoin(chain, coin)}
-                    />
-                  </td>
-                </tr>
+              {groupedCoins.map(([source, label, entries]) => (
+                <Fragment key={source}>
+                  <tr key={`${source}_title`} className="coinSettingsGroupRow">
+                    <td colSpan={4}>{label}</td>
+                  </tr>
+                  {entries.map(({ coin, name, removable }) => (
+                    <tr
+                      key={coin}
+                      className="coinSettingsRow"
+                      onClick={() => toggleCoinEnabled(chain, coin)}
+                    >
+                      <td>
+                        <span className="coinSettingsSymbolCell">
+                          <span>{coin}</span>
+                          {removable && (
+                            <button
+                              type="button"
+                              className="walletDeleteButton coinDeleteButton"
+                              title={`delete ${chain} ${coin}`}
+                              aria-label={`delete ${chain} ${coin}`}
+                              disabled={deletingCoinKey == `${chain}:${coin}`}
+                              onClick={(e) => deleteEditorCoin(e, chain, coin)}
+                            >
+                              <TrashIcon />
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                      <td>{name || <span className="gray">-</span>}</td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={!disabled.has(coin)}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleCoinEnabled(chain, coin)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={!serverDisabled.has(coin)}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleServerCoin(chain, coin)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>

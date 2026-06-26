@@ -535,12 +535,13 @@ export function getApprovalAmount({
   approvalAmount,
   amountIn,
   defaultAmount = null,
+  decimals,
 }) {
   if (!String(approvalAmount ?? "").trim()) return defaultAmount;
 
   const parsed = ethers.parseUnits(
     String(approvalAmount),
-    getCoinDecimals(chain, fromCoin),
+    Number.isInteger(decimals) ? decimals : getCoinDecimals(chain, fromCoin),
   );
   if (parsed < amountIn) {
     throw new Error("approval qty cannot be less than sell qty");

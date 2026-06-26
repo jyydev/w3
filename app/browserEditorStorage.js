@@ -3,6 +3,7 @@
 import { ckPrefix } from "@/sets";
 
 const storageKey = `${ckPrefix ?? ""}editorFiles`;
+const navFavStoragePrefix = `${ckPrefix ?? ""}navFavs:`;
 export const localEditorStorageEvent = `${ckPrefix ?? ""}editorStorageChange`;
 const allowedEditorExts = new Set([".json", ".txt", ".js"]);
 
@@ -80,6 +81,41 @@ export function writeLocalEditorFiles(files = {}) {
   if (!canUseLocalStorage()) return;
   window.localStorage.setItem(storageKey, JSON.stringify(files));
   notifyLocalEditorStorageChange();
+}
+
+function cleanNavFavs(favs = []) {
+  return (Array.isArray(favs) ? favs : [])
+    .filter((fav) => fav?.href && fav?.label)
+    .map((fav) => ({
+      href: String(fav.href),
+      label: String(fav.label),
+      title: fav.title ? String(fav.title) : String(fav.label),
+    }));
+}
+
+function getLocalNavFavsKey(name = "") {
+  return `${navFavStoragePrefix}${String(name || "nav")}`;
+}
+
+export function readLocalNavFavs(name = "") {
+  if (!canUseLocalStorage()) return null;
+
+  const raw = window.localStorage.getItem(getLocalNavFavsKey(name));
+  if (raw === null) return null;
+
+  try {
+    return cleanNavFavs(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalNavFavs(name = "", favs = []) {
+  if (!canUseLocalStorage()) return;
+  window.localStorage.setItem(
+    getLocalNavFavsKey(name),
+    JSON.stringify(cleanNavFavs(favs)),
+  );
 }
 
 export function listLocalEditorFiles(baseFiles = []) {
@@ -425,6 +461,28 @@ export function addLocalCustomCoin({ chain = "", coin = "", entry = {} } = {}) {
   coins[cleanCoin] = entry;
   saveLocalEditorFile(file, `${JSON.stringify(coins, null, 2)}\n`);
   return { ok: 1, chain: cleanChain, coin: cleanCoin, entry, file };
+}
+
+export function deleteLocalCustomCoin({ chain = "", coin = "" } = {}) {
+  const cleanChain = String(chain || "").trim();
+  const cleanCoin = String(coin || "").trim();
+  if (!cleanChain || !cleanCoin) return { ok: 0, msg: "missing coin data" };
+
+  const file = `coins/${cleanChain}.json`;
+  let coins = {};
+  try {
+    coins = JSON.parse(readLocalEditorFile(file, "{}") || "{}") || {};
+  } catch {
+    return { ok: 0, msg: `${file} has invalid JSON` };
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(coins, cleanCoin)) {
+    return { ok: 0, msg: "custom coin not found" };
+  }
+
+  delete coins[cleanCoin];
+  saveLocalEditorFile(file, `${JSON.stringify(coins, null, 2)}\n`);
+  return { ok: 1, chain: cleanChain, coin: cleanCoin, file };
 }
 
 export function setLocalLineFileValue(file, value, enabled) {

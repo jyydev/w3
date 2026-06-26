@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { setCookie } from "cookies-next";
+import { readLocalNavFavs, saveLocalNavFavs } from "@/app/browserEditorStorage";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
@@ -68,15 +69,19 @@ function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
     () => new Map(validFavs.map((fav) => [fav.href, fav])),
     [validFavs],
   );
-  const [favs, setFavs] = useState(() =>
-    normalizeFavs(initialFavs, validHrefM),
-  );
+  const [favs, setFavs] = useState(initialFavs);
   const [dragHref, setDragHref] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
   const visibleFavs = normalizeFavs(favs, validHrefM);
   const favHrefM = new Map(visibleFavs.map((fav) => [fav.href, fav]));
 
+  useEffect(() => {
+    const localFavs = readLocalNavFavs(cookieName);
+    setFavs(localFavs === null ? initialFavs : localFavs);
+  }, [cookieName, initialFavs]);
+
   function saveFavs(nextFavs) {
+    saveLocalNavFavs(cookieName, nextFavs);
     setCookie(cookieName, encodeFavs(nextFavs), {
       maxAge: cookieMaxAge,
       path: "/",

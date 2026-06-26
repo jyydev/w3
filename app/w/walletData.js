@@ -9,6 +9,7 @@ import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
 import { getWalletDisableKey } from "./walletSettingData";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallet");
+const customCoinRootDir = path.join(process.cwd(), "data", "editor", "coins");
 export const defaultWalletType = "evm";
 export const walletTypes = ["evm", "solana"];
 const dexChainM = {
@@ -160,6 +161,36 @@ function getRpcs(chainE) {
   return rpcs
     .map((rpc) => (typeof rpc == "string" ? rpc : rpc?.rpc))
     .filter(Boolean);
+}
+
+async function readCustomCoins(chain = "") {
+  const cleanChain = String(chain || "").trim();
+  if (!cleanChain) return {};
+
+  try {
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(customCoinRootDir, `${cleanChain}.json`), "utf8"),
+    );
+    return parsed && typeof parsed == "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (e) {
+    if (e.code == "ENOENT") return {};
+    return {};
+  }
+}
+
+export async function readCustomCoinM(chains = []) {
+  return Object.fromEntries(
+    (
+      await Promise.all(
+        (Array.isArray(chains) ? chains : []).map(async (chain) => [
+          chain,
+          await readCustomCoins(chain),
+        ]),
+      )
+    ).filter(([, coins]) => Object.keys(coins).length),
+  );
 }
 
 export function getWalletType(walletType = defaultWalletType) {

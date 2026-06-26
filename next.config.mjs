@@ -2,6 +2,7 @@
 
 const nextConfig = {
   reactStrictMode: false,
+  devIndicators: false,
   experimental: {
     devtoolSegmentExplorer: false,
     serverComponentsHmrCache: false,

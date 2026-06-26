@@ -28,6 +28,7 @@ import {
   getWalletType,
   loadWalletEntries,
   listWalletFiles,
+  readCustomCoinM,
 } from "./walletData";
 
 function getSelectedWallet(walletFile, walletFiles) {
@@ -154,8 +155,12 @@ async function WPage({
   const selectedWalletAddress = rawWalletAddress || walletNameAddress;
   const selectedWalletName = walletNameAddress ? "" : rawWalletName;
   const availableChains = Object.keys(coinM).filter((chain) => rpcs?.[chain]);
+  const customCoinM = await readCustomCoinM(availableChains);
   const availableCoinM = Object.fromEntries(
-    Object.entries(coinM).map(([chain, coins]) => [chain, Object.keys(coins)]),
+    Object.entries(coinM).map(([chain, coins]) => [
+      chain,
+      Object.keys({ ...coins, ...(customCoinM[chain] ?? {}) }),
+    ]),
   );
   const cookieStore = await cookies();
   const favAddrs = parseFavAddrs(cookieStore.get(favAddrCookie)?.value);
@@ -280,6 +285,7 @@ async function WPage({
               walletAddress: selectedWalletAddress,
               walletName: selectedWalletName,
               walletEntryList,
+              customCoinM: customCoinM.Solana ?? {},
               disabledCoins: [
                 ...(disabledCoinM.Solana ?? []),
                 ...(offCoinM.Solana ?? []),
@@ -299,6 +305,7 @@ async function WPage({
               walletAddress: selectedWalletAddress,
               walletName: selectedWalletName,
               walletEntryList,
+              customCoinM: customCoinM[chain] ?? {},
               disabledCoins: [
                 ...(disabledCoinM[chain] ?? []),
                 ...(offCoinM[chain] ?? []),
@@ -326,7 +333,7 @@ async function WPage({
         ...(disabledCoinM[chain] ?? []),
         ...(offCoinM[chain] ?? []),
       ]);
-      const coinInfoM = coinM[chain] ?? {};
+      const coinInfoM = { ...(coinM[chain] ?? {}), ...(customCoinM[chain] ?? {}) };
       const allCoins = Object.keys(coinInfoM).filter(
         (coin) => !disabledCoins.has(coin),
       );
@@ -359,6 +366,7 @@ async function WPage({
       <Wallet
         routeBase={routeBase}
         data={data}
+        customCoinM={customCoinM}
         customCoinChains={customCoinChains}
         walletFiles={walletFiles}
         walletFilesM={walletFilesM}

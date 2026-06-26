@@ -77,9 +77,15 @@ const bsc = {
     address: "0x00901a076785e0906d1028c7d6372d247bec7d61",
     decimals: 18,
     name: "Aave BNB Smart Chain USDC",
-    type: "lending"
+    type: "lending",
   },
 
+  FDUSD: {
+    address: "0xc5f0f7b66764F6ec8C8Dff7BA683102295E16409",
+    decimals: 18,
+    name: "First Digital USD",
+    type: "stablecoin",
+  },
 };
 
 export default bsc;

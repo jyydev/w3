@@ -2,6 +2,7 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { rpcs } from "@/sets";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
@@ -14,6 +15,7 @@ import {
   getPrivateKey,
   getTradeCoinPrice as getTradeCoinPriceShared,
   getUnsignedTx,
+  getUsableChainRpc,
   getWallet,
   relayChainIds,
 } from "../sharedServer";
@@ -51,21 +53,265 @@ const aaveV3PoolM = {
 const aavePoolAbi = [
   "function supply(address asset,uint256 amount,address onBehalfOf,uint16 referralCode)",
   "function withdraw(address asset,uint256 amount,address to) returns (uint256)",
+  "function getReservesList() view returns (address[])",
+  "function getReserveData(address asset) view returns (tuple(uint256 configuration,uint128 liquidityIndex,uint128 currentLiquidityRate,uint128 variableBorrowIndex,uint128 currentVariableBorrowRate,uint128 currentStableBorrowRate,uint40 lastUpdateTimestamp,uint16 id,address aTokenAddress,address stableDebtTokenAddress,address variableDebtTokenAddress,address interestRateStrategyAddress,uint128 accruedToTreasury,uint128 unbacked,uint128 isolationModeTotalDebt))",
 ];
 const aTokenAbi = [
   "function UNDERLYING_ASSET_ADDRESS() view returns (address)",
 ];
+const erc20MetaAbi = [
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+];
 const venusTokenAbi = [
+  "function comptroller() view returns (address)",
   "function underlying() view returns (address)",
   "function exchangeRateStored() view returns (uint256)",
   "function mint(uint256 mintAmount) returns (uint256)",
   "function redeem(uint256 redeemTokens) returns (uint256)",
 ];
+const venusComptrollerAbi = [
+  "function getAllMarkets() view returns (address[])",
+];
 const aavePoolInterface = new ethers.Interface(aavePoolAbi);
 const venusTokenInterface = new ethers.Interface(venusTokenAbi);
+const aaveMarketFetchTimeoutMs = 20000;
+const aaveTokenMetaTimeoutMs = 10000;
+const aaveMarketFetchConcurrency = 3;
+const venusMarketFetchTimeoutMs = 15000;
+const venusTokenMetaTimeoutMs = 8000;
+const venusMarketFetchConcurrency = 8;
+const venusGoodMarketRatio = 0.8;
 
 export async function getTradeCoinPrice(args) {
   return getTradeCoinPriceShared(args);
+}
+
+function withTimeout(promise, ms, message) {
+  let timer;
+
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function cleanMarketSymbol(symbol = "", address = "") {
+  const cleanAddress = String(address || "").replace(/^0x/i, "");
+  const clean = String(symbol || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^\w.-]/g, "");
+
+  return clean || `TOKEN_${cleanAddress.slice(0, 6).toUpperCase()}`;
+}
+
+function sameEvmAddress(a = "", b = "") {
+  return (
+    ethers.isAddress(a) &&
+    ethers.isAddress(b) &&
+    ethers.getAddress(a) == ethers.getAddress(b)
+  );
+}
+
+async function mapWithConcurrency(items = [], limit = 3, fn) {
+  const results = [];
+
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    results.push(...(await Promise.all(chunk.map(fn))));
+  }
+
+  return results;
+}
+
+function getUsableChainRpcs(chain = "") {
+  const chainRpc = rpcs?.[chain];
+  const list = Array.isArray(chainRpc)
+    ? chainRpc
+    : Array.isArray(chainRpc?.rpc)
+      ? chainRpc.rpc
+      : Array.isArray(chainRpc?.rpcs)
+        ? chainRpc.rpcs
+        : [chainRpc?.rpc ?? chainRpc?.rpcs ?? chainRpc];
+
+  return list.filter(
+    (rpc) =>
+      rpc &&
+      !String(rpc).includes("undefined") &&
+      !String(rpc).includes("YOUR_KEY"),
+  );
+}
+
+function getCoinByAddress(chain = "", address = "") {
+  if (!ethers.isAddress(address)) return null;
+
+  return (
+    Object.entries(coinM?.[chain] || {}).find(([, coinE]) =>
+      sameEvmAddress(coinE?.address, address),
+    ) || null
+  );
+}
+
+async function getTokenMeta(
+  provider,
+  address = "",
+  chain = "",
+  timeoutMs = aaveTokenMetaTimeoutMs,
+) {
+  const localCoin = Object.entries(coinM?.[chain] || {}).find(([, coinE]) =>
+    sameEvmAddress(coinE?.address, address),
+  );
+  if (localCoin) {
+    const [symbol, coinE] = localCoin;
+
+    return {
+      address: ethers.getAddress(address),
+      name: coinE.name || symbol,
+      symbol,
+      decimals: coinE.decimals ?? 18,
+      fallback: false,
+    };
+  }
+
+  const token = new ethers.Contract(address, erc20MetaAbi, provider);
+  const [name, symbol, decimals] = await Promise.all([
+    withTimeout(token.name(), timeoutMs, "token name timeout").catch(() => ""),
+    withTimeout(
+      token.symbol(),
+      timeoutMs,
+      "token symbol timeout",
+    ).catch(() => ""),
+    withTimeout(
+      token.decimals(),
+      timeoutMs,
+      "token decimals timeout",
+    ).catch(() => 18),
+  ]);
+
+  return {
+    address: ethers.getAddress(address),
+    name: String(name || "").trim(),
+    symbol: cleanMarketSymbol(symbol, address),
+    decimals: Number(decimals),
+    fallback: !String(symbol || "").trim(),
+  };
+}
+
+export async function getAaveAllMarkets({ chain = "" } = {}) {
+  if (chain == "Solana") return { ok: true, chain, markets: [] };
+
+  const pool = getAavePool(chain);
+  const rpcList = getUsableChainRpcs(chain);
+  if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
+  let bestResult = null;
+  let lastError = null;
+
+  async function fetchMarkets(rpc) {
+    const provider = new ethers.JsonRpcProvider(rpc);
+    const poolContract = new ethers.Contract(pool, aavePoolAbi, provider);
+
+    try {
+      const reserves = await withTimeout(
+        poolContract.getReservesList(),
+        aaveMarketFetchTimeoutMs,
+        `${chain} Aave reserves timeout`,
+      );
+      const markets = (
+        await mapWithConcurrency(
+          reserves,
+          aaveMarketFetchConcurrency,
+          async (underlyingAddress) => {
+            const reserve = await withTimeout(
+              poolContract.getReserveData(underlyingAddress),
+              aaveTokenMetaTimeoutMs,
+              `${chain} Aave reserve timeout`,
+            ).catch(() => null);
+            if (!reserve) return null;
+
+            const lendAddress = ethers.getAddress(
+              reserve.aTokenAddress || reserve[8],
+            );
+            const [underlyingMeta, lendMeta] = await Promise.all([
+              getTokenMeta(provider, underlyingAddress, chain, venusTokenMetaTimeoutMs),
+              getTokenMeta(provider, lendAddress, chain, venusTokenMetaTimeoutMs),
+            ]);
+            const addedUnderlying = getCoinByAddress(chain, underlyingMeta.address);
+            const addedLend = getCoinByAddress(chain, lendMeta.address);
+            const metaFallback = !!underlyingMeta.fallback || !!lendMeta.fallback;
+
+            return {
+              value: `${underlyingMeta.symbol}:${lendMeta.symbol}:${lendMeta.address}`,
+              chain,
+              underlyingCoin: addedUnderlying?.[0] || underlyingMeta.symbol,
+              underlyingName: underlyingMeta.name || underlyingMeta.symbol,
+              underlyingAddress: underlyingMeta.address,
+              underlyingDecimals: underlyingMeta.decimals,
+              lendCoin: addedLend?.[0] || lendMeta.symbol,
+              lendName: lendMeta.name || lendMeta.symbol,
+              lendAddress: lendMeta.address,
+              lendDecimals: lendMeta.decimals,
+              addedUnderlying: !!addedUnderlying,
+              addedLend: !!addedLend,
+              metaFallback,
+            };
+          },
+        )
+      ).filter(Boolean);
+
+      return {
+        rpc,
+        reserveCount: reserves.length,
+        fallbackCount: markets.filter((entry) => entry.metaFallback).length,
+        markets,
+      };
+    } finally {
+      provider.destroy?.();
+    }
+  }
+
+  for (const rpc of rpcList) {
+    try {
+      const result = await fetchMarkets(rpc);
+      if (
+        !bestResult ||
+        result.markets.length > bestResult.markets.length ||
+        (result.markets.length == bestResult.markets.length &&
+          result.fallbackCount < bestResult.fallbackCount)
+      ) {
+        bestResult = result;
+      }
+      if (
+        result.markets.length >= result.reserveCount &&
+        result.fallbackCount == 0
+      ) {
+        break;
+      }
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  if (!bestResult) {
+    throw new Error(
+      lastError?.shortMessage ||
+        lastError?.message ||
+        `${chain} Aave markets failed`,
+    );
+  }
+
+  return {
+    ok: true,
+    chain,
+    pool,
+    rpc: bestResult.rpc,
+    markets: bestResult.markets.sort((a, b) =>
+      a.underlyingCoin.localeCompare(b.underlyingCoin),
+    ),
+  };
 }
 
 function getAavePool(chain = "", lendCoin = "") {
@@ -79,10 +325,15 @@ function getAavePool(chain = "", lendCoin = "") {
   return ethers.getAddress(pool);
 }
 
-function getAaveAmount({ chain = "", coin = "", amount = "" } = {}) {
+function getAaveAmount({
+  chain = "",
+  coin = "",
+  amount = "",
+  decimals,
+} = {}) {
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
-    getCoinDecimals(chain, coin),
+    Number.isInteger(decimals) ? decimals : getCoinDecimals(chain, coin),
   );
   if (amountIn <= 0n) throw new Error("amount must be greater than 0");
 
@@ -94,9 +345,15 @@ async function assertAaveMarket({
   chain = "",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  lendAddress = "",
 } = {}) {
-  const underlying = getEvmTokenAddress(chain, underlyingCoin, "Aave underlying");
-  const aTokenAddress = getEvmTokenAddress(chain, lendCoin, "Aave token");
+  const underlying = ethers.isAddress(underlyingAddress)
+    ? ethers.getAddress(underlyingAddress)
+    : getEvmTokenAddress(chain, underlyingCoin, "Aave underlying");
+  const aTokenAddress = ethers.isAddress(lendAddress)
+    ? ethers.getAddress(lendAddress)
+    : getEvmTokenAddress(chain, lendCoin, "Aave token");
   const aToken = new ethers.Contract(aTokenAddress, aTokenAbi, provider);
   const actualUnderlying = ethers.getAddress(await aToken.UNDERLYING_ASSET_ADDRESS());
 
@@ -107,8 +364,281 @@ async function assertAaveMarket({
   return { underlying, aTokenAddress };
 }
 
+export async function getAaveMarketBalance({
+  walletAddress = "",
+  chain = "",
+  underlyingAddress = "",
+  underlyingDecimals = 18,
+  lendAddress = "",
+  lendDecimals = 18,
+} = {}) {
+  if (chain == "Solana") throw new Error("Aave is EVM-only here");
+  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
+  if (!ethers.isAddress(underlyingAddress)) throw new Error("underlying address invalid");
+  if (!ethers.isAddress(lendAddress)) throw new Error("Aave token address invalid");
+
+  const rpc = getUsableChainRpc(chain);
+  if (!rpc) throw new Error(`rpc not configured: ${chain}`);
+
+  const provider = new ethers.JsonRpcProvider(rpc);
+
+  try {
+    const owner = ethers.getAddress(walletAddress);
+    const [underlyingRaw, lendRaw] = await Promise.all([
+      new ethers.Contract(underlyingAddress, erc20Abi, provider).balanceOf(owner),
+      new ethers.Contract(lendAddress, erc20Abi, provider).balanceOf(owner),
+    ]);
+
+    return {
+      ok: true,
+      chain,
+      walletAddress: owner,
+      underlying: {
+        address: ethers.getAddress(underlyingAddress),
+        raw: underlyingRaw.toString(),
+        balance: ethers.formatUnits(underlyingRaw, underlyingDecimals),
+        decimals: underlyingDecimals,
+      },
+      lend: {
+        address: ethers.getAddress(lendAddress),
+        raw: lendRaw.toString(),
+        balance: ethers.formatUnits(lendRaw, lendDecimals),
+        decimals: lendDecimals,
+      },
+    };
+  } finally {
+    provider.destroy?.();
+  }
+}
+
 function getVenusToken(chain = "", lendCoin = "") {
   return getEvmTokenAddress(chain, lendCoin, "Venus token");
+}
+
+function getSavedVenusMarkets(chain = "") {
+  return Object.entries(coinM?.[chain] || {}).filter(([coin, coinE]) => {
+    const text = `${coin} ${coinE?.name || ""}`.toLowerCase();
+    return (
+      coinE?.type == "lending" &&
+      ethers.isAddress(coinE?.address || "") &&
+      (/^v[A-Z]/.test(coin) || (text.includes("venus") && !/^f[A-Z]/.test(coin)))
+    );
+  });
+}
+
+export async function getVenusAllMarkets({ chain = "" } = {}) {
+  if (chain == "Solana") return { ok: true, chain, markets: [] };
+
+  const rpcList = getUsableChainRpcs(chain);
+  if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
+
+  const savedMarkets = getSavedVenusMarkets(chain);
+  if (!savedMarkets.length) {
+    return { ok: true, chain, markets: [] };
+  }
+
+  let bestResult = null;
+  let lastError = null;
+
+  async function fetchMarkets(rpc) {
+    const provider = new ethers.JsonRpcProvider(rpc);
+
+    try {
+      const comptrollers = [
+        ...new Set(
+          (
+            await Promise.all(
+              savedMarkets.map(async ([, coinE]) =>
+                withTimeout(
+                  new ethers.Contract(
+                    coinE.address,
+                    venusTokenAbi,
+                    provider,
+                  ).comptroller(),
+                  venusTokenMetaTimeoutMs,
+                  `${chain} Venus comptroller timeout`,
+                ).catch(() => ""),
+              ),
+            )
+          )
+            .filter((address) => ethers.isAddress(address))
+            .map((address) => ethers.getAddress(address)),
+        ),
+      ];
+      const marketAddresses = [
+        ...new Set(
+          (
+            await Promise.all(
+              comptrollers.map(async (comptroller) =>
+                withTimeout(
+                  new ethers.Contract(
+                    comptroller,
+                    venusComptrollerAbi,
+                    provider,
+                  ).getAllMarkets(),
+                  venusMarketFetchTimeoutMs,
+                  `${chain} Venus markets timeout`,
+                ).catch(() => []),
+              ),
+            )
+          )
+            .flat()
+            .filter((address) => ethers.isAddress(address))
+            .map((address) => ethers.getAddress(address)),
+        ),
+      ];
+      const markets = (
+        await mapWithConcurrency(
+          marketAddresses,
+          venusMarketFetchConcurrency,
+          async (lendAddress) => {
+            const vToken = new ethers.Contract(lendAddress, venusTokenAbi, provider);
+            const underlyingAddress = await withTimeout(
+              vToken.underlying(),
+              venusTokenMetaTimeoutMs,
+              `${chain} Venus underlying timeout`,
+            ).catch(() => "");
+            if (!ethers.isAddress(underlyingAddress)) return null;
+
+            const exchangeRateRaw = await withTimeout(
+              vToken.exchangeRateStored(),
+              venusTokenMetaTimeoutMs,
+              `${chain} Venus exchange rate timeout`,
+            ).catch(() => 0n);
+            const [underlyingMeta, lendMeta] = await Promise.all([
+              getTokenMeta(provider, underlyingAddress, chain),
+              getTokenMeta(provider, lendAddress, chain),
+            ]);
+            const addedUnderlying = getCoinByAddress(chain, underlyingMeta.address);
+            const addedLend = getCoinByAddress(chain, lendMeta.address);
+            const underlyingPerReceipt = getVenusExchangeRate({
+              rateRaw: BigInt(exchangeRateRaw),
+              underlyingDecimals: underlyingMeta.decimals,
+              receiptDecimals: lendMeta.decimals,
+            });
+            const metaFallback = !!underlyingMeta.fallback || !!lendMeta.fallback;
+
+            return {
+              value: `${underlyingMeta.symbol}:${lendMeta.symbol}:${lendMeta.address}`,
+              chain,
+              underlyingCoin: addedUnderlying?.[0] || underlyingMeta.symbol,
+              underlyingName: underlyingMeta.name || underlyingMeta.symbol,
+              underlyingAddress: underlyingMeta.address,
+              underlyingDecimals: underlyingMeta.decimals,
+              lendCoin: addedLend?.[0] || lendMeta.symbol,
+              lendName: lendMeta.name || lendMeta.symbol,
+              lendAddress: lendMeta.address,
+              lendDecimals: lendMeta.decimals,
+              exchangeRateRaw: BigInt(exchangeRateRaw).toString(),
+              underlyingPerReceipt,
+              receiptPerUnderlying: underlyingPerReceipt
+                ? 1 / underlyingPerReceipt
+                : 0,
+              addedUnderlying: !!addedUnderlying,
+              addedLend: !!addedLend,
+              metaFallback,
+            };
+          },
+        )
+      ).filter(Boolean);
+
+      return {
+        rpc,
+        marketCount: marketAddresses.length,
+        fallbackCount: markets.filter((entry) => entry.metaFallback).length,
+        markets,
+      };
+    } finally {
+      provider.destroy?.();
+    }
+  }
+
+  for (const rpc of rpcList) {
+    try {
+      const result = await fetchMarkets(rpc);
+      if (
+        !bestResult ||
+        result.markets.length > bestResult.markets.length ||
+        (result.markets.length == bestResult.markets.length &&
+          result.fallbackCount < bestResult.fallbackCount)
+      ) {
+        bestResult = result;
+      }
+      if (
+        result.markets.length >=
+          Math.max(1, Math.floor(result.marketCount * venusGoodMarketRatio)) &&
+        result.fallbackCount == 0
+      ) {
+        break;
+      }
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  if (!bestResult) {
+    throw new Error(
+      lastError?.shortMessage ||
+        lastError?.message ||
+        `${chain} Venus markets failed`,
+    );
+  }
+
+  return {
+    ok: true,
+    chain,
+    rpc: bestResult.rpc,
+    markets: bestResult.markets.sort((a, b) =>
+      a.underlyingCoin.localeCompare(b.underlyingCoin),
+    ),
+  };
+}
+
+export async function getVenusMarketBalance({
+  walletAddress = "",
+  chain = "",
+  underlyingAddress = "",
+  underlyingDecimals = 18,
+  lendAddress = "",
+  lendDecimals = 8,
+} = {}) {
+  if (chain == "Solana") throw new Error("Venus is EVM-only here");
+  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
+  if (!ethers.isAddress(underlyingAddress)) throw new Error("underlying address invalid");
+  if (!ethers.isAddress(lendAddress)) throw new Error("Venus token address invalid");
+
+  const rpc = getUsableChainRpc(chain);
+  if (!rpc) throw new Error(`rpc not configured: ${chain}`);
+
+  const provider = new ethers.JsonRpcProvider(rpc);
+
+  try {
+    const owner = ethers.getAddress(walletAddress);
+    const [underlyingRaw, lendRaw] = await Promise.all([
+      new ethers.Contract(underlyingAddress, erc20Abi, provider).balanceOf(owner),
+      new ethers.Contract(lendAddress, erc20Abi, provider).balanceOf(owner),
+    ]);
+
+    return {
+      ok: true,
+      chain,
+      walletAddress: owner,
+      underlying: {
+        address: ethers.getAddress(underlyingAddress),
+        raw: underlyingRaw.toString(),
+        balance: ethers.formatUnits(underlyingRaw, underlyingDecimals),
+        decimals: underlyingDecimals,
+      },
+      lend: {
+        address: ethers.getAddress(lendAddress),
+        raw: lendRaw.toString(),
+        balance: ethers.formatUnits(lendRaw, lendDecimals),
+        decimals: lendDecimals,
+      },
+    };
+  } finally {
+    provider.destroy?.();
+  }
 }
 
 function getVenusAmount({
@@ -117,9 +647,18 @@ function getVenusAmount({
   underlyingCoin = "",
   lendCoin = "",
   amount = "",
+  underlyingDecimals,
+  lendDecimals,
 } = {}) {
   const coin = action == "redeem" ? lendCoin : underlyingCoin;
-  const amountIn = ethers.parseUnits(String(amount || "0"), getCoinDecimals(chain, coin));
+  const decimals =
+    action == "redeem"
+      ? lendDecimals
+      : underlyingDecimals;
+  const amountIn = ethers.parseUnits(
+    String(amount || "0"),
+    Number.isInteger(decimals) ? decimals : getCoinDecimals(chain, coin),
+  );
   if (amountIn <= 0n) throw new Error("amount must be greater than 0");
 
   return amountIn;
@@ -141,9 +680,17 @@ async function assertVenusMarket({
   chain = "",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
 } = {}) {
-  const underlying = getEvmTokenAddress(chain, underlyingCoin, "Venus underlying");
-  const vTokenAddress = getVenusToken(chain, lendCoin);
+  const underlying = ethers.isAddress(underlyingAddress)
+    ? ethers.getAddress(underlyingAddress)
+    : getEvmTokenAddress(chain, underlyingCoin, "Venus underlying");
+  const vTokenAddress = ethers.isAddress(lendAddress)
+    ? ethers.getAddress(lendAddress)
+    : getVenusToken(chain, lendCoin);
   const vToken = new ethers.Contract(vTokenAddress, venusTokenAbi, provider);
   const [actualUnderlying, exchangeRateRaw] = await Promise.all([
     vToken.underlying(),
@@ -154,12 +701,14 @@ async function assertVenusMarket({
     throw new Error(`${lendCoin} underlying does not match ${underlyingCoin}`);
   }
 
-  const underlyingDecimals = getCoinDecimals(chain, underlyingCoin);
-  const receiptDecimals = getCoinDecimals(chain, lendCoin);
   const underlyingPerReceipt = getVenusExchangeRate({
     rateRaw: BigInt(exchangeRateRaw),
-    underlyingDecimals,
-    receiptDecimals,
+    underlyingDecimals: Number.isInteger(underlyingDecimals)
+      ? underlyingDecimals
+      : getCoinDecimals(chain, underlyingCoin),
+    receiptDecimals: Number.isInteger(lendDecimals)
+      ? lendDecimals
+      : getCoinDecimals(chain, lendCoin),
   });
 
   return {
@@ -177,6 +726,9 @@ export async function getAaveLendPreview({
   action = "lend",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
   amount = "",
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
@@ -186,7 +738,12 @@ export async function getAaveLendPreview({
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
   const pool = getAavePool(chain, lendCoin);
-  const amountIn = getAaveAmount({ chain, coin: underlyingCoin, amount });
+  const amountIn = getAaveAmount({
+    chain,
+    coin: underlyingCoin,
+    amount,
+    decimals: underlyingDecimals,
+  });
   const provider = new ethers.JsonRpcProvider(rpc);
 
   try {
@@ -195,6 +752,8 @@ export async function getAaveLendPreview({
       chain,
       underlyingCoin,
       lendCoin,
+      underlyingAddress,
+      lendAddress,
     });
     const allowance = action == "redeem"
       ? amountIn
@@ -226,6 +785,9 @@ export async function buildAaveLendTxs({
   action = "lend",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
   amount = "",
   approvalAmount = "",
 } = {}) {
@@ -239,7 +801,12 @@ export async function buildAaveLendTxs({
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
   const pool = getAavePool(chain, lendCoin);
-  const amountIn = getAaveAmount({ chain, coin: underlyingCoin, amount });
+  const amountIn = getAaveAmount({
+    chain,
+    coin: underlyingCoin,
+    amount,
+    decimals: underlyingDecimals,
+  });
   const provider = new ethers.JsonRpcProvider(rpc);
 
   try {
@@ -248,6 +815,8 @@ export async function buildAaveLendTxs({
       chain,
       underlyingCoin,
       lendCoin,
+      underlyingAddress,
+      lendAddress,
     });
     const txs = [];
 
@@ -281,6 +850,7 @@ export async function buildAaveLendTxs({
         approvalAmount,
         amountIn,
         defaultAmount: amountIn,
+        decimals: underlyingDecimals,
       });
 
       if (allowance < amountIn && approveAmount != null) {
@@ -348,6 +918,9 @@ export async function executeAaveLend({
   action = "lend",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
   amount = "",
   approvalAmount = "",
 } = {}) {
@@ -361,7 +934,12 @@ export async function executeAaveLend({
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
   const pool = getAavePool(chain, lendCoin);
-  const amountIn = getAaveAmount({ chain, coin: underlyingCoin, amount });
+  const amountIn = getAaveAmount({
+    chain,
+    coin: underlyingCoin,
+    amount,
+    decimals: underlyingDecimals,
+  });
   const provider = new ethers.JsonRpcProvider(rpc);
 
   try {
@@ -372,6 +950,8 @@ export async function executeAaveLend({
       chain,
       underlyingCoin,
       lendCoin,
+      underlyingAddress,
+      lendAddress,
     });
     const poolContract = new ethers.Contract(pool, aavePoolAbi, wallet);
     const txs = [];
@@ -396,6 +976,7 @@ export async function executeAaveLend({
         fromCoin: underlyingCoin,
         approvalAmount,
         amountIn,
+        decimals: underlyingDecimals,
       });
       txs.push(
         ...(await approveExactIfNeeded({
@@ -445,6 +1026,10 @@ export async function getVenusLendPreview({
   action = "lend",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
   amount = "",
 } = {}) {
   if (chain == "Solana") throw new Error("Venus is EVM-only here");
@@ -459,6 +1044,8 @@ export async function getVenusLendPreview({
     underlyingCoin,
     lendCoin,
     amount,
+    underlyingDecimals,
+    lendDecimals,
   });
   const provider = new ethers.JsonRpcProvider(rpc);
 
@@ -468,6 +1055,10 @@ export async function getVenusLendPreview({
       chain,
       underlyingCoin,
       lendCoin,
+      underlyingAddress,
+      underlyingDecimals,
+      lendAddress,
+      lendDecimals,
     });
     const allowance =
       action == "redeem"
@@ -504,6 +1095,10 @@ export async function buildVenusLendTxs({
   action = "lend",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
   amount = "",
   approvalAmount = "",
 } = {}) {
@@ -522,6 +1117,8 @@ export async function buildVenusLendTxs({
     underlyingCoin,
     lendCoin,
     amount,
+    underlyingDecimals,
+    lendDecimals,
   });
   const provider = new ethers.JsonRpcProvider(rpc);
 
@@ -531,6 +1128,10 @@ export async function buildVenusLendTxs({
       chain,
       underlyingCoin,
       lendCoin,
+      underlyingAddress,
+      underlyingDecimals,
+      lendAddress,
+      lendDecimals,
     });
     const txs = [];
 
@@ -561,6 +1162,7 @@ export async function buildVenusLendTxs({
         approvalAmount,
         amountIn,
         defaultAmount: amountIn,
+        decimals: underlyingDecimals,
       });
 
       if (allowance < amountIn && approveAmount != null) {
@@ -624,6 +1226,10 @@ export async function executeVenusLend({
   action = "lend",
   underlyingCoin = "",
   lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
   amount = "",
   approvalAmount = "",
 } = {}) {
@@ -642,6 +1248,8 @@ export async function executeVenusLend({
     underlyingCoin,
     lendCoin,
     amount,
+    underlyingDecimals,
+    lendDecimals,
   });
   const provider = new ethers.JsonRpcProvider(rpc);
 
@@ -653,6 +1261,10 @@ export async function executeVenusLend({
       chain,
       underlyingCoin,
       lendCoin,
+      underlyingAddress,
+      underlyingDecimals,
+      lendAddress,
+      lendDecimals,
     });
     const vToken = new ethers.Contract(market.vTokenAddress, venusTokenAbi, wallet);
     const txs = [];
@@ -673,6 +1285,7 @@ export async function executeVenusLend({
         fromCoin: underlyingCoin,
         approvalAmount,
         amountIn,
+        decimals: underlyingDecimals,
       });
       txs.push(
         ...(await approveExactIfNeeded({

@@ -579,3 +579,52 @@ export async function addCustomCoin({
     };
   }
 }
+
+export async function deleteCustomCoin({ chain, coin } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
+  const selectedChain = String(chain || "").trim();
+  const selectedCoin = String(coin || "").trim();
+  if (!baseCoinM[selectedChain]) {
+    return { ok: 0, msg: `unsupported custom coin chain: ${selectedChain}` };
+  }
+  if (!selectedCoin) return { ok: 0, msg: "missing coin" };
+
+  try {
+    const customCoins = await readCustomCoins(selectedChain);
+    if (!Object.prototype.hasOwnProperty.call(customCoins, selectedCoin)) {
+      return {
+        ok: 0,
+        msg: `${selectedChain} ${selectedCoin} is not an editor coin`,
+      };
+    }
+
+    delete customCoins[selectedCoin];
+    await fs.mkdir(customCoinDir, { recursive: true });
+    await fs.writeFile(
+      getCustomCoinFile(selectedChain),
+      `${JSON.stringify(customCoins, null, 2)}\n`,
+    );
+
+    revalidatePath("/w");
+    revalidatePath("/t");
+
+    return {
+      ok: 1,
+      chain: selectedChain,
+      coin: selectedCoin,
+      file: `data/editor/coins/${selectedChain}.json`,
+    };
+  } catch (e) {
+    return {
+      ok: 0,
+      msg:
+        e?.shortMessage ??
+        e?.reason ??
+        e?.message ??
+        "delete custom coin error",
+    };
+  }
+}
