@@ -258,7 +258,15 @@ function Wallet({
   const allWalletFiles = [
     ...new Set([...walletFiles, ...localWalletFiles]),
   ].sort((a, b) => a.localeCompare(b));
-  const effectiveRequestedWallet = String(requestedWallet || "").replace(/\/+$/, "");
+  const requestedWalletRaw = String(requestedWallet || "");
+  const effectiveRequestedWallet = requestedWalletRaw.replace(/\/+$/, "");
+  const localRequestedWalletOption =
+    useLocalEditorStore &&
+    (localWalletFiles.includes(`${effectiveRequestedWallet}/`)
+      ? `${effectiveRequestedWallet}/`
+      : localWalletFiles.includes(effectiveRequestedWallet)
+        ? effectiveRequestedWallet
+        : "");
   const localRequestedWallet =
     useLocalEditorStore &&
     !!effectiveRequestedWallet &&
@@ -270,7 +278,7 @@ function Wallet({
       ? effectiveRequestedWallet
       : "";
   const effectiveSelectedWallet =
-    selectedWallet || (localRequestedWallet ? effectiveRequestedWallet : "");
+    selectedWallet || (localRequestedWallet ? localRequestedWalletOption : "");
   const effectiveSelectedWalletNotFound =
     selectedWalletNotFound && !localRequestedWallet;
   const saveWalletFileOptions = [
