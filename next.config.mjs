@@ -4,6 +4,7 @@ const nextConfig = {
   reactStrictMode: false,
   experimental: {
     devtoolSegmentExplorer: false,
+    serverComponentsHmrCache: false,
   },
   // webpack: (config, { dev, isServer }) => {
   //   if (dev && isServer) {
