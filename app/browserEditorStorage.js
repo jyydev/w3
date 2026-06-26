@@ -150,6 +150,59 @@ export function addLocalWalletEntry({
   return { ok: 1, file, name: cleanName };
 }
 
+export function deleteLocalWalletEntry({
+  walletType = "evm",
+  source = "",
+  name = "",
+  address = "",
+} = {}) {
+  const type = walletType == "solana" ? "solana" : "evm";
+  const cleanSource = String(source || "").trim().replace(/\.txt$/i, "");
+  const cleanName = String(name || "").trim();
+  const cleanAddress = String(address || "").trim();
+  if (!cleanSource || !cleanName || !cleanAddress) {
+    return { ok: 0, msg: "missing wallet data" };
+  }
+
+  const file = `wallet/${type}/${cleanSource}.txt`;
+  const txt = readLocalEditorFile(file, "");
+  if (!hasLocalEditorFile(file)) return { ok: 0, msg: "wallet file not found" };
+
+  const newline = txt.includes("\r\n") ? "\r\n" : "\n";
+  const trailingNewline = /\r?\n$/.test(txt);
+  const lines = txt.replace(/\r?\n$/, "").split(/\r?\n/);
+  let removed = false;
+
+  const nextLines = lines.filter((line) => {
+    if (removed) return true;
+
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) {
+      return true;
+    }
+
+    const entry = parseWalletLines(line)[0];
+    if (
+      entry?.name == cleanName &&
+      sameAddress(type, entry.address, cleanAddress)
+    ) {
+      removed = true;
+      return false;
+    }
+
+    return true;
+  });
+
+  if (!removed) return { ok: 0, msg: "wallet not found" };
+
+  saveLocalEditorFile(
+    file,
+    `${nextLines.join(newline)}${trailingNewline && nextLines.length ? newline : ""}`,
+  );
+
+  return { ok: 1, file, name: cleanName };
+}
+
 function getLocalWalletPrefix(walletType = "evm") {
   return `wallet/${walletType == "solana" ? "solana" : "evm"}/`;
 }

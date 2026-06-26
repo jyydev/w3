@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import {
   addLocalCustomCoin,
   addLocalWalletEntry,
+  deleteLocalWalletEntry,
   hasLocalWalletSource,
   listLocalWalletSources,
   readLocalWalletEntries,
@@ -252,6 +253,7 @@ function Wallet({
   let [localEditorStoreChecked, setLocalEditorStoreChecked] = useState(false);
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
   let [localWalletData, setLocalWalletData] = useState(null);
+  let [localWalletVersion, setLocalWalletVersion] = useState(0);
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
   let [checkingLocalWallet, setCheckingLocalWallet] = useState(
     Boolean(requestedWallet || selectedWallet == "all") && !selectedAddress && !selectedWalletName,
@@ -467,6 +469,7 @@ function Wallet({
     }
 
     setLocalWalletFiles(listLocalWalletSources(walletType));
+    setLocalWalletVersion((version) => version + 1);
   }
 
   function toggleRowSort(sortKey) {
@@ -564,6 +567,7 @@ function Wallet({
     localRequestedWallet,
     localAllWallets,
     localWalletLoadSource,
+    localWalletVersion,
     effectiveRequestedWallet,
     walletType,
     serverChainNameKey,
@@ -712,6 +716,20 @@ function Wallet({
     setDeletingWalletKey(key);
 
     try {
+      if (useLocalEditorStore) {
+        const res = deleteLocalWalletEntry({
+          walletType,
+          source: entry.source,
+          name: entry.name,
+          address: entry.address,
+        });
+        if (!res.ok) throw new Error(res.msg || "delete local wallet failed");
+
+        toast.success(`deleted local ${entry.label || entry.name}`);
+        refreshLocalWalletFiles();
+        return;
+      }
+
       const res = await deleteWalletEntry({
         walletType,
         source: entry.source,

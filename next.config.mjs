@@ -2,10 +2,6 @@
 
 const nextConfig = {
   reactStrictMode: false,
-  // devIndicators: false, // hide static route icon btm left
-  devIndicators: {
-    appIsrStatus: false,
-  }, // old: hide static route icon btm left
   // webpack: (config, { dev, isServer }) => {
   //   if (dev && isServer) {
   //     config.watchOptions = {
