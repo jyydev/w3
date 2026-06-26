@@ -4,10 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
 import {
+  getAllLocalCustomCoinM,
   localEditorStorageEvent,
+  readLocalLineFileValues,
   readLocalWalletEntries,
   useLocalStorageEditor,
 } from "../browserEditorStorage";
+import { getLocalWalletBalanceData } from "../w/localWalletActions";
 import {
   readStoredWallet,
   walletConnectEvent,
@@ -97,6 +100,13 @@ function getLocalSelectedWalletEntries({
 
 function TradePanels({
   data = [],
+  customCoinM = {},
+  disabledCoinM = {},
+  offCoinM = {},
+  disabledWallets = [],
+  offAddrs = [],
+  useAlchemy = null,
+  alchemyMinUsd = 0.01,
   walletEntries = [],
   walletEntriesM = {},
   walletPkM = {},
@@ -115,6 +125,50 @@ function TradePanels({
     solana: [],
   });
   const [localFavAddrs, setLocalFavAddrs] = useState([]);
+  const [localCustomCoinM, setLocalCustomCoinM] = useState({});
+  const [localOffAddrs, setLocalOffAddrs] = useState([]);
+  const [localOffCoinM, setLocalOffCoinM] = useState({});
+  const [localWalletData, setLocalWalletData] = useState(null);
+  const [loadingLocalWalletData, setLoadingLocalWalletData] = useState(false);
+  const [localBalanceRefresh, setLocalBalanceRefresh] = useState(0);
+  const baseData = useMemo(
+    () => (Array.isArray(data) ? data : data ? [data] : []),
+    [data],
+  );
+  const baseChainNames = useMemo(
+    () => baseData.map((chainE) => chainE.chain).filter(Boolean),
+    [baseData],
+  );
+  const baseChainNameKey = baseChainNames.join("|");
+  const effectiveCustomCoinM = useMemo(() => {
+    const merged = { ...(customCoinM || {}) };
+    for (const [chain, coins] of Object.entries(localCustomCoinM || {})) {
+      merged[chain] = { ...(merged[chain] || {}), ...(coins || {}) };
+    }
+
+    return merged;
+  }, [customCoinM, localCustomCoinM]);
+  const effectiveData = useMemo(() => {
+    const sourceData = localWalletData || baseData;
+
+    return sourceData.map((chainE) => {
+      const localCoins = effectiveCustomCoinM[chainE.chain] || {};
+      const localCoinNames = Object.keys(localCoins);
+      if (!localCoinNames.length) return chainE;
+
+      return {
+        ...chainE,
+        allCoins: [
+          ...new Set([...(chainE.allCoins || []), ...localCoinNames]),
+        ],
+        coins: [...new Set([...(chainE.coins || []), ...localCoinNames])],
+        coinInfoM: {
+          ...(chainE.coinInfoM || {}),
+          ...localCoins,
+        },
+      };
+    });
+  }, [baseData, effectiveCustomCoinM, localWalletData]);
   const effectiveWalletEntriesM = useMemo(
     () => ({
       evm: mergeWalletEntries(
@@ -274,6 +328,10 @@ function TradePanels({
     if (!useLocalStorageEditor()) {
       setLocalWalletEntriesM({ evm: [], solana: [] });
       setLocalFavAddrs([]);
+      setLocalCustomCoinM({});
+      setLocalOffAddrs([]);
+      setLocalOffCoinM({});
+      setLocalWalletData(null);
       return;
     }
 
@@ -283,6 +341,18 @@ function TradePanels({
         solana: readLocalWalletEntries("solana", "", { includeReserved: true }),
       });
       setLocalFavAddrs(parseFavAddrs(getCookie(favAddrCookie)));
+      setLocalCustomCoinM(getAllLocalCustomCoinM(baseChainNames));
+      setLocalOffAddrs(readLocalLineFileValues("cookie/offAddr.txt"));
+      setLocalOffCoinM(
+        Object.fromEntries(
+          baseChainNames
+            .map((chain) => [
+              chain,
+              readLocalLineFileValues(`cookie/offCoins/${chain}.txt`),
+            ])
+            .filter(([, coins]) => coins.length),
+        ),
+      );
     }
 
     loadLocalWalletEntries();
@@ -295,7 +365,65 @@ function TradePanels({
       );
       window.removeEventListener("storage", loadLocalWalletEntries);
     };
-  }, []);
+  }, [baseChainNameKey]);
+
+  useEffect(() => {
+    setLocalWalletData(null);
+    if (!useLocalStorageEditor() || !localSelectedWalletEntries.length) {
+      setLoadingLocalWalletData(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingLocalWalletData(true);
+    getLocalWalletBalanceData({
+      walletType,
+      walletEntries: localSelectedWalletEntries,
+      chains: baseChainNames,
+      customCoinM: effectiveCustomCoinM,
+      disabledCoinM: Object.fromEntries(
+        baseChainNames.map((chain) => [
+          chain,
+          [
+            ...(disabledCoinM?.[chain] || []),
+            ...(offCoinM?.[chain] || []),
+            ...(localOffCoinM?.[chain] || []),
+          ],
+        ]),
+      ),
+      disabledWallets,
+      disabledWalletNames: [...(offAddrs || []), ...localOffAddrs],
+      useAlchemy,
+      alchemyMinUsd,
+    })
+      .then((nextData) => {
+        if (!cancelled) setLocalWalletData(nextData);
+      })
+      .catch((e) => {
+        if (!cancelled) console.error(e);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLocalWalletData(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    walletType,
+    localSelectedWalletEntries,
+    baseChainNameKey,
+    JSON.stringify(effectiveCustomCoinM),
+    JSON.stringify(disabledCoinM),
+    JSON.stringify(offCoinM),
+    JSON.stringify(localOffCoinM),
+    JSON.stringify(disabledWallets),
+    JSON.stringify(offAddrs),
+    JSON.stringify(localOffAddrs),
+    localBalanceRefresh,
+    useAlchemy,
+    alchemyMinUsd,
+  ]);
 
   useEffect(() => {
     const loadConnectedWallet = () =>
@@ -390,6 +518,9 @@ function TradePanels({
   }
 
   const refreshWalletBalances = useCallback(() => {
+    if (useLocalStorageEditor()) {
+      setLocalBalanceRefresh((value) => value + 1);
+    }
     router.refresh();
     setTimeout(() => router.refresh(), 4000);
   }, [router]);
@@ -397,7 +528,7 @@ function TradePanels({
   function renderTradePane(panelType, setPanelType, cyclePanelType) {
     return panelType == "Swap" ? (
       <SwapPanel
-        data={data}
+        data={effectiveData}
         walletEntriesM={effectiveWalletEntriesM}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
@@ -409,7 +540,7 @@ function TradePanels({
       />
     ) : panelType == "Lend" ? (
       <LendPanel
-        data={data}
+        data={effectiveData}
         selectedWalletEntry={selectedWalletEntry}
         tradeType={panelType}
         tradeTypes={tradeTypes}
@@ -419,7 +550,7 @@ function TradePanels({
       />
     ) : panelType == "Send" ? (
       <SendPanel
-        data={data}
+        data={effectiveData}
         walletEntriesM={effectiveWalletEntriesM}
         wallets={wallets}
         selectedWalletEntry={selectedWalletEntry}
@@ -542,6 +673,7 @@ function TradePanels({
             </label>
           </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}
+          {loadingLocalWalletData && <span className="yellow">loading balance...</span>}
           {privateKeyMissing && <span className="red">no private key</span>}
         </div>
         {show && (
