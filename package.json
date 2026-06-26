@@ -1,0 +1,31 @@
+{
+  "name": "w3",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 6",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "axios": "^1.7.7",
+    "cheerio": "^1.0.0",
+    "cookies-next": "^5.0.2",
+    "crypto-js": "^4.2.0",
+    "ethers": "^6.17.0",
+    "next": "15.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.4.1",
+    "react-scripts": "5.0.1",
+    "uuid": "^11.0.3",
+    "ygb": "^2.5.10"
+  },
+  "devDependencies": {
+    "postcss": "^8",
+    "tailwindcss": "^3.4.14"
+  }
+}

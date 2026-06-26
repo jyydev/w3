@@ -1,0 +1,36 @@
+.open-btn,
+.close-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.open-btn {
+  background: #2563eb; /* blue */
+  color: white;
+}
+
+.close-btn {
+  background: #dc2626; /* red */
+  color: white;
+  margin-top: 16px;
+}
+
+.overlay-backdrop {
+  position: fixed;
+  inset: 0; /* top:0, right:0, bottom:0, left:0 */
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+
+  display: flex;
+  justify-content: flex-end; /* align panel to right */
+}
+
+.overlay-panel {
+  width: 50%;
+  height: 100%;
+  background: #2d2f37;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3);
+  padding: 20px;
+}

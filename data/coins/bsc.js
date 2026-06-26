@@ -1,0 +1,85 @@
+const bsc = {
+  BNB: { native: true, decimals: 18, name: "BNB", type: "native" },
+  USDT: {
+    address: "0x55d398326f99059fF775485246999027B3197955",
+    decimals: 18,
+    name: "Binance-Peg BSC-USD",
+    type: "stablecoin",
+  },
+  USDC: {
+    address: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+    decimals: 18,
+    name: "Binance-Peg USD Coin",
+    type: "stablecoin",
+  },
+  USD1: {
+    address: "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
+    decimals: 18,
+    name: "World Liberty Financial USD",
+    type: "stablecoin",
+  },
+  U: {
+    address: "0xcE24439F2D9C6a2289F741120FE202248B666666",
+    decimals: 18,
+    name: "United Stables",
+    type: "stablecoin",
+  },
+  USDF: {
+    address: "0x5a110fc00474038f6c02e89c707d638602ea44b5",
+    decimals: 18,
+    name: "Astherus USDF",
+    type: "yield",
+  },
+  fUSDT: {
+    address: "0xA5b8FCa32E5252B0B58EAbf1A8c79d958F8EE6A2",
+    decimals: 18,
+    name: "Venus Fluid Tether USD",
+    type: "lending",
+  },
+  ASTER: {
+    address: "0x000Ae314E2A2172a039B26378814C252734f556A",
+    decimals: 18,
+    name: "Aster",
+    type: "trading",
+  },
+  BTC: {
+    address: "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+    decimals: 18,
+    name: "Binance-Peg BTCB Token",
+    type: "wrapped",
+  },
+  ETH: {
+    address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
+    decimals: 18,
+    name: "Binance-Peg Ethereum Token",
+    type: "wrapped",
+  },
+  USDe: {
+    address: "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
+    decimals: 18,
+    name: "USDe",
+    type: "stablecoin",
+  },
+
+  asUSDF: {
+    address: "0x917AF46B3C3c6e1Bb7286B9F59637Fb7C65851Fb",
+    decimals: 18,
+    name: "Astherus asUSDF",
+    type: "stablecoin",
+  },
+  vUSDC: {
+    address: "0xecA88125a5ADbe82614ffC12D0DB554E2e2867C8",
+    decimals: 8,
+    name: "Venus USDC",
+    type: "lending",
+  },
+  aBnbUSDC: {
+    address: "0x00901a076785e0906d1028c7d6372d247bec7d61",
+    decimals: 18,
+    name: "Aave BNB Smart Chain USDC",
+    type: "lending"
+  },
+
+};
+
+export default bsc;
