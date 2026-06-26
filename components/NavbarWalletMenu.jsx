@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
+import {
+  readLocalWalletEntries,
+  useLocalStorageEditor,
+} from "@/app/browserEditorStorage";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
@@ -57,6 +61,139 @@ function flattenFavs(tree = [], routeBase = "") {
   for (const node of tree) addNode(node);
 
   return favs;
+}
+
+function getWalletTypeLabel(type = "") {
+  return type == "solana" ? "Solana" : "EVM";
+}
+
+function mergeNode(target, source) {
+  const childM = new Map(
+    (target.children || []).map((child) => [
+      `${child.type}:${child.walletType}:${child.filePath}:${child.walletName || ""}`,
+      child,
+    ]),
+  );
+
+  for (const child of source.children || []) {
+    const key = `${child.type}:${child.walletType}:${child.filePath}:${child.walletName || ""}`;
+    const existing = childM.get(key);
+    if (existing) mergeNode(existing, child);
+    else {
+      childM.set(key, child);
+      target.children.push(child);
+    }
+  }
+
+  target.children.sort(sortNavNodes);
+}
+
+function sortNavNodes(a, b) {
+  const aGroup = a.type == "folder" || a.type == "mixed" ? 0 : a.type == "file" ? 1 : 2;
+  const bGroup = b.type == "folder" || b.type == "mixed" ? 0 : b.type == "file" ? 1 : 2;
+  return aGroup - bGroup || String(a.label).localeCompare(String(b.label));
+}
+
+function ensureChild(parent, child) {
+  parent.children ??= [];
+  let existing = parent.children.find(
+    (node) =>
+      node.label == child.label &&
+      node.walletType == child.walletType &&
+      node.filePath == child.filePath &&
+      (node.type == child.type || node.type == "mixed" || child.type == "mixed"),
+  );
+
+  if (!existing) {
+    existing = child;
+    parent.children.push(existing);
+    parent.children.sort(sortNavNodes);
+  } else if (existing.type != child.type) {
+    existing.type = "mixed";
+  }
+
+  return existing;
+}
+
+function addLocalWalletFile(typeNode, walletType, source, entries) {
+  const parts = String(source || "").split("/").filter(Boolean);
+  if (!parts.length) return;
+
+  let parent = typeNode;
+  let currentPath = "";
+  for (let i = 0; i < parts.length; i++) {
+    const label = parts[i];
+    currentPath = [currentPath, label].filter(Boolean).join("/");
+    const last = i == parts.length - 1;
+    parent = ensureChild(parent, {
+      type: last ? "file" : "folder",
+      label,
+      walletType,
+      filePath: currentPath,
+      children: [],
+    });
+  }
+
+  const walletNames = entries
+    .map((entry) => entry.name)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const walletName of walletNames) {
+    ensureChild(parent, {
+      type: "wallet",
+      label: walletName,
+      walletType,
+      filePath: source,
+      walletName,
+      children: [],
+    });
+  }
+}
+
+function getLocalWalletTree() {
+  if (!useLocalStorageEditor()) return [];
+
+  return ["evm", "solana"]
+    .map((walletType) => {
+      const entries = readLocalWalletEntries(walletType, "");
+      const sources = [...new Set(entries.map((entry) => entry.source).filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b),
+      );
+      const typeNode = {
+        type: "folder",
+        label: getWalletTypeLabel(walletType),
+        walletType,
+        filePath: "",
+        children: [],
+      };
+
+      for (const source of sources) {
+        addLocalWalletFile(
+          typeNode,
+          walletType,
+          source,
+          entries.filter((entry) => entry.source == source),
+        );
+      }
+
+      return typeNode.children.length ? typeNode : null;
+    })
+    .filter(Boolean);
+}
+
+function mergeTrees(baseTree = [], localTree = []) {
+  const merged = JSON.parse(JSON.stringify(baseTree || []));
+  for (const localNode of localTree) {
+    const existing = merged.find((node) => node.walletType == localNode.walletType);
+    if (existing) mergeNode(existing, localNode);
+    else merged.push(localNode);
+  }
+
+  return merged.sort((a, b) => {
+    const order = { evm: 0, solana: 1 };
+    return (order[a.walletType] ?? 99) - (order[b.walletType] ?? 99);
+  });
 }
 
 function normalizeFavs(favs = [], validHrefM = new Map()) {
@@ -189,9 +326,14 @@ function NavbarWalletMenu({
   initialFavs = [],
 }) {
   const router = useRouter();
+  const [localTree, setLocalTree] = useState([]);
+  const mergedTree = useMemo(
+    () => mergeTrees(tree, localTree),
+    [tree, localTree],
+  );
   const validFavs = useMemo(
-    () => flattenFavs(tree, routeBase),
-    [routeBase, tree],
+    () => flattenFavs(mergedTree, routeBase),
+    [routeBase, mergedTree],
   );
   const validHrefM = useMemo(
     () => new Map(validFavs.map((fav) => [fav.href, fav])),
@@ -204,6 +346,10 @@ function NavbarWalletMenu({
   const [dropSpot, setDropSpot] = useState(null);
   const visibleFavs = normalizeFavs(favs, validHrefM);
   const favHrefM = new Map(visibleFavs.map((fav) => [fav.href, fav]));
+
+  useEffect(() => {
+    setLocalTree(getLocalWalletTree());
+  }, []);
 
   function saveFavs(nextFavs) {
     setCookie(cookieName, encodeFavs(nextFavs), {
@@ -347,8 +493,8 @@ function NavbarWalletMenu({
           <i className="custom-caret"></i>
         </Link>
         <div className="dropdown-content navMenuTree">
-          {tree.length ? (
-            tree.map((node) => (
+          {mergedTree.length ? (
+            mergedTree.map((node) => (
               <WalletNavNode
                 key={`${routeBase}:${node.walletType}`}
                 node={node}
