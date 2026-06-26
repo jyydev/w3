@@ -102,8 +102,11 @@ exports.publicWallets = {
 exports.walletNotes = {};
 
 /***** DON'T copy this into set.js */
-try {
-  Object.assign(exports, require("./set"));
-} catch (e) {
-  if (e.code != "MODULE_NOT_FOUND") throw e;
-} // catch missing set.js file
+if (typeof window == "undefined") {
+  try {
+    const req = eval("require");
+    Object.assign(exports, req(`${process.cwd()}/set.js`));
+  } catch (e) {
+    if (e.code != "MODULE_NOT_FOUND") throw e;
+  }
+}
