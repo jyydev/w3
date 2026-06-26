@@ -969,6 +969,17 @@ span.chainIcon {
 .tradePanelBar {
   align-items: center;
 }
+.tradePaneControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tradePaneSwitch {
+  margin-top: 0;
+  margin-right: 0 !important;
+  flex: 0 0 var(--switch-width);
+  vertical-align: middle;
+}
 .tradeWalletAddress {
   font-size: 13px;
   line-height: 1;

@@ -10,6 +10,7 @@ import {
 } from "./sharedAct";
 
 export const tradeShowCookie = "w3_trade_show";
+export const tradeRightPaneCookie = "w3_trade_right_pane";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
 const eip6963ProviderDetails = [];
 let eip6963Listening = false;

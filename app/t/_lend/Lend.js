@@ -300,11 +300,11 @@ export default function LendPanel({
   ]);
 
   useEffect(() => {
-    const qty = inputQty(maxUnderlying);
+    const qty = "0";
     setQtyInputSide("lend");
     setLendQty(qty);
-    setReceiptQty(inputQty(toNum(qty) * receiptRate));
-  }, [chainE?.chain, lendCoin, maxUnderlying, selectedWalletEntry?.value]);
+    setReceiptQty("0");
+  }, [chainE?.chain, lendCoin, selectedWalletEntry?.value]);
 
   useEffect(() => {
     if (qtyInputSide == "redeem") {

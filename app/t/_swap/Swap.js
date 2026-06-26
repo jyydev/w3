@@ -218,11 +218,11 @@ export default function SwapPanel({
   }, [toCoin, toCoins]);
 
   useEffect(() => {
-    const qty = inputQty(fromBalance.balance);
+    const qty = "0";
     setQtyInputSide("sell");
     setFromQty(qty);
-    setToQty(swapRate > 0 ? inputQty(toNum(qty) * swapRate) : "0");
-  }, [selectedWalletEntry?.value, fromChain, fromCoin, fromBalance.balance]);
+    setToQty("0");
+  }, [selectedWalletEntry?.value, fromChain, fromCoin]);
 
   useEffect(() => {
     if (swapRate <= 0) {
@@ -788,7 +788,7 @@ export default function SwapPanel({
     setFromCoin(toCoin);
     setToCoin(fromCoin);
     setQtyInputSide("sell");
-    setFromQty(inputQty(toBalance.balance));
+    setFromQty("0");
     setToQty("0");
   }
 

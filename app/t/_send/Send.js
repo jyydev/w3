@@ -194,9 +194,8 @@ export default function SendPanel({
   }
 
   useEffect(() => {
-    const nextQty = inputQty(fromBalance.balance);
-    setQty(nextQty);
-  }, [chain, coin, fromBalance.balance, fromEntry?.value]);
+    setQty("0");
+  }, [chain, coin, fromEntry?.value]);
 
   useEffect(() => {
     function closeToWalletMenu(e) {

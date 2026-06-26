@@ -8,7 +8,10 @@ import {
   readLocalWalletEntries,
   useLocalStorageEditor,
 } from "../browserEditorStorage";
-import { readStoredWallet, walletConnectEvent } from "../w/browserWalletStorage";
+import {
+  readStoredWallet,
+  walletConnectEvent,
+} from "../w/browserWalletStorage";
 import { favAddrCookie, getFavAddrKey, parseFavAddrs } from "../w/favAddrs";
 import LendPanel from "./_lend/Lend";
 import SendPanel from "./_send/Send";
@@ -19,6 +22,7 @@ import {
   getWalletPrivateKeyFlag,
   getWalletOptions,
   sameAddress,
+  tradeRightPaneCookie,
   shortAddress,
   tradeShowCookie,
 } from "./sharedClient";
@@ -63,7 +67,8 @@ function getLocalSelectedWalletEntries({
   walletType = "evm",
 } = {}) {
   const address = String(selectedAddress || "").trim();
-  if (address) return entries.filter((entry) => sameAddress(entry.address, address));
+  if (address)
+    return entries.filter((entry) => sameAddress(entry.address, address));
 
   const name = String(selectedWalletName || "").trim();
   if (name) return entries.filter((entry) => entry.name == name);
@@ -75,7 +80,8 @@ function getLocalSelectedWalletEntries({
     .replace(/\/+$/, "");
   if (source) {
     return entries.filter(
-      (entry) => entry.source == source || entry.source?.startsWith(`${source}/`),
+      (entry) =>
+        entry.source == source || entry.source?.startsWith(`${source}/`),
     );
   }
 
@@ -101,8 +107,8 @@ function TradePanels({
   walletType = "evm",
 }) {
   const router = useRouter();
-  const tradeTypes = ["Swap", "Lend", "Send", "Approve"];
-  const paneTypes = ["Wallet", "Order", "History", "Risk"];
+  const tradeTypes = ["Swap", "Lend", "Send"];
+  const paneTypes = tradeTypes;
   const [connectedWallet, setConnectedWallet] = useState(null);
   const [localWalletEntriesM, setLocalWalletEntriesM] = useState({
     evm: [],
@@ -148,14 +154,21 @@ function TradePanels({
     [walletEntries, localSelectedWalletEntries],
   );
   const wallets = useMemo(() => {
-    const entries = getWalletOptions(effectiveWalletEntries, walletPkM, walletType);
+    const entries = getWalletOptions(
+      effectiveWalletEntries,
+      walletPkM,
+      walletType,
+    );
     const showConnectedEntry =
       connectedWallet?.address &&
       selectedAddress &&
       sameAddress(connectedWallet.address, selectedAddress);
     const connectedSavedEntry = showConnectedEntry
       ? findWalletEntryByAddress(
-          [...entries, ...(effectiveWalletEntriesM[connectedWallet.type] || [])],
+          [
+            ...entries,
+            ...(effectiveWalletEntriesM[connectedWallet.type] || []),
+          ],
           connectedWallet.address,
         )
       : null;
@@ -230,7 +243,10 @@ function TradePanels({
   ]);
   const [show, setShow] = useState(false);
   const [tradeType, setTradeType] = useState(tradeTypes[0]);
-  const [pane, setPane] = useState(paneTypes[0]);
+  const [showRightPane, setShowRightPane] = useState(false);
+  const [pane, setPane] = useState(
+    paneTypes.includes("Lend") ? "Lend" : paneTypes[0],
+  );
   const [wallet, setWallet] = useState(wallets[0]?.value || "");
   const [connectedAutoSelected, setConnectedAutoSelected] = useState(false);
   const selectedIndex = Math.max(
@@ -241,7 +257,8 @@ function TradePanels({
   const selectedSavedWalletEntry = selectedWalletEntry?.isBrowserWallet
     ? findWalletEntryByAddress(
         [
-          ...(effectiveWalletEntriesM[selectedWalletEntry.type || walletType] || []),
+          ...(effectiveWalletEntriesM[selectedWalletEntry.type || walletType] ||
+            []),
           ...effectiveWalletEntries,
         ],
         selectedWalletEntry.address,
@@ -272,7 +289,10 @@ function TradePanels({
     window.addEventListener(localEditorStorageEvent, loadLocalWalletEntries);
     window.addEventListener("storage", loadLocalWalletEntries);
     return () => {
-      window.removeEventListener(localEditorStorageEvent, loadLocalWalletEntries);
+      window.removeEventListener(
+        localEditorStorageEvent,
+        loadLocalWalletEntries,
+      );
       window.removeEventListener("storage", loadLocalWalletEntries);
     };
   }, []);
@@ -330,6 +350,10 @@ function TradePanels({
 
   useEffect(() => {
     setShow(getCookie(tradeShowCookie) == "1");
+    const rightPaneCookie = getCookie(tradeRightPaneCookie);
+    if (rightPaneCookie !== undefined) {
+      setShowRightPane(rightPaneCookie == "1");
+    }
   }, []);
 
   function cycleWallet(direction) {
@@ -358,10 +382,57 @@ function TradePanels({
     });
   }
 
+  function toggleRightPane(checked) {
+    setShowRightPane(checked);
+    setCookie(tradeRightPaneCookie, checked ? "1" : "0", {
+      maxAge: cookieMaxAge,
+    });
+  }
+
   const refreshWalletBalances = useCallback(() => {
     router.refresh();
     setTimeout(() => router.refresh(), 4000);
   }, [router]);
+
+  function renderTradePane(panelType, setPanelType, cyclePanelType) {
+    return panelType == "Swap" ? (
+      <SwapPanel
+        data={data}
+        walletEntriesM={effectiveWalletEntriesM}
+        selectedWalletEntry={selectedWalletEntry}
+        walletType={walletType}
+        tradeType={panelType}
+        tradeTypes={tradeTypes}
+        onTradeTypeChange={setPanelType}
+        onCycleTradeType={cyclePanelType}
+        onTxComplete={refreshWalletBalances}
+      />
+    ) : panelType == "Lend" ? (
+      <LendPanel
+        data={data}
+        selectedWalletEntry={selectedWalletEntry}
+        tradeType={panelType}
+        tradeTypes={tradeTypes}
+        onTradeTypeChange={setPanelType}
+        onCycleTradeType={cyclePanelType}
+        onTxComplete={refreshWalletBalances}
+      />
+    ) : panelType == "Send" ? (
+      <SendPanel
+        data={data}
+        walletEntriesM={effectiveWalletEntriesM}
+        wallets={wallets}
+        selectedWalletEntry={selectedWalletEntry}
+        walletType={walletType}
+        tradeType={panelType}
+        tradeTypes={tradeTypes}
+        onTradeTypeChange={setPanelType}
+        onCycleTradeType={cyclePanelType}
+        onFromWalletChange={setWallet}
+        onTxComplete={refreshWalletBalances}
+      />
+    ) : null;
+  }
 
   return (
     <div className="stickyB p-2 mxWidth tradePanel">
@@ -436,114 +507,47 @@ function TradePanels({
               </span>
             </span>
           )}
-          <label htmlFor="tradePane">
-            <span className="gray">pane:</span>
-            <select
-              id="tradePane"
-              value={pane}
-              onChange={(e) => setPane(e.target.value)}
+          <span className="tradePaneControls">
+            <label
+              className="switch small tradePaneSwitch"
+              aria-label="show right pane"
             >
-              {paneTypes.map((paneType) => (
-                <option key={paneType} value={paneType}>
-                  {paneType}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={cyclePane}
-            >
-              {">"}
-            </button>
-          </label>
+              <input
+                type="checkbox"
+                checked={showRightPane}
+                onChange={(e) => toggleRightPane(e.target.checked)}
+              />
+              <span className="slider"></span>
+            </label>
+            <label htmlFor="tradePane">
+              <span className="gray">pane:</span>
+              <select
+                id="tradePane"
+                value={pane}
+                onChange={(e) => setPane(e.target.value)}
+              >
+                {paneTypes.map((paneType) => (
+                  <option key={paneType} value={paneType}>
+                    {paneType}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn small bgGray"
+                onClick={cyclePane}
+              >
+                {">"}
+              </button>
+            </label>
+          </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}
           {privateKeyMissing && <span className="red">no private key</span>}
         </div>
         {show && (
           <div className="flex gap2 tradePanelBody">
-            {tradeType == "Swap" ? (
-              <SwapPanel
-                data={data}
-                walletEntriesM={effectiveWalletEntriesM}
-                selectedWalletEntry={selectedWalletEntry}
-                walletType={walletType}
-                tradeType={tradeType}
-                tradeTypes={tradeTypes}
-                onTradeTypeChange={setTradeType}
-                onCycleTradeType={cycleTradeType}
-                onTxComplete={refreshWalletBalances}
-              />
-            ) : tradeType == "Lend" ? (
-              <LendPanel
-                data={data}
-                selectedWalletEntry={selectedWalletEntry}
-                tradeType={tradeType}
-                tradeTypes={tradeTypes}
-                onTradeTypeChange={setTradeType}
-                onCycleTradeType={cycleTradeType}
-                onTxComplete={refreshWalletBalances}
-              />
-            ) : tradeType == "Send" ? (
-              <SendPanel
-                data={data}
-                walletEntriesM={effectiveWalletEntriesM}
-                wallets={wallets}
-                selectedWalletEntry={selectedWalletEntry}
-                walletType={walletType}
-                tradeType={tradeType}
-                tradeTypes={tradeTypes}
-                onTradeTypeChange={setTradeType}
-                onCycleTradeType={cycleTradeType}
-                onFromWalletChange={setWallet}
-                onTxComplete={refreshWalletBalances}
-              />
-            ) : (
-              <div className="tradePane">
-                <label htmlFor="tradeTypeLeft">
-                  <span className="gray">trade:</span>
-                  <select
-                    id="tradeTypeLeft"
-                    value={tradeType}
-                    onChange={(e) => setTradeType(e.target.value)}
-                  >
-                    {tradeTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="btn nx bgGray"
-                    onClick={cycleTradeType}
-                  >
-                    {">"}
-                  </button>
-                </label>
-                <div>
-                  <span className="gray">chain:</span> {walletType}
-                </div>
-                <div>
-                  <span className="gray">wallet:</span>{" "}
-                  {selectedWalletEntry?.label || "-"}
-                </div>
-              </div>
-            )}
-            <div className="tradePane">
-              <div>
-                <span className="gray">right pane:</span> {pane}
-              </div>
-              <div>
-                <span className="gray">wallet:</span>{" "}
-                {selectedWalletEntry?.label || "-"}
-              </div>
-              <div>
-                <span className="gray">address:</span>{" "}
-                {selectedWalletEntry?.address || "-"}
-              </div>
-              <div className="gray">quote/execution panel placeholder</div>
-            </div>
+            {renderTradePane(tradeType, setTradeType, cycleTradeType)}
+            {showRightPane && renderTradePane(pane, setPane, cyclePane)}
           </div>
         )}
       </div>
