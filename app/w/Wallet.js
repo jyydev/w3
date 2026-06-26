@@ -305,6 +305,25 @@ function Wallet({
   const customCoinChainValue = customCoinChains.includes(customCoinChain)
     ? customCoinChain
     : customCoinChains[0] || "";
+  const localSettingWalletEntries = useLocalEditorStore
+    ? readLocalWalletEntries(walletType, localWalletLoadSource)
+    : [];
+  const mergedWalletEntries = (() => {
+    const seen = new Set();
+
+    return [...(walletEntries || []), ...localSettingWalletEntries].filter(
+      (entry) => {
+        const key = `${entry.source || ""}:${entry.name || ""}:${getFavAddrKey(
+          walletType,
+          entry.address,
+        )}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+
+        return true;
+      },
+    );
+  })();
   const walletEntryByAddress = getWalletEntryByAddress();
   const walletEntryByName = getWalletEntryByName();
   const rows = getRows();
@@ -1259,7 +1278,7 @@ function Wallet({
   function getWalletEntryByAddress() {
     const entryM = new Map();
 
-    for (const entry of walletEntries || []) {
+    for (const entry of mergedWalletEntries || []) {
       const key = getFavAddrKey(walletType, entry?.address);
       if (key && !entryM.has(key)) entryM.set(key, entry);
     }
@@ -1270,7 +1289,7 @@ function Wallet({
   function getWalletEntryByName() {
     const entryM = new Map();
 
-    for (const entry of walletEntries || []) {
+    for (const entry of mergedWalletEntries || []) {
       const name = String(entry?.name || "").trim();
       if (name && !entryM.has(name)) entryM.set(name, entry);
     }
@@ -1546,7 +1565,7 @@ function Wallet({
   function AddressSettings() {
     const disabled = new Set(disabledWalletList.map(getWalletDisableKey));
     const serverDisabled = new Set(offAddrList.map(getNameDisableKey));
-    const wallets = walletEntries
+    const wallets = mergedWalletEntries
       .map((entry, index) => ({
         ...entry,
         index,
@@ -2485,6 +2504,23 @@ function Wallet({
     return (
       <>
         <TotalRow />
+        {loadingLocalWallet && !displayRows.length && (
+          <tr>
+            <td
+              className="gray"
+              colSpan={
+                3 +
+                visibleChainList.reduce(
+                  (sum, chainE) => sum + Math.max(getVisibleCoins(chainE).length + 1, 1),
+                  0,
+                ) +
+                (hasError ? 1 : 0)
+              }
+            >
+              loading wallets...
+            </td>
+          </tr>
+        )}
         {displayRows.map((row) => {
           const walletNote = walletNotes?.[row.name] || "";
           const fav = isFavAddr(row.address);
@@ -2563,7 +2599,7 @@ function Wallet({
   return (
     <div>
       {renderTable(renderRows())}
-      {!rows.length && <div className="gray">no wallets</div>}
+      {!rows.length && !loadingLocalWallet && <div className="gray">no wallets</div>}
       <NoBalanceMsg />
       {CustomCoinConfirmModal()}
     </div>
