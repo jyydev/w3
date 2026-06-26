@@ -32,6 +32,7 @@ export async function getLocalWalletBalanceData({
   walletType = "evm",
   walletEntries = [],
   chains = [],
+  customCoinM = {},
   disabledCoinM = {},
   disabledWallets = [],
   disabledWalletNames = [],
@@ -54,6 +55,7 @@ export async function getLocalWalletBalanceData({
     return [
       await getSolanaWalletBalances({
         walletEntryList: entries,
+        customCoinM: customCoinM.Solana ?? {},
         disabledCoins: disabledCoinM.Solana ?? [],
         disabledWallets,
         disabledWalletNames,
@@ -70,6 +72,7 @@ export async function getLocalWalletBalanceData({
         chain,
         walletType: type,
         walletEntryList: entries,
+        customCoinM: customCoinM[chain] ?? {},
         disabledCoins: disabledCoinM[chain] ?? [],
         disabledWallets,
         disabledWalletNames,

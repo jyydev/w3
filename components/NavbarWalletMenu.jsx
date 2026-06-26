@@ -7,7 +7,9 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
 import {
-  readLocalWalletEntries,
+  deleteLocalEditorFile,
+  listLocalWalletFileRecords,
+  localEditorStorageEvent,
   useLocalStorageEditor,
 } from "@/app/browserEditorStorage";
 
@@ -70,15 +72,19 @@ function getWalletTypeLabel(type = "") {
 function mergeNode(target, source) {
   const childM = new Map(
     (target.children || []).map((child) => [
-      `${child.type}:${child.walletType}:${child.filePath}:${child.walletName || ""}`,
+      `${child.walletType}:${child.filePath}:${child.walletName || ""}`,
       child,
     ]),
   );
 
   for (const child of source.children || []) {
-    const key = `${child.type}:${child.walletType}:${child.filePath}:${child.walletName || ""}`;
+    const key = `${child.walletType}:${child.filePath}:${child.walletName || ""}`;
     const existing = childM.get(key);
-    if (existing) mergeNode(existing, child);
+    if (existing) {
+      if (existing.type != child.type) existing.type = "mixed";
+      if (!existing.deletable && child.deletable) existing.deletable = child.deletable;
+      mergeNode(existing, child);
+    }
     else {
       childM.set(key, child);
       target.children.push(child);
@@ -100,8 +106,7 @@ function ensureChild(parent, child) {
     (node) =>
       node.label == child.label &&
       node.walletType == child.walletType &&
-      node.filePath == child.filePath &&
-      (node.type == child.type || node.type == "mixed" || child.type == "mixed"),
+      node.filePath == child.filePath,
   );
 
   if (!existing) {
@@ -111,11 +116,13 @@ function ensureChild(parent, child) {
   } else if (existing.type != child.type) {
     existing.type = "mixed";
   }
+  if (!existing.deletable && child.deletable) existing.deletable = child.deletable;
 
   return existing;
 }
 
-function addLocalWalletFile(typeNode, walletType, source, entries) {
+function addLocalWalletFile(typeNode, record) {
+  const { walletType, source, entries = [], empty = false } = record;
   const parts = String(source || "").split("/").filter(Boolean);
   if (!parts.length) return;
 
@@ -130,6 +137,13 @@ function addLocalWalletFile(typeNode, walletType, source, entries) {
       label,
       walletType,
       filePath: currentPath,
+      deletable:
+        last && empty
+          ? {
+              kind: "file",
+              source: currentPath,
+            }
+          : null,
       children: [],
     });
   }
@@ -156,10 +170,7 @@ function getLocalWalletTree() {
 
   return ["evm", "solana"]
     .map((walletType) => {
-      const entries = readLocalWalletEntries(walletType, "");
-      const sources = [...new Set(entries.map((entry) => entry.source).filter(Boolean))].sort(
-        (a, b) => a.localeCompare(b),
-      );
+      const records = listLocalWalletFileRecords(walletType);
       const typeNode = {
         type: "folder",
         label: getWalletTypeLabel(walletType),
@@ -168,14 +179,7 @@ function getLocalWalletTree() {
         children: [],
       };
 
-      for (const source of sources) {
-        addLocalWalletFile(
-          typeNode,
-          walletType,
-          source,
-          entries.filter((entry) => entry.source == source),
-        );
-      }
+      for (const record of records) addLocalWalletFile(typeNode, record);
 
       return typeNode.children.length ? typeNode : null;
     })
@@ -348,7 +352,17 @@ function NavbarWalletMenu({
   const favHrefM = new Map(visibleFavs.map((fav) => [fav.href, fav]));
 
   useEffect(() => {
-    setLocalTree(getLocalWalletTree());
+    function loadLocalTree() {
+      setLocalTree(getLocalWalletTree());
+    }
+
+    loadLocalTree();
+    window.addEventListener(localEditorStorageEvent, loadLocalTree);
+    window.addEventListener("storage", loadLocalTree);
+    return () => {
+      window.removeEventListener(localEditorStorageEvent, loadLocalTree);
+      window.removeEventListener("storage", loadLocalTree);
+    };
   }, []);
 
   function saveFavs(nextFavs) {
@@ -411,6 +425,21 @@ function NavbarWalletMenu({
     if (!window.confirm(`Delete empty ${target.kind}?\n\n${label}`)) return;
 
     try {
+      if (useLocalStorageEditor()) {
+        if (target.kind != "file") {
+          throw new Error("localStorage has no empty folder record");
+        }
+
+        const res = deleteLocalEditorFile(
+          `wallet/${node.walletType}/${target.source}.txt`,
+        );
+        if (!res.ok) throw new Error(res.msg || "delete failed");
+
+        toast.success(`deleted ${label}`);
+        setLocalTree(getLocalWalletTree());
+        return;
+      }
+
       const res = await deleteEmptyWalletPath({
         walletType: node.walletType,
         source: target.source,

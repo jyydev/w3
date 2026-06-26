@@ -14,8 +14,11 @@ import {
   addLocalCustomCoin,
   addLocalWalletEntry,
   deleteLocalWalletEntry,
+  getAllLocalCustomCoinM,
   hasLocalWalletSource,
   listLocalWalletSources,
+  localEditorStorageEvent,
+  readLocalLineFileValues,
   readLocalWalletEntries,
   setLocalLineFileValue,
   useLocalStorageEditor,
@@ -245,6 +248,7 @@ function Wallet({
   let [openWalletSettings, setOpenWalletSettings] = useState(false);
   let [disabledCoinsM, setDisabledCoinsM] = useState(disabledCoinM);
   let [offCoinsM, setOffCoinsM] = useState(offCoinM);
+  let [localOffChains, setLocalOffChains] = useState([]);
   let [coinSettingSortM, setCoinSettingSortM] = useState({});
   let [openCoinSettingsChain, setOpenCoinSettingsChain] = useState("");
   let [favAddrs, setFavAddrs] = useState([]);
@@ -254,6 +258,7 @@ function Wallet({
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
   let [localWalletData, setLocalWalletData] = useState(null);
   let [localWalletVersion, setLocalWalletVersion] = useState(0);
+  let [localCustomCoinM, setLocalCustomCoinM] = useState({});
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
   let [checkingLocalWallet, setCheckingLocalWallet] = useState(
     Boolean(requestedWallet || selectedWallet == "all") && !selectedAddress && !selectedWalletName,
@@ -427,9 +432,12 @@ function Wallet({
   }
 
   function getVisibleChainList() {
+    const localOffChainSet = new Set(localOffChains);
     const chains = activeChain
-      ? chainList.filter((chainE) => chainE.chain == activeChain)
-      : chainList;
+      ? chainList.filter(
+          (chainE) => chainE.chain == activeChain && !localOffChainSet.has(chainE.chain),
+        )
+      : chainList.filter((chainE) => !localOffChainSet.has(chainE.chain));
 
     return chains
       .map((chainE, index) => ({
@@ -465,11 +473,51 @@ function Wallet({
   function refreshLocalWalletFiles() {
     if (!useLocalStorageEditor()) {
       setLocalWalletFiles([]);
+      setLocalCustomCoinM({});
       return;
     }
 
     setLocalWalletFiles(listLocalWalletSources(walletType));
     setLocalWalletVersion((version) => version + 1);
+  }
+
+  function getLocalStorageChainNames() {
+    return [
+      ...new Set([
+        ...serverChainList.map((chainE) => chainE.chain).filter(Boolean),
+        ...(customCoinChains || []),
+        ...Object.keys(offCoinM || {}),
+      ]),
+    ];
+  }
+
+  function refreshLocalStorageEditorData(forceUseLocal = useLocalEditorStore) {
+    if (!forceUseLocal) {
+      setLocalWalletFiles([]);
+      setLocalCustomCoinM({});
+      setLocalOffChains([]);
+      return;
+    }
+
+    refreshLocalWalletFiles();
+
+    const chainNames = getLocalStorageChainNames();
+    setLocalCustomCoinM(getAllLocalCustomCoinM(chainNames));
+
+    const localOffAddrs = readLocalLineFileValues("cookie/offAddr.txt");
+    setOffAddrList([...new Set([...(offAddrs || []), ...localOffAddrs])]);
+
+    setLocalOffChains(readLocalLineFileValues("cookie/offChains.txt", chainNames));
+
+    const nextOffCoinsM = { ...(offCoinM || {}) };
+    for (const chain of chainNames) {
+      const localCoins = readLocalLineFileValues(`cookie/offCoins/${chain}.txt`);
+      if (!localCoins.length) continue;
+      nextOffCoinsM[chain] = [
+        ...new Set([...(nextOffCoinsM[chain] || []), ...localCoins]),
+      ];
+    }
+    setOffCoinsM(nextOffCoinsM);
   }
 
   function toggleRowSort(sortKey) {
@@ -504,9 +552,27 @@ function Wallet({
     const useLocal = useLocalStorageEditor();
     setUseLocalEditorStore(useLocal);
     setLocalEditorStoreChecked(true);
-    if (useLocal) refreshLocalWalletFiles();
+    if (useLocal) refreshLocalStorageEditorData(useLocal);
     else setCheckingLocalWallet(false);
-  }, [walletType]);
+  }, [walletType, serverChainNameKey]);
+
+  useEffect(() => {
+    if (!useLocalEditorStore) return;
+
+    function handleLocalEditorStorageChange() {
+      refreshLocalStorageEditorData(true);
+    }
+
+    window.addEventListener(localEditorStorageEvent, handleLocalEditorStorageChange);
+    window.addEventListener("storage", handleLocalEditorStorageChange);
+    return () => {
+      window.removeEventListener(
+        localEditorStorageEvent,
+        handleLocalEditorStorageChange,
+      );
+      window.removeEventListener("storage", handleLocalEditorStorageChange);
+    };
+  }, [useLocalEditorStore, walletType, serverChainNameKey, offAddrKey, offCoinKey]);
 
   useEffect(() => {
     setLocalWalletData(null);
@@ -545,6 +611,7 @@ function Wallet({
       },
       disabledWallets: disabledWalletList,
       disabledWalletNames: offAddrList,
+      customCoinM: localCustomCoinM,
       useAlchemy,
       alchemyMinUsd,
     })
@@ -568,6 +635,7 @@ function Wallet({
     localAllWallets,
     localWalletLoadSource,
     localWalletVersion,
+    JSON.stringify(localCustomCoinM),
     effectiveRequestedWallet,
     walletType,
     serverChainNameKey,
@@ -622,16 +690,26 @@ function Wallet({
   }, [disabledWalletKey]);
 
   useEffect(() => {
+    if (useLocalEditorStore) {
+      refreshLocalStorageEditorData(true);
+      return;
+    }
+
     setOffAddrList(offAddrs || []);
-  }, [offAddrKey]);
+  }, [offAddrKey, useLocalEditorStore]);
 
   useEffect(() => {
     setDisabledCoinsM(disabledCoinM || {});
   }, [disabledCoinKey]);
 
   useEffect(() => {
+    if (useLocalEditorStore) {
+      refreshLocalStorageEditorData(true);
+      return;
+    }
+
     setOffCoinsM(offCoinM || {});
-  }, [offCoinKey]);
+  }, [offCoinKey, useLocalEditorStore]);
 
   useEffect(() => {
     const savedCoinLimit = Number(getCookie(coinLimitCookie));

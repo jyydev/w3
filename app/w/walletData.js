@@ -1644,6 +1644,7 @@ export async function getSolanaWalletBalances({
   walletAddress = "",
   walletName = "",
   walletEntryList = null,
+  customCoinM = {},
   disabledCoins = [],
   disabledWallets = [],
   disabledWalletNames = [],
@@ -1660,7 +1661,12 @@ export async function getSolanaWalletBalances({
     disabledWalletNames,
   });
   const walletEntries = Object.entries(wallets);
-  const coinM = getCoinM(chain);
+  const coinM = {
+    ...getCoinM(chain),
+    ...(customCoinM && typeof customCoinM == "object" && !Array.isArray(customCoinM)
+      ? customCoinM
+      : {}),
+  };
   const allCoinEntries = Object.entries(coinM);
   const coinEntries = getActiveCoinEntries(allCoinEntries, disabledCoins);
   const allCoins = coinEntries.map(([coin]) => coin);
@@ -1754,6 +1760,7 @@ export async function getWalletBalances({
   walletAddress = "",
   walletName = "",
   walletEntryList = null,
+  customCoinM = {},
   disabledCoins = [],
   disabledWallets = [],
   disabledWalletNames = [],
@@ -1769,7 +1776,12 @@ export async function getWalletBalances({
     disabledWalletNames,
   });
   const walletEntries = Object.entries(wallets);
-  const coinM = getCoinM(chain);
+  const coinM = {
+    ...getCoinM(chain),
+    ...(customCoinM && typeof customCoinM == "object" && !Array.isArray(customCoinM)
+      ? customCoinM
+      : {}),
+  };
   const allCoinEntries = Object.entries(coinM);
   const coinEntries = getActiveCoinEntries(allCoinEntries, disabledCoins);
   const allCoins = coinEntries.map(([coin]) => coin);

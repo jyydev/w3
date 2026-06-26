@@ -5,6 +5,8 @@ import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import {
+  localEditorStorageEvent,
+  readLocalLineFileValues,
   setLocalLineFileValue,
   useLocalStorageEditor,
 } from "../browserEditorStorage";
@@ -52,8 +54,21 @@ function WalletSettings({
   }, [disabledChains]);
 
   useEffect(() => {
+    if (useLocalEditorStore) {
+      const localOffChains = readLocalLineFileValues("cookie/offChains.txt", chains);
+      setOffM(
+        Object.fromEntries(
+          [...new Set([...offChains, ...localOffChains])].map((chain) => [
+            chain,
+            true,
+          ]),
+        ),
+      );
+      return;
+    }
+
     setOffM(Object.fromEntries(offChains.map((chain) => [chain, true])));
-  }, [offChains]);
+  }, [offChains, chains, useLocalEditorStore]);
 
   useEffect(() => {
     setUseAlchemyState(!!useAlchemy);
@@ -66,6 +81,30 @@ function WalletSettings({
   useEffect(() => {
     setUseLocalEditorStore(useLocalStorageEditor());
   }, []);
+
+  useEffect(() => {
+    if (!useLocalEditorStore) return;
+
+    function loadLocalOffChains() {
+      const localOffChains = readLocalLineFileValues("cookie/offChains.txt", chains);
+      setOffM(
+        Object.fromEntries(
+          [...new Set([...offChains, ...localOffChains])].map((chain) => [
+            chain,
+            true,
+          ]),
+        ),
+      );
+    }
+
+    loadLocalOffChains();
+    window.addEventListener(localEditorStorageEvent, loadLocalOffChains);
+    window.addEventListener("storage", loadLocalOffChains);
+    return () => {
+      window.removeEventListener(localEditorStorageEvent, loadLocalOffChains);
+      window.removeEventListener("storage", loadLocalOffChains);
+    };
+  }, [useLocalEditorStore, chains, offChains]);
 
   function toggleChain(chain) {
     const next = { ...disabledM, [chain]: !disabledM[chain] };

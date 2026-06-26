@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import {
   hasLocalEditorFile,
   listLocalEditorFiles,
+  localEditorStorageEvent,
   readLocalEditorFile,
   saveLocalEditorFile,
   useLocalStorageEditor,
@@ -76,6 +77,21 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
     setSavedContent(nextContent);
     rememberEditorFile(preferredFile);
   }, []);
+
+  useEffect(() => {
+    if (!useLocalEditorStore) return;
+
+    function refreshLocalFiles() {
+      setFiles(listLocalEditorFiles(initialFiles));
+    }
+
+    window.addEventListener(localEditorStorageEvent, refreshLocalFiles);
+    window.addEventListener("storage", refreshLocalFiles);
+    return () => {
+      window.removeEventListener(localEditorStorageEvent, refreshLocalFiles);
+      window.removeEventListener("storage", refreshLocalFiles);
+    };
+  }, [useLocalEditorStore, initialFiles]);
 
   function loadFile(nextFile) {
     setDraftFile(nextFile);
