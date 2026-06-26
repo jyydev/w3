@@ -3,7 +3,11 @@
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import { dexs, lendings, scanners } from "@/sets";
-import { sendSolanaRawTransaction, submitRelaySignature } from "./sharedAct";
+import {
+  confirmSolanaTransaction,
+  sendSolanaRawTransaction,
+  submitRelaySignature,
+} from "./sharedAct";
 
 export const tradeShowCookie = "w3_trade_show";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
@@ -717,6 +721,7 @@ export async function sendBrowserSolanaTx({ tx, wallet = "", address = "" }) {
       });
       const hash = getSolanaSignature(result);
       if (!hash) throw new Error("Solana wallet returned no signature");
+      await confirmSolanaTransaction({ signature: hash });
 
       return {
         chain: "Solana",
@@ -751,6 +756,7 @@ export async function sendBrowserSolanaTx({ tx, wallet = "", address = "" }) {
     const result = await provider.signAndSendTransaction(transaction);
     const hash = getSolanaSignature(result);
     if (!hash) throw new Error("Solana wallet returned no signature");
+    await confirmSolanaTransaction({ signature: hash });
 
     return {
       chain: "Solana",

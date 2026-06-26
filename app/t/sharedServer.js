@@ -136,15 +136,25 @@ export async function getTradeCoinBalance({
   };
 }
 
+function decodeEnvPrivateKey(value = "") {
+  const text = String(value || "").trim();
+  if (text.length < 6) return text;
+
+  const chars = [...text];
+  [chars[3], chars[5]] = [chars[5], chars[3]];
+
+  return chars.join("");
+}
+
 export function getPrivateKey(walletName = "") {
-  const key = process.env[`pk_${walletName}`];
+  const key = decodeEnvPrivateKey(process.env[`pk_${walletName}`]);
   if (!key) return "";
 
   return key.startsWith("0x") ? key : `0x${key}`;
 }
 
 export function getSolanaPrivateKey(walletName = "") {
-  return String(process.env[`pk_sol_${walletName}`] || "").trim();
+  return decodeEnvPrivateKey(process.env[`pk_sol_${walletName}`]);
 }
 
 function base58ToBytes(text = "") {
@@ -584,6 +594,34 @@ export async function sendSolanaRawTransaction({ transaction = "" } = {}) {
     Buffer.from(transaction, "base64"),
     { skipPreflight: false },
   );
+  const confirmation = await connection.confirmTransaction(
+    signature,
+    "confirmed",
+  );
+
+  if (confirmation.value.err) {
+    throw new Error(
+      `Solana transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+    );
+  }
+
+  return { ok: true, chain: "Solana", hash: signature };
+}
+
+export async function confirmSolanaTransaction({ signature = "" } = {}) {
+  if (!signature) throw new Error("Solana signature missing");
+
+  const connection = getSolanaConnection();
+  const confirmation = await connection.confirmTransaction(
+    signature,
+    "confirmed",
+  );
+
+  if (confirmation.value.err) {
+    throw new Error(
+      `Solana transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+    );
+  }
 
   return { ok: true, chain: "Solana", hash: signature };
 }

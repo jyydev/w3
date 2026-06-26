@@ -1082,6 +1082,15 @@ span.chainIcon {
   gap: 4px;
   align-items: center;
 }
+.swapAutoApproval {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+.swapAutoApproval input {
+  margin: 0;
+}
 .sendPane .swapMiddle {
   align-items: flex-start;
   flex-direction: column;

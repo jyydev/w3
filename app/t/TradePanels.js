@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
 import {
   localEditorStorageEvent,
@@ -99,6 +100,7 @@ function TradePanels({
   requestedWallet = "",
   walletType = "evm",
 }) {
+  const router = useRouter();
   const tradeTypes = ["Swap", "Lend", "Send", "Approve"];
   const paneTypes = ["Wallet", "Order", "History", "Risk"];
   const [connectedWallet, setConnectedWallet] = useState(null);
@@ -356,6 +358,11 @@ function TradePanels({
     });
   }
 
+  const refreshWalletBalances = useCallback(() => {
+    router.refresh();
+    setTimeout(() => router.refresh(), 4000);
+  }, [router]);
+
   return (
     <div className="stickyB p-2 mxWidth tradePanel">
       <div className="stickyL w-screen tradePanelInner">
@@ -465,6 +472,7 @@ function TradePanels({
                 tradeTypes={tradeTypes}
                 onTradeTypeChange={setTradeType}
                 onCycleTradeType={cycleTradeType}
+                onTxComplete={refreshWalletBalances}
               />
             ) : tradeType == "Lend" ? (
               <LendPanel
@@ -474,6 +482,7 @@ function TradePanels({
                 tradeTypes={tradeTypes}
                 onTradeTypeChange={setTradeType}
                 onCycleTradeType={cycleTradeType}
+                onTxComplete={refreshWalletBalances}
               />
             ) : tradeType == "Send" ? (
               <SendPanel
@@ -487,6 +496,7 @@ function TradePanels({
                 onTradeTypeChange={setTradeType}
                 onCycleTradeType={cycleTradeType}
                 onFromWalletChange={setWallet}
+                onTxComplete={refreshWalletBalances}
               />
             ) : (
               <div className="tradePane">

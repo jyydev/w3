@@ -47,6 +47,7 @@ export default function SwapPanel({
   tradeTypes = [],
   onTradeTypeChange,
   onCycleTradeType,
+  onTxComplete = () => {},
 }) {
   const chainList = useMemo(
     () => (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean),
@@ -82,6 +83,7 @@ export default function SwapPanel({
   );
   const [recipientMode, setRecipientMode] = useState("wallet");
   const [recipientWallet, setRecipientWallet] = useState("");
+  const [autoApproval, setAutoApproval] = useState(false);
   const recipientDefaultKeyRef = useRef("");
   const [recipientBalanceE, setRecipientBalanceE] = useState({
     key: "",
@@ -429,15 +431,31 @@ export default function SwapPanel({
       );
       return;
     }
+    if (fromChain == toChain && fromCoin == toCoin) {
+      toast.error("sell coin and buy coin are the same");
+      return;
+    }
     if (!sellQty) {
       toast.error("sell qty is 0");
       return;
     }
 
+    const amount = readQtyInput(fromQty);
+    const autoApprovalAmount = autoApproval ? amount : "";
+    const getApprovalAmount = (approvalNeeded) => {
+      if (!approvalNeeded) return "";
+      return (
+        autoApprovalAmount ||
+        window.prompt(
+          `Approval needed for ${fromCoin}.\n\nEnter approval qty.\nSell qty: ${amount}`,
+          amount,
+        )
+      );
+    };
     const toAddress = isSolanaBridge ? recipient : selectedWalletEntry.address;
     if (!useBrowserWallet) {
       const ok = window.confirm(
-        `Execute ${defiE.label} swap?\n\nwallet: ${swapWalletLabel}\nsell: ${fromQty} ${fromCoin} on ${fromChain}\nbuy: ${toCoin} on ${toChain}\nrecipient: ${toAddress}`,
+        `Execute ${defiE.label} swap?\n\nwallet: ${swapWalletLabel}\nsell: ${amount} ${fromCoin} on ${fromChain}\nbuy: ${toCoin} on ${toChain}\nrecipient: ${toAddress}`,
       );
       if (!ok) return;
     }
@@ -450,13 +468,14 @@ export default function SwapPanel({
       if (defi == "relay") {
         toast.loading(`${defiE.label}: submitting tx...`, { id: toastId });
         if (useBrowserWallet) {
+          toast.loading("Relay: building wallet prompts...", { id: toastId });
           const built = await buildRelaySwapSteps({
             walletAddress: selectedWalletEntry.address,
             fromChain,
             toChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             recipient: toAddress,
           });
           const txs = [];
@@ -506,16 +525,13 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             recipient: toAddress,
           });
           let approvalAmount = "";
 
           if (preview.approvalNeeded) {
-            approvalAmount = window.prompt(
-              `Approval needed for ${fromCoin}.\n\nEnter approval qty.\nSell qty: ${readQtyInput(fromQty)}`,
-              readQtyInput(fromQty),
-            );
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
             if (!approvalAmount) {
               setSwapPending(false);
               toast.dismiss(toastId);
@@ -536,7 +552,7 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             recipient: toAddress,
             approvalAmount,
           });
@@ -552,7 +568,7 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             recipient: toAddress,
           });
           const txs = [];
@@ -584,16 +600,13 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             recipient: toAddress,
           });
           let approvalAmount = "";
 
           if (preview.approvalNeeded) {
-            approvalAmount = window.prompt(
-              `Approval needed for ${fromCoin}.\n\nEnter approval qty.\nSell qty: ${readQtyInput(fromQty)}`,
-              readQtyInput(fromQty),
-            );
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
             if (!approvalAmount) {
               setSwapPending(false);
               toast.dismiss(toastId);
@@ -614,7 +627,7 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             recipient: toAddress,
             approvalAmount,
           });
@@ -629,7 +642,7 @@ export default function SwapPanel({
             chain: fromChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
           });
           const txs = [];
 
@@ -653,15 +666,12 @@ export default function SwapPanel({
             chain: fromChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
           });
           let approvalAmount = "";
 
           if (preview.approvalNeeded) {
-            approvalAmount = window.prompt(
-              `Approval needed for ${fromCoin}.\n\nEnter approval qty.\nSell qty: ${readQtyInput(fromQty)}`,
-              readQtyInput(fromQty),
-            );
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
             if (!approvalAmount) {
               setSwapPending(false);
               toast.dismiss(toastId);
@@ -681,7 +691,7 @@ export default function SwapPanel({
             chain: fromChain,
             fromCoin,
             toCoin,
-            amount: readQtyInput(fromQty),
+            amount,
             approvalAmount,
           });
         }
@@ -694,6 +704,7 @@ export default function SwapPanel({
           id: toastId,
         },
       );
+      onTxComplete(res);
     } catch (e) {
       const message = e?.message || `${defiE.label} swap failed`;
       setSwapResult({ ok: false, error: message });
@@ -986,6 +997,16 @@ export default function SwapPanel({
           >
             {"→"}
           </button>
+          {!selectedWalletEntry?.isBrowserWallet && (
+            <label className="swapAutoApproval">
+              <input
+                type="checkbox"
+                checked={autoApproval}
+                onChange={(e) => setAutoApproval(e.target.checked)}
+              />
+              <span className="gray">auto approve</span>
+            </label>
+          )}
           <span className="swapRateLine">
             <span className="gray">rate:</span>{" "}
             {swapRate > 0

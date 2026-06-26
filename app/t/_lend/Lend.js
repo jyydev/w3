@@ -100,6 +100,7 @@ export default function LendPanel({
   tradeTypes = [],
   onTradeTypeChange,
   onCycleTradeType,
+  onTxComplete = () => {},
 }) {
   const chainList = useMemo(
     () => (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean),
@@ -120,6 +121,7 @@ export default function LendPanel({
   const [lendPending, setLendPending] = useState(false);
   const [lendPendingAction, setLendPendingAction] = useState("");
   const [lendResult, setLendResult] = useState(null);
+  const [autoApproval, setAutoApproval] = useState(false);
   const lendingE =
     lendingOptions.find((entry) => entry.value == defi) || noLending;
   const chainMarketsM = useMemo(() => {
@@ -491,6 +493,17 @@ export default function LendPanel({
 
     const redeem = action == "redeem";
     const qty = redeem ? readQtyInput(receiptQty) : readQtyInput(lendQty);
+    const autoApprovalAmount = !redeem && autoApproval ? qty : "";
+    const getApprovalAmount = (approvalNeeded) => {
+      if (!approvalNeeded) return "";
+      return (
+        autoApprovalAmount ||
+        window.prompt(
+          `Approval needed for ${underlyingCoin}.\n\nEnter approval qty.\nLend qty: ${qty}`,
+          qty,
+        )
+      );
+    };
     if (!toNum(qty)) {
       toast.error(`${action} qty is 0`);
       return;
@@ -558,10 +571,7 @@ export default function LendPanel({
           });
 
           if (preview.approvalNeeded) {
-            approvalAmount = window.prompt(
-              `Approval needed for ${underlyingCoin}.\n\nEnter approval qty.\nLend qty: ${qty}`,
-              qty,
-            );
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
             if (!approvalAmount) {
               toast.dismiss(toastId);
               return;
@@ -586,6 +596,7 @@ export default function LendPanel({
       toast.success(`${protocol} ${action} submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
+      onTxComplete(res);
     } catch (e) {
       const message = e?.message || `${protocol} ${action} failed`;
       setLendResult({ ok: false, error: message });
@@ -773,6 +784,16 @@ export default function LendPanel({
               <option value="default">default</option>
             </select>
           </label>
+          {!selectedWalletEntry?.isBrowserWallet && (
+            <label className="swapAutoApproval">
+              <input
+                type="checkbox"
+                checked={autoApproval}
+                onChange={(e) => setAutoApproval(e.target.checked)}
+              />
+              <span className="gray">auto approve</span>
+            </label>
+          )}
           <span className="swapRateLine">
             <span className="gray">rate:</span>{" "}
             {underlyingCoin && lendCoin

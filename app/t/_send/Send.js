@@ -38,6 +38,7 @@ export default function SendPanel({
   onTradeTypeChange,
   onCycleTradeType,
   onFromWalletChange = () => {},
+  onTxComplete = () => {},
 }) {
   const chainList = useMemo(
     () => (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean),
@@ -537,6 +538,7 @@ export default function SendPanel({
       toast.success(`Send submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
+      onTxComplete(res);
     } catch (e) {
       const message = e?.message || "send failed";
       setSendResult({ ok: false, error: message });
