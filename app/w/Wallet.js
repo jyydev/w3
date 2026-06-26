@@ -249,6 +249,7 @@ function Wallet({
   let [favAddrs, setFavAddrs] = useState([]);
   let [connectedWallet, setConnectedWallet] = useState(null);
   let [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
+  let [localEditorStoreChecked, setLocalEditorStoreChecked] = useState(false);
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
   let [localWalletData, setLocalWalletData] = useState(null);
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
@@ -493,17 +494,21 @@ function Wallet({
         !selectedAddress &&
         !selectedWalletName,
     );
+    setLocalEditorStoreChecked(false);
   }, [requestedWallet, selectedWallet, selectedAddress, selectedWalletName, walletType]);
 
   useEffect(() => {
     const useLocal = useLocalStorageEditor();
     setUseLocalEditorStore(useLocal);
+    setLocalEditorStoreChecked(true);
     if (useLocal) refreshLocalWalletFiles();
     else setCheckingLocalWallet(false);
   }, [walletType]);
 
   useEffect(() => {
     setLocalWalletData(null);
+    if (!localEditorStoreChecked) return;
+
     if (!useLocalEditorStore) {
       setCheckingLocalWallet(false);
       return;
@@ -555,6 +560,7 @@ function Wallet({
     };
   }, [
     useLocalEditorStore,
+    localEditorStoreChecked,
     localRequestedWallet,
     localAllWallets,
     localWalletLoadSource,
