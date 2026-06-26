@@ -151,6 +151,11 @@ function getDefaultWalletName(address = "") {
   return clean ? `addr_${clean.slice(-6)}` : "";
 }
 
+function isAddressOnlyWalletName(name = "") {
+  const clean = String(name || "").trim();
+  return /^addr(?:[_-].*)?$/i.test(clean) || /^fav[_-].+/i.test(clean);
+}
+
 function getNameDisableKey(name = "") {
   return String(name || "")
     .trim()
@@ -854,8 +859,20 @@ function Wallet({
       });
       if (!res.ok) throw new Error(res.msg || "delete wallet failed");
 
+      const favKey = getFavAddrKey(walletType, entry.address);
+      const nextFavAddrs = favAddrs.filter(
+        (fav) => getFavAddrKey(fav.type, fav.address) != favKey,
+      );
+      if (nextFavAddrs.length != favAddrs.length) {
+        setFavAddrs(nextFavAddrs);
+        setCookie(favAddrCookie, encodeFavAddrs(nextFavAddrs), {
+          maxAge: cookieMaxAge,
+          path: "/",
+        });
+      }
+
       toast.success(`deleted ${entry.label || entry.name}`);
-      router.refresh();
+      window.setTimeout(() => window.location.reload(), 80);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -2689,11 +2706,13 @@ function Wallet({
         {displayRows.map((row) => {
           const walletNote = walletNotes?.[row.name] || "";
           const fav = isFavAddr(row.address);
+          const knownEntry = getKnownWalletEntry(row);
+          const rowName =
+            knownEntry?.name || row.name || getDefaultWalletName(row.address);
           const rowNameUrl =
-            !row.source && row.address
+            row.address && isAddressOnlyWalletName(rowName)
               ? getAddressUrl(row.address)
-              : getWalletNameUrl(row.name);
-          const rowName = row.name || getDefaultWalletName(row.address);
+              : getWalletNameUrl(rowName);
 
           return (
             <tr key={`${row.name}:${row.address}`}>
