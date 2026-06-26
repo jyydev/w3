@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { setCookie } from "cookies-next";
+import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import {
   hasLocalEditorFile,
@@ -57,10 +57,24 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
     if (!useLocal) return;
 
     const nextFiles = listLocalEditorFiles(initialFiles);
-    const nextContent = file ? readLocalEditorFile(file, content) : content;
+    const queryFile = new URLSearchParams(window.location.search).get("file") || "";
+    const cookieFile = String(getCookie(editorFileCookie) || "");
+    const preferredFile =
+      [queryFile, cookieFile, file].find((name) => name && nextFiles.includes(name)) ||
+      nextFiles[0] ||
+      "";
+    const nextContent = preferredFile
+      ? readLocalEditorFile(
+          preferredFile,
+          preferredFile == file ? content : "",
+        )
+      : "";
     setFiles(nextFiles);
+    setFile(preferredFile);
+    setDraftFile(preferredFile);
     setContent(nextContent);
     setSavedContent(nextContent);
+    rememberEditorFile(preferredFile);
   }, []);
 
   function loadFile(nextFile) {

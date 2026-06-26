@@ -263,6 +263,12 @@ function Wallet({
     useLocalEditorStore &&
     !!effectiveRequestedWallet &&
     hasLocalWalletSource(walletType, effectiveRequestedWallet);
+  const localAllWallets = useLocalEditorStore && selectedWallet == "all";
+  const localWalletLoadSource = localAllWallets
+    ? ""
+    : localRequestedWallet
+      ? effectiveRequestedWallet
+      : "";
   const effectiveSelectedWallet =
     selectedWallet || (localRequestedWallet ? effectiveRequestedWallet : "");
   const effectiveSelectedWalletNotFound =
@@ -457,9 +463,9 @@ function Wallet({
 
   useEffect(() => {
     setLocalWalletData(null);
-    if (!useLocalEditorStore || !localRequestedWallet) return;
+    if (!useLocalEditorStore || (!localRequestedWallet && !localAllWallets)) return;
 
-    const entries = readLocalWalletEntries(walletType, effectiveRequestedWallet);
+    const entries = readLocalWalletEntries(walletType, localWalletLoadSource);
     if (!entries.length) return;
 
     let cancelled = false;
@@ -498,6 +504,8 @@ function Wallet({
   }, [
     useLocalEditorStore,
     localRequestedWallet,
+    localAllWallets,
+    localWalletLoadSource,
     effectiveRequestedWallet,
     walletType,
     serverChainNameKey,
