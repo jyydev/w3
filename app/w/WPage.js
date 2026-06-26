@@ -388,6 +388,7 @@ async function WPage({
             walletFilesM,
             selectedAddress: selectedWalletAddress,
             selectedWallet,
+            requestedWallet: walletFile,
             selectedWalletName,
             walletType: selectedWalletType,
             walletTypeOptions,

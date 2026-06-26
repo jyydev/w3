@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
+import {
+  localEditorStorageEvent,
+  readLocalWalletEntries,
+  useLocalStorageEditor,
+} from "../browserEditorStorage";
 import { readStoredWallet, walletConnectEvent } from "../w/browserWalletStorage";
+import { favAddrCookie, getFavAddrKey, parseFavAddrs } from "../w/favAddrs";
 import LendPanel from "./_lend/Lend";
 import SendPanel from "./_send/Send";
 import SwapPanel from "./_swap/Swap";
@@ -16,6 +22,72 @@ import {
   tradeShowCookie,
 } from "./sharedClient";
 
+function getEntryKey(entry = {}) {
+  return `${entry.source || ""}:${entry.name || ""}:${String(
+    entry.address || "",
+  ).toLowerCase()}`;
+}
+
+function mergeWalletEntries(...lists) {
+  const seen = new Set();
+  return lists
+    .flat()
+    .filter((entry) => entry?.name && entry?.address)
+    .filter((entry) => {
+      const key = getEntryKey(entry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function isReservedWalletSource(source = "") {
+  return String(source || "")
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .some((part) => part.replace(/\.txt$/i, "").toLowerCase() == "watch");
+}
+
+function filterReservedWalletEntries(entries = []) {
+  return entries.filter((entry) => !isReservedWalletSource(entry?.source));
+}
+
+function getLocalSelectedWalletEntries({
+  entries = [],
+  favAddrs = [],
+  requestedWallet = "",
+  selectedAddress = "",
+  selectedWallet = "",
+  selectedWalletName = "",
+  walletType = "evm",
+} = {}) {
+  const address = String(selectedAddress || "").trim();
+  if (address) return entries.filter((entry) => sameAddress(entry.address, address));
+
+  const name = String(selectedWalletName || "").trim();
+  if (name) return entries.filter((entry) => entry.name == name);
+
+  if (selectedWallet == "all") return filterReservedWalletEntries(entries);
+
+  const source = String(requestedWallet || selectedWallet || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (source) {
+    return entries.filter(
+      (entry) => entry.source == source || entry.source?.startsWith(`${source}/`),
+    );
+  }
+
+  return entries.filter((entry) =>
+    favAddrs.some(
+      (fav) =>
+        fav.type == walletType &&
+        getFavAddrKey(fav.type, fav.address) ==
+          getFavAddrKey(walletType, entry.address),
+    ),
+  );
+}
+
 function TradePanels({
   data = [],
   walletEntries = [],
@@ -24,20 +96,64 @@ function TradePanels({
   selectedAddress = "",
   selectedWalletName = "",
   selectedWallet = "",
+  requestedWallet = "",
   walletType = "evm",
 }) {
   const tradeTypes = ["Swap", "Lend", "Send", "Approve"];
   const paneTypes = ["Wallet", "Order", "History", "Risk"];
   const [connectedWallet, setConnectedWallet] = useState(null);
+  const [localWalletEntriesM, setLocalWalletEntriesM] = useState({
+    evm: [],
+    solana: [],
+  });
+  const [localFavAddrs, setLocalFavAddrs] = useState([]);
+  const effectiveWalletEntriesM = useMemo(
+    () => ({
+      evm: mergeWalletEntries(
+        walletEntriesM.evm || [],
+        filterReservedWalletEntries(localWalletEntriesM.evm || []),
+      ),
+      solana: mergeWalletEntries(
+        walletEntriesM.solana || [],
+        filterReservedWalletEntries(localWalletEntriesM.solana || []),
+      ),
+    }),
+    [walletEntriesM, localWalletEntriesM],
+  );
+  const localSelectedWalletEntries = useMemo(
+    () =>
+      getLocalSelectedWalletEntries({
+        entries: localWalletEntriesM[walletType] || [],
+        favAddrs: localFavAddrs,
+        requestedWallet,
+        selectedAddress,
+        selectedWallet,
+        selectedWalletName,
+        walletType,
+      }),
+    [
+      localWalletEntriesM,
+      localFavAddrs,
+      requestedWallet,
+      selectedAddress,
+      selectedWallet,
+      selectedWalletName,
+      walletType,
+    ],
+  );
+  const effectiveWalletEntries = useMemo(
+    () => mergeWalletEntries(walletEntries, localSelectedWalletEntries),
+    [walletEntries, localSelectedWalletEntries],
+  );
   const wallets = useMemo(() => {
-    const entries = getWalletOptions(walletEntries, walletPkM, walletType);
+    const entries = getWalletOptions(effectiveWalletEntries, walletPkM, walletType);
     const showConnectedEntry =
       connectedWallet?.address &&
       selectedAddress &&
       sameAddress(connectedWallet.address, selectedAddress);
     const connectedSavedEntry = showConnectedEntry
       ? findWalletEntryByAddress(
-          [...entries, ...(walletEntriesM[connectedWallet.type] || [])],
+          [...entries, ...(effectiveWalletEntriesM[connectedWallet.type] || [])],
           connectedWallet.address,
         )
       : null;
@@ -105,8 +221,8 @@ function TradePanels({
     selectedWallet,
     selectedWalletName,
     connectedWallet,
-    walletEntries,
-    walletEntriesM,
+    effectiveWalletEntries,
+    effectiveWalletEntriesM,
     walletPkM,
     walletType,
   ]);
@@ -123,8 +239,8 @@ function TradePanels({
   const selectedSavedWalletEntry = selectedWalletEntry?.isBrowserWallet
     ? findWalletEntryByAddress(
         [
-          ...(walletEntriesM[selectedWalletEntry.type || walletType] || []),
-          ...walletEntries,
+          ...(effectiveWalletEntriesM[selectedWalletEntry.type || walletType] || []),
+          ...effectiveWalletEntries,
         ],
         selectedWalletEntry.address,
       )
@@ -134,6 +250,30 @@ function TradePanels({
     !!selectedWalletEntry?.address &&
     !selectedWalletEntry.hasPrivateKey &&
     !selectedWalletEntry.isBrowserWallet;
+
+  useEffect(() => {
+    if (!useLocalStorageEditor()) {
+      setLocalWalletEntriesM({ evm: [], solana: [] });
+      setLocalFavAddrs([]);
+      return;
+    }
+
+    function loadLocalWalletEntries() {
+      setLocalWalletEntriesM({
+        evm: readLocalWalletEntries("evm", "", { includeReserved: true }),
+        solana: readLocalWalletEntries("solana", "", { includeReserved: true }),
+      });
+      setLocalFavAddrs(parseFavAddrs(getCookie(favAddrCookie)));
+    }
+
+    loadLocalWalletEntries();
+    window.addEventListener(localEditorStorageEvent, loadLocalWalletEntries);
+    window.addEventListener("storage", loadLocalWalletEntries);
+    return () => {
+      window.removeEventListener(localEditorStorageEvent, loadLocalWalletEntries);
+      window.removeEventListener("storage", loadLocalWalletEntries);
+    };
+  }, []);
 
   useEffect(() => {
     const loadConnectedWallet = () =>
@@ -318,7 +458,7 @@ function TradePanels({
             {tradeType == "Swap" ? (
               <SwapPanel
                 data={data}
-                walletEntriesM={walletEntriesM}
+                walletEntriesM={effectiveWalletEntriesM}
                 selectedWalletEntry={selectedWalletEntry}
                 walletType={walletType}
                 tradeType={tradeType}
@@ -338,7 +478,7 @@ function TradePanels({
             ) : tradeType == "Send" ? (
               <SendPanel
                 data={data}
-                walletEntriesM={walletEntriesM}
+                walletEntriesM={effectiveWalletEntriesM}
                 wallets={wallets}
                 selectedWalletEntry={selectedWalletEntry}
                 walletType={walletType}

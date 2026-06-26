@@ -2,6 +2,9 @@
 
 const nextConfig = {
   reactStrictMode: false,
+  experimental: {
+    devtoolSegmentExplorer: false,
+  },
   // webpack: (config, { dev, isServer }) => {
   //   if (dev && isServer) {
   //     config.watchOptions = {

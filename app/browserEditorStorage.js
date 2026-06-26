@@ -343,12 +343,16 @@ export function hasLocalWalletSource(walletType = "evm", source = "") {
   );
 }
 
-export function readLocalWalletEntries(walletType = "evm", source = "") {
+export function readLocalWalletEntries(
+  walletType = "evm",
+  source = "",
+  { includeReserved = false } = {},
+) {
   const type = walletType == "solana" ? "solana" : "evm";
   const cleanSource = String(source || "").trim().replace(/\/+$/, "");
   const matchingRecords = listLocalWalletFileRecords(type)
     .filter((record) => {
-      if (!cleanSource && record.reserved) return false;
+      if (!cleanSource && record.reserved && !includeReserved) return false;
       return (
         !cleanSource ||
         record.source == cleanSource ||

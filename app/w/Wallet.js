@@ -261,7 +261,8 @@ function Wallet({
   let [localCustomCoinM, setLocalCustomCoinM] = useState({});
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
   let [checkingLocalWallet, setCheckingLocalWallet] = useState(
-    Boolean(requestedWallet || selectedWallet == "all") && !selectedAddress && !selectedWalletName,
+    Boolean(requestedWallet || selectedWallet == "all" || selectedWalletName) &&
+      !selectedAddress,
   );
   const basePath = String(routeBase || "/w").startsWith("/")
     ? String(routeBase || "/w").replace(/\/+$/, "") || "/w"
@@ -288,6 +289,29 @@ function Wallet({
     : localRequestedWallet
       ? effectiveRequestedWallet
       : "";
+  const localWalletName = String(selectedWalletName || "").trim();
+  const localWalletNameEntries =
+    useLocalEditorStore && localWalletName
+      ? readLocalWalletEntries(walletType, "", { includeReserved: true }).filter(
+          (entry) => entry.name == localWalletName,
+        )
+      : [];
+  const localFavWalletEntries =
+    useLocalEditorStore &&
+    !selectedAddress &&
+    !localWalletName &&
+    !effectiveRequestedWallet &&
+    selectedWallet != "all"
+      ? readLocalWalletEntries(walletType, "", { includeReserved: true }).filter(
+          (entry) =>
+            favAddrs.some(
+              (fav) =>
+                fav.type == walletType &&
+                getFavAddrKey(fav.type, fav.address) ==
+                  getFavAddrKey(walletType, entry.address),
+            ),
+        )
+      : [];
   const effectiveSelectedWallet =
     selectedWallet || (localRequestedWallet ? localRequestedWalletOption : "");
   const effectiveSelectedWalletNotFound =
@@ -317,7 +341,9 @@ function Wallet({
     ? customCoinChain
     : customCoinChains[0] || "";
   const localSettingWalletEntries = useLocalEditorStore
-    ? readLocalWalletEntries(walletType, localWalletLoadSource)
+    ? readLocalWalletEntries(walletType, localWalletLoadSource, {
+        includeReserved: Boolean(localWalletName),
+      })
     : [];
   const mergedWalletEntries = (() => {
     const seen = new Set();
@@ -541,9 +567,8 @@ function Wallet({
 
   useEffect(() => {
     setCheckingLocalWallet(
-      Boolean(requestedWallet || selectedWallet == "all") &&
-        !selectedAddress &&
-        !selectedWalletName,
+      Boolean(requestedWallet || selectedWallet == "all" || selectedWalletName) &&
+        !selectedAddress,
     );
     setLocalEditorStoreChecked(false);
   }, [requestedWallet, selectedWallet, selectedAddress, selectedWalletName, walletType]);
@@ -582,12 +607,21 @@ function Wallet({
       setCheckingLocalWallet(false);
       return;
     }
-    if (!localRequestedWallet && !localAllWallets) {
+    if (
+      !localRequestedWallet &&
+      !localAllWallets &&
+      !localWalletName &&
+      !localFavWalletEntries.length
+    ) {
       setCheckingLocalWallet(false);
       return;
     }
 
-    const entries = readLocalWalletEntries(walletType, localWalletLoadSource);
+    const entries = localWalletName
+      ? localWalletNameEntries
+      : localFavWalletEntries.length
+        ? localFavWalletEntries
+      : readLocalWalletEntries(walletType, localWalletLoadSource);
     if (!entries.length) {
       setCheckingLocalWallet(false);
       return;
@@ -634,6 +668,10 @@ function Wallet({
     localRequestedWallet,
     localAllWallets,
     localWalletLoadSource,
+    localWalletName,
+    localWalletNameEntries.length,
+    localFavWalletEntries.length,
+    JSON.stringify(favAddrs),
     localWalletVersion,
     JSON.stringify(localCustomCoinM),
     effectiveRequestedWallet,
