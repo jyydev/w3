@@ -374,6 +374,8 @@ async function WPage({
         offCoinM={offCoinM}
         walletTypeOptions={walletTypeOptions}
         walletType={selectedWalletType}
+        useAlchemy={useAlchemy}
+        alchemyMinUsd={alchemyMinUsd}
       />
       {isValidElement(afterWallet)
         ? cloneElement(afterWallet, {

@@ -13,12 +13,15 @@ import { useRouter } from "next/navigation";
 import {
   addLocalCustomCoin,
   addLocalWalletEntry,
-  listLocalEditorFiles,
+  hasLocalWalletSource,
+  listLocalWalletSources,
+  readLocalWalletEntries,
   setLocalLineFileValue,
   useLocalStorageEditor,
 } from "../browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
 import { addCustomCoin, previewCustomCoin } from "./coinActions";
+import { getLocalWalletBalanceData } from "./localWalletActions";
 import { addWalletEntry, deleteWalletEntry } from "./walletActions";
 import {
   encodeFavAddrs,
@@ -203,6 +206,8 @@ function Wallet({
   offCoinM = {},
   walletTypeOptions = walletTypeList,
   walletType = "evm",
+  useAlchemy = null,
+  alchemyMinUsd = 0.01,
 }) {
   const router = useRouter();
   const walletFileOptions = walletFiles.filter((file) => !file.endsWith("/"));
@@ -245,13 +250,37 @@ function Wallet({
   let [connectedWallet, setConnectedWallet] = useState(null);
   let [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
+  let [localWalletData, setLocalWalletData] = useState(null);
+  let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
   const basePath = String(routeBase || "/w").startsWith("/")
     ? String(routeBase || "/w").replace(/\/+$/, "") || "/w"
     : "/w";
-  const saveWalletFileOptions = [
-    ...new Set([...walletFileOptions, ...localWalletFiles]),
+  const allWalletFiles = [
+    ...new Set([...walletFiles, ...localWalletFiles]),
   ].sort((a, b) => a.localeCompare(b));
-  const chainList = Array.isArray(data) ? data : data ? [data] : [];
+  const effectiveRequestedWallet = String(requestedWallet || "").replace(/\/+$/, "");
+  const localRequestedWallet =
+    useLocalEditorStore &&
+    !!effectiveRequestedWallet &&
+    hasLocalWalletSource(walletType, effectiveRequestedWallet);
+  const effectiveSelectedWallet =
+    selectedWallet || (localRequestedWallet ? effectiveRequestedWallet : "");
+  const effectiveSelectedWalletNotFound =
+    selectedWalletNotFound && !localRequestedWallet;
+  const saveWalletFileOptions = [
+    ...new Set([
+      ...walletFileOptions,
+      ...localWalletFiles.filter((file) => !file.endsWith("/")),
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
+  const serverChainList = Array.isArray(data) ? data : data ? [data] : [];
+  const serverChainNameKey = serverChainList.map((chainE) => chainE.chain).join("|");
+  const activeData = localWalletData || data;
+  const chainList = Array.isArray(activeData)
+    ? activeData
+    : activeData
+      ? [activeData]
+      : [];
   const chainDataKey = chainList
     .map(
       (chainE) =>
@@ -279,9 +308,9 @@ function Wallet({
       getFavAddrKey(walletType, selectedAddress);
   const walletSelectValue = connectedSelected
     ? connectedWalletValue
-    : selectedWalletNotFound
+    : effectiveSelectedWalletNotFound
       ? walletNotFoundValue
-      : walletFilterValue || selectedWallet || "";
+      : walletFilterValue || effectiveSelectedWallet || "";
   const canCycleWalletType = walletTypeOptions.length > 1;
   const hasError = visibleChainList.some(
     (chainE) => chainE?.error || chainE?.rows?.some((row) => row.error),
@@ -292,7 +321,7 @@ function Wallet({
   const offCoinKey = JSON.stringify(offCoinM || {});
   const walletFileKey = walletFileOptions.join("|");
   const coinTypeOptions = getCoinTypeOptions();
-  const selectableWalletFiles = walletFiles.filter(isVisibleWalletSelectionFile);
+  const selectableWalletFiles = allWalletFiles.filter(isVisibleWalletSelectionFile);
   const specialWalletFiles = selectableWalletFiles.filter(isSpecialWalletFile);
   const normalWalletFiles = selectableWalletFiles.filter(
     (file) => !isSpecialWalletFile(file),
@@ -398,13 +427,7 @@ function Wallet({
       return;
     }
 
-    const prefix = `wallet/${walletType}/`;
-    setLocalWalletFiles(
-      listLocalEditorFiles()
-        .filter((file) => file.startsWith(prefix) && file.endsWith(".txt"))
-        .map((file) => file.slice(prefix.length).replace(/\.txt$/i, ""))
-        .sort((a, b) => a.localeCompare(b)),
-    );
+    setLocalWalletFiles(listLocalWalletSources(walletType));
   }
 
   function toggleRowSort(sortKey) {
@@ -431,6 +454,60 @@ function Wallet({
     setUseLocalEditorStore(useLocal);
     if (useLocal) refreshLocalWalletFiles();
   }, [walletType]);
+
+  useEffect(() => {
+    setLocalWalletData(null);
+    if (!useLocalEditorStore || !localRequestedWallet) return;
+
+    const entries = readLocalWalletEntries(walletType, effectiveRequestedWallet);
+    if (!entries.length) return;
+
+    let cancelled = false;
+    setLoadingLocalWallet(true);
+    getLocalWalletBalanceData({
+      walletType,
+      walletEntries: entries,
+      chains: serverChainList.map((chainE) => chainE.chain),
+      disabledCoinM: {
+        ...disabledCoinsM,
+        ...Object.fromEntries(
+          Object.entries(offCoinsM).map(([chain, coins]) => [
+            chain,
+            [...new Set([...(disabledCoinsM[chain] || []), ...(coins || [])])],
+          ]),
+        ),
+      },
+      disabledWallets: disabledWalletList,
+      disabledWalletNames: offAddrList,
+      useAlchemy,
+      alchemyMinUsd,
+    })
+      .then((nextData) => {
+        if (!cancelled) setLocalWalletData(nextData);
+      })
+      .catch((e) => {
+        if (!cancelled) toast.error(e.message || "local wallet load failed");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLocalWallet(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    useLocalEditorStore,
+    localRequestedWallet,
+    effectiveRequestedWallet,
+    walletType,
+    serverChainNameKey,
+    disabledCoinKey,
+    offCoinKey,
+    disabledWalletKey,
+    offAddrKey,
+    useAlchemy,
+    alchemyMinUsd,
+  ]);
 
   useEffect(() => {
     if (!loadingWallet) return;
@@ -681,7 +758,7 @@ function Wallet({
   function isVisibleWalletSelectionFile(file = "") {
     if (String(file).endsWith("/")) return true;
 
-    return !walletFiles.includes(`${getWalletValue(file).replace(/\/+$/, "")}/`);
+    return !allWalletFiles.includes(`${getWalletValue(file).replace(/\/+$/, "")}/`);
   }
 
   function isSpecialWalletFile(file = "") {
@@ -695,8 +772,11 @@ function Wallet({
     if (!wallet) return true;
     const files = walletFilesM[type] ?? [];
     const cleanWallet = wallet.replace(/\/+$/, "");
-    return files.some(
-      (file) => getWalletValue(file).replace(/\/+$/, "") == cleanWallet,
+    return (
+      files.some(
+        (file) => getWalletValue(file).replace(/\/+$/, "") == cleanWallet,
+      ) ||
+      (type == walletType && hasLocalWalletSource(type, cleanWallet))
     );
   }
 
@@ -1048,10 +1128,8 @@ function Wallet({
         setAddWalletFile(file);
         refreshLocalWalletFiles();
         toast.success(`saved local ${name}`);
-        if (address != selectedAddress) {
-          setLoadingWallet(true);
-          router.push(getAddressUrl(address));
-        }
+        setLoadingWallet(true);
+        router.push(getWalletUrl(file));
         return;
       }
 
@@ -1123,7 +1201,7 @@ function Wallet({
   function getWalletOptionValues() {
     return [
       ...(connectedWallet?.address ? [connectedWalletValue] : []),
-      ...(selectedWalletNotFound ? [walletNotFoundValue] : []),
+      ...(effectiveSelectedWalletNotFound ? [walletNotFoundValue] : []),
       "",
       "all",
       ...specialWalletFiles.map(getWalletValue),
@@ -2115,7 +2193,7 @@ function Wallet({
                   {shortAddr(connectedWallet.address)}
                 </option>
               )}
-              {selectedWalletNotFound && (
+              {effectiveSelectedWalletNotFound && (
                 <option value={walletNotFoundValue}>
                   not found{requestedWallet ? `: ${requestedWallet}` : ""}
                 </option>
@@ -2130,12 +2208,12 @@ function Wallet({
                   </option>
                 );
               })}
-              {!selectedWallet && selectedWalletName && (
+              {!effectiveSelectedWallet && selectedWalletName && (
                 <option value={walletFilterValue}>
                   w: {selectedWalletName}
                 </option>
               )}
-              {!selectedWallet && !selectedWalletName && selectedAddress && (
+              {!effectiveSelectedWallet && !selectedWalletName && selectedAddress && (
                 <option value={walletFilterValue}>
                   addr: {shortAddr(selectedAddress)}
                 </option>
@@ -2156,7 +2234,9 @@ function Wallet({
             >
               {">"}
             </button>
-            {loadingWallet && <span className="yellow">loading...</span>}
+            {(loadingWallet || loadingLocalWallet) && (
+              <span className="yellow">loading...</span>
+            )}
             <span>coins:</span>
             <button
               className="btn small bgGray"

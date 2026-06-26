@@ -150,6 +150,83 @@ export function addLocalWalletEntry({
   return { ok: 1, file, name: cleanName };
 }
 
+function getLocalWalletPrefix(walletType = "evm") {
+  return `wallet/${walletType == "solana" ? "solana" : "evm"}/`;
+}
+
+function getLocalWalletSource(file, walletType = "evm") {
+  return String(file || "")
+    .replace(getLocalWalletPrefix(walletType), "")
+    .replace(/\.txt$/i, "");
+}
+
+export function listLocalWalletSources(walletType = "evm") {
+  const prefix = getLocalWalletPrefix(walletType);
+  const files = Object.keys(readLocalEditorFiles()).filter(
+    (file) => file.startsWith(prefix) && file.endsWith(".txt"),
+  );
+  const folders = files
+    .map((file) => getLocalWalletSource(file, walletType).split("/").slice(0, -1).join("/"))
+    .filter(Boolean)
+    .map((dir) => `${dir}/`);
+
+  return [
+    ...new Set([
+      ...folders,
+      ...files.map((file) => getLocalWalletSource(file, walletType)),
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+export function hasLocalWalletSource(walletType = "evm", source = "") {
+  const cleanSource = String(source || "").trim().replace(/\/+$/, "");
+  if (!cleanSource) return false;
+
+  return listLocalWalletSources(walletType).some(
+    (file) => file.replace(/\/+$/, "") == cleanSource,
+  );
+}
+
+export function readLocalWalletEntries(walletType = "evm", source = "") {
+  const type = walletType == "solana" ? "solana" : "evm";
+  const prefix = getLocalWalletPrefix(type);
+  const cleanSource = String(source || "").trim().replace(/\/+$/, "");
+  const files = readLocalEditorFiles();
+  const matchingFiles = Object.keys(files)
+    .filter((file) => file.startsWith(prefix) && file.endsWith(".txt"))
+    .filter((file) => {
+      const walletSource = getLocalWalletSource(file, type);
+      return (
+        !cleanSource ||
+        walletSource == cleanSource ||
+        walletSource.startsWith(`${cleanSource}/`)
+      );
+    })
+    .sort((a, b) => a.localeCompare(b));
+  const usedNames = new Set();
+
+  return matchingFiles.flatMap((file) => {
+    const walletSource = getLocalWalletSource(file, type);
+    return parseWalletLines(files[file]).map((entry) => {
+      let name = entry.name;
+      const baseName = name;
+      let i = 2;
+      while (usedNames.has(name)) {
+        name = `${baseName}_${i}`;
+        i += 1;
+      }
+      usedNames.add(name);
+
+      return {
+        ...entry,
+        name,
+        source: walletSource,
+        label: walletSource ? `${walletSource}/${entry.name}` : entry.name,
+      };
+    });
+  });
+}
+
 export function addLocalCustomCoin({ chain = "", coin = "", entry = {} } = {}) {
   const cleanChain = String(chain || "").trim();
   const cleanCoin = String(coin || "").trim();
