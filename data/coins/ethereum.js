@@ -72,6 +72,13 @@ const ethereum = {
     name: "sky.money USDS Risk Capital",
     type: "yield",
   },
+  spUSDC: {
+    address: "0x28B3a8fb53B741A8Fd78c0fb9A6B2393d896a43d",
+    decimals: 6,
+    name: "Spark Savings USDC",
+    type: "yield"
+  },
+
 };
 
 export default ethereum;
