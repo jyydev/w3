@@ -68,6 +68,8 @@ const venusTokenAbi = [
   "function comptroller() view returns (address)",
   "function underlying() view returns (address)",
   "function exchangeRateStored() view returns (uint256)",
+  "function supplyRatePerBlock() view returns (uint256)",
+  "function supplyRatePerTimestamp() view returns (uint256)",
   "function mint(uint256 mintAmount) returns (uint256)",
   "function redeem(uint256 redeemTokens) returns (uint256)",
 ];
@@ -83,6 +85,13 @@ const venusMarketFetchTimeoutMs = 15000;
 const venusTokenMetaTimeoutMs = 8000;
 const venusMarketFetchConcurrency = 8;
 const venusGoodMarketRatio = 0.8;
+const venusBlocksPerYearM = {
+  Arbitrum: 126144000,
+  BSC: 10512000,
+  Ethereum: 2628000,
+  Optimism: 15768000,
+  zkSyncEra: 31536000,
+};
 
 export async function getTradeCoinPrice(args) {
   return getTradeCoinPriceShared(args);
@@ -126,6 +135,45 @@ async function mapWithConcurrency(items = [], limit = 3, fn) {
   }
 
   return results;
+}
+
+function getAaveRateApr(rate = 0n) {
+  try {
+    const apr = Number(ethers.formatUnits(BigInt(rate || 0), 25));
+    return Number.isFinite(apr) ? apr : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getVenusRateApr(rate = 0n, multiplier = 0) {
+  try {
+    if (!multiplier) return 0;
+    const rawRate = Number(ethers.formatUnits(BigInt(rate || 0), 18));
+    const apr = rawRate * multiplier * 100;
+    return Number.isFinite(apr) ? apr : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function getVenusSupplyApr(vToken, chain = "") {
+  const blocksPerYear = venusBlocksPerYearM[chain] || 2628000;
+  const blockRate = await withTimeout(
+    vToken.supplyRatePerBlock(),
+    venusTokenMetaTimeoutMs,
+    `${chain} Venus supply APR timeout`,
+  ).catch(() => null);
+  if (blockRate !== null) return getVenusRateApr(blockRate, blocksPerYear);
+
+  const timestampRate = await withTimeout(
+    vToken.supplyRatePerTimestamp(),
+    venusTokenMetaTimeoutMs,
+    `${chain} Venus supply APR timeout`,
+  ).catch(() => null);
+  if (timestampRate !== null) return getVenusRateApr(timestampRate, 31536000);
+
+  return 0;
 }
 
 function getUsableChainRpcs(chain = "") {
@@ -256,6 +304,12 @@ export async function getAaveAllMarkets({ chain = "" } = {}) {
               lendDecimals: lendMeta.decimals,
               addedUnderlying: !!addedUnderlying,
               addedLend: !!addedLend,
+              supplyApr: getAaveRateApr(
+                reserve.currentLiquidityRate || reserve[2],
+              ),
+              variableBorrowApr: getAaveRateApr(
+                reserve.currentVariableBorrowRate || reserve[4],
+              ),
               metaFallback,
             };
           },
@@ -500,11 +554,14 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
             ).catch(() => "");
             if (!ethers.isAddress(underlyingAddress)) return null;
 
-            const exchangeRateRaw = await withTimeout(
-              vToken.exchangeRateStored(),
-              venusTokenMetaTimeoutMs,
-              `${chain} Venus exchange rate timeout`,
-            ).catch(() => 0n);
+            const [exchangeRateRaw, supplyApr] = await Promise.all([
+              withTimeout(
+                vToken.exchangeRateStored(),
+                venusTokenMetaTimeoutMs,
+                `${chain} Venus exchange rate timeout`,
+              ).catch(() => 0n),
+              getVenusSupplyApr(vToken, chain),
+            ]);
             const [underlyingMeta, lendMeta] = await Promise.all([
               getTokenMeta(provider, underlyingAddress, chain),
               getTokenMeta(provider, lendAddress, chain),
@@ -536,6 +593,7 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
                 : 0,
               addedUnderlying: !!addedUnderlying,
               addedLend: !!addedLend,
+              supplyApr,
               metaFallback,
             };
           },

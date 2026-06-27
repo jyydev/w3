@@ -9,7 +9,7 @@ import ethereumIcon from "@/data/img/ethereum.svg";
 import solanaIcon from "@/data/img/solana.svg";
 import { pc } from "@/fn/basic";
 import permanentCoinM from "@/fn/coinM";
-import { ckPrefix, walletNotes } from "@/sets";
+import { ckPrefix, scanners, walletNotes } from "@/sets";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
 import {
@@ -2348,6 +2348,15 @@ function Wallet({
     const entry = customCoinPreview.entry || {};
     const typeSelectWidth =
       Math.max(...coinTypeOptions.map((type) => type.length), 5) + 2;
+    const confirmChainE =
+      chainList.find((chainE) => chainE.chain == customCoinPreview.chain) ||
+      (scanners?.[customCoinPreview.chain]
+        ? {
+            chain: customCoinPreview.chain,
+            scanner: scanners[customCoinPreview.chain],
+          }
+        : null);
+    const addressUrl = getScannerTokenUrl(confirmChainE, entry.address);
 
     return (
       <div className="walletCoinConfirmBackdrop">
@@ -2364,9 +2373,21 @@ function Wallet({
             <span className="white">{customCoinPreview.chain}</span>
 
             <span className="gray">address</span>
-            <span className="walletCoinConfirmAddress" title={entry.address}>
-              {entry.address}
-            </span>
+            {addressUrl ? (
+              <a
+                className="walletCoinConfirmAddress"
+                href={addressUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={entry.address}
+              >
+                {entry.address}
+              </a>
+            ) : (
+              <span className="walletCoinConfirmAddress" title={entry.address}>
+                {entry.address}
+              </span>
+            )}
 
             <span className="gray">decimals</span>
             <span className="white">{entry.decimals ?? "-"}</span>

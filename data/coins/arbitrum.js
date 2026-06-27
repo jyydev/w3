@@ -12,6 +12,12 @@ const arbitrum = {
     name: "Tether USD",
     type: "stablecoin",
   },
+  USDS: {
+    address: "0x6491c05A82219b8D1479057361ff1654749b876b",
+    decimals: 18,
+    name: "USDS Stablecoin",
+    type: "stablecoin",
+  },
   sUSDS: {
     address: "0xdDb46999F8891663a8F2828d25298f70416d7610",
     decimals: 18,

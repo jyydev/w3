@@ -2,7 +2,7 @@
 
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
-import { dexs, lendings, scanners } from "@/sets";
+import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
   sendSolanaRawTransaction,
@@ -11,6 +11,8 @@ import {
 
 export const tradeShowCookie = "w3_trade_show";
 export const tradeRightPaneCookie = "w3_trade_right_pane";
+export const tradeLeftPaneCookie = "w3_trade_left_pane";
+export const tradeRightPaneSelectCookie = "w3_trade_right_pane_select";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
 const eip6963ProviderDetails = [];
 let eip6963Listening = false;
@@ -42,6 +44,13 @@ export const lendingOptions = (Array.isArray(lendings) ? lendings : [])
     label: String(entry.label),
   }));
 export const noLending = { value: "", label: "DeFi" };
+export const yieldOptions = (Array.isArray(yields) ? yields : [])
+  .filter((entry) => entry?.value && entry?.label)
+  .map((entry) => ({
+    value: String(entry.value),
+    label: String(entry.label),
+  }));
+export const noYield = { value: "", label: "Yield" };
 
 function uniqueProviders(providers = []) {
   const seen = new Set();

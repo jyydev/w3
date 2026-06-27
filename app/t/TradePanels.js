@@ -19,6 +19,7 @@ import { favAddrCookie, getFavAddrKey, parseFavAddrs } from "../w/favAddrs";
 import LendPanel from "./_lend/Lend";
 import SendPanel from "./_send/Send";
 import SwapPanel from "./_swap/Swap";
+import YieldPanel from "./_yield/Yield";
 import {
   cookieMaxAge,
   findWalletEntryByAddress,
@@ -26,6 +27,8 @@ import {
   getWalletOptions,
   sameAddress,
   tradeRightPaneCookie,
+  tradeLeftPaneCookie,
+  tradeRightPaneSelectCookie,
   shortAddress,
   tradeShowCookie,
 } from "./sharedClient";
@@ -117,7 +120,7 @@ function TradePanels({
   walletType = "evm",
 }) {
   const router = useRouter();
-  const tradeTypes = ["Swap", "Lend", "Send"];
+  const tradeTypes = ["Swap", "Lend", "Yield", "Send"];
   const paneTypes = tradeTypes;
   const [connectedWallet, setConnectedWallet] = useState(null);
   const [localWalletEntriesM, setLocalWalletEntriesM] = useState({
@@ -301,6 +304,7 @@ function TradePanels({
   const [pane, setPane] = useState(
     paneTypes.includes("Lend") ? "Lend" : paneTypes[0],
   );
+  const [paneCookiesLoaded, setPaneCookiesLoaded] = useState(false);
   const [wallet, setWallet] = useState(wallets[0]?.value || "");
   const [connectedAutoSelected, setConnectedAutoSelected] = useState(false);
   const selectedIndex = Math.max(
@@ -482,7 +486,26 @@ function TradePanels({
     if (rightPaneCookie !== undefined) {
       setShowRightPane(rightPaneCookie == "1");
     }
+    const leftPaneCookie = getCookie(tradeLeftPaneCookie);
+    const rightPaneSelectCookie = getCookie(tradeRightPaneSelectCookie);
+    if (tradeTypes.includes(leftPaneCookie)) setTradeType(leftPaneCookie);
+    if (paneTypes.includes(rightPaneSelectCookie)) setPane(rightPaneSelectCookie);
+    setPaneCookiesLoaded(true);
   }, []);
+
+  useEffect(() => {
+    if (!paneCookiesLoaded || !tradeTypes.includes(tradeType)) return;
+    setCookie(tradeLeftPaneCookie, tradeType, {
+      maxAge: cookieMaxAge,
+    });
+  }, [paneCookiesLoaded, tradeType]);
+
+  useEffect(() => {
+    if (!paneCookiesLoaded || !paneTypes.includes(pane)) return;
+    setCookie(tradeRightPaneSelectCookie, pane, {
+      maxAge: cookieMaxAge,
+    });
+  }, [pane, paneCookiesLoaded]);
 
   function cycleWallet(direction) {
     if (wallets.length < 2) return;
@@ -540,6 +563,16 @@ function TradePanels({
       />
     ) : panelType == "Lend" ? (
       <LendPanel
+        data={effectiveData}
+        selectedWalletEntry={selectedWalletEntry}
+        tradeType={panelType}
+        tradeTypes={tradeTypes}
+        onTradeTypeChange={setPanelType}
+        onCycleTradeType={cyclePanelType}
+        onTxComplete={refreshWalletBalances}
+      />
+    ) : panelType == "Yield" ? (
+      <YieldPanel
         data={effectiveData}
         selectedWalletEntry={selectedWalletEntry}
         tradeType={panelType}

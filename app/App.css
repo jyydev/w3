@@ -275,11 +275,16 @@ td {
   gap: 6px;
 }
 .walletCoinConfirmAddress {
+  display: inline-block;
   max-width: min(420px, 68vw);
   overflow: hidden;
   color: white;
+  text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+a.walletCoinConfirmAddress:hover {
+  text-decoration: underline;
 }
 .walletCoinConfirmBtns {
   display: flex;
@@ -1217,30 +1222,34 @@ span.chainIcon {
   max-width: min(860px, 94vw);
 }
 .lendMarketAllItem {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 6ch 16px 10ch 16px auto;
+  column-gap: 2px;
   align-items: center;
-  justify-content: space-between;
+  width: max-content;
   min-width: 0;
 }
-.lendMarketAllTokens {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
+.lendMarketAllItem > .btn {
+  min-width: 16px;
+  padding-left: 3px;
+  padding-right: 3px;
 }
-.lendMarketAllToken {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px;
+.lendSelectedApr {
+  display: inline-flex;
   align-items: center;
-  min-width: 0;
+  margin-left: 4px;
+  min-height: 20px;
+}
+.lendApr {
+  color: var(--gray);
+  font-size: 12px;
+  margin-left: 2px;
+  white-space: nowrap;
 }
 .lendMarketAllSelect {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 0;
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
@@ -1251,6 +1260,25 @@ span.chainIcon {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.lendMarketAllLendSelect {
+  margin-left: 4px;
+}
+.lendMarketCoinHover {
+  display: block;
+  min-width: 0;
+}
+.lendMarketCoinHover .infoCard {
+  top: 0;
+  left: 100%;
+  margin-left: 6px;
+}
+.lendMarketCoinHover .infoCard::before {
+  top: 0;
+  left: -6px;
+  right: auto;
+  width: 6px;
+  height: 100%;
 }
 .lendMarketAllToken .lendMarketAllSelect {
   display: block;

@@ -15,6 +15,10 @@ exports.lendings = [
   { value: "venus", label: "Venus" },
 ];
 
+exports.yields = [
+  { value: "spark", label: "Spark" },
+];
+
 exports.sets = {
   useAlchemy: 1,
   alchemyMinUsd: 0.01,

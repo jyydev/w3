@@ -4,17 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import {
-  buildAaveLendTxs,
-  buildVenusLendTxs,
-  executeAaveLend,
-  executeVenusLend,
-  getAaveAllMarkets,
-  getAaveLendPreview,
-  getAaveMarketBalance,
+  buildSparkLendTxs,
+  executeSparkLend,
+  getSparkAllMarkets,
+  getSparkLendPreview,
+  getSparkMarketBalance,
   getTradeCoinPrice,
-  getVenusAllMarkets,
-  getVenusLendPreview,
-  getVenusMarketBalance,
 } from "./act";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
@@ -28,9 +23,9 @@ import {
   fmtRate,
   getChainCoins,
   inputQty,
-  lendingOptions,
+  yieldOptions as lendingOptions,
   nextValue,
-  noLending,
+  noYield as noLending,
   normalizeQtyInput,
   priceKey,
   readQtyInput,
@@ -42,22 +37,38 @@ import {
 
 function isProtocolCoin(protocol, coin, coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
-  if (coinE.type != "lending") return false;
-  if (protocol == "aave") return text.includes("aave") || /^a[A-Z]/.test(coin);
-  if (protocol == "venus") {
+  if (protocol == "spark") {
     return (
-      /^v[A-Z]/.test(coin) ||
-      (text.includes("venus") && !/^f[A-Z]/.test(coin))
+      coinE.type == "yield" &&
+      (text.includes("spark") ||
+        text.includes("savings") ||
+        text.includes("susds") ||
+        /^sp[A-Z]/.test(coin))
     );
   }
 
   return false;
 }
 
+const sparkSupportedChains = new Set([
+  "Ethereum",
+  "Arbitrum",
+  "Avalanche",
+  "Base",
+  "Optimism",
+]);
+
 function getUnderlyingCoin(chainE, lendCoin) {
   const coinInfoM = chainE?.coinInfoM || {};
   const lendE = coinInfoM[lendCoin] || {};
   const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
+  const savingsNameMatch = String(lendE.name || "").match(
+    /\bsavings\s+([a-z0-9.]+)/i,
+  );
+  if (savingsNameMatch?.[1]) return savingsNameMatch[1].toUpperCase();
+  if (/^sp[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(2);
+  if (/^s[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
+
   const candidates = getChainCoins(chainE)
     .filter((coin) => coin != lendCoin)
     .filter((coin) => coinInfoM[coin]?.type != "lending")
@@ -111,7 +122,7 @@ function sameAddressText(a = "", b = "") {
 }
 
 function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
-  if (defi != "aave" && defi != "venus") return 0;
+  if (defi != "spark") return 0;
   if (marketE?.supplyApr) return toNum(marketE.supplyApr);
 
   const lendAddress =
@@ -179,37 +190,6 @@ function withClientTimeout(promise, ms, message) {
   ]).finally(() => clearTimeout(timer));
 }
 
-const aaveConfiguredChainSet = new Set([
-  "Ethereum",
-  "EthereumEtherFi",
-  "EthereumHorizon",
-  "EthereumLido",
-  "BSC",
-  "BNB",
-  "Arbitrum",
-  "Avalanche",
-  "Optimism",
-  "Polygon",
-  "Base",
-  "Celo",
-  "Fantom",
-  "Gnosis",
-  "Harmony",
-  "Ink",
-  "Linea",
-  "Mantle",
-  "MegaEth",
-  "Metis",
-  "Monad",
-  "Plasma",
-  "Scroll",
-  "Soneium",
-  "Sonic",
-  "XLayer",
-  "ZkSync",
-  "zkSyncEra",
-]);
-
 function getSelectedBalance(chainE, coin, selectedWalletEntry) {
   if (!chainE || !coin || !selectedWalletEntry) return {};
 
@@ -222,6 +202,10 @@ function getSelectedBalance(chainE, coin, selectedWalletEntry) {
   return row?.balances?.[coin] || {};
 }
 
+function hasLoadedBalance(balance = {}) {
+  return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
+}
+
 function getExplorerAddressUrl(chain = "", address = "") {
   const scanner = scanners?.[chain];
   if (!scanner || !address) return "";
@@ -229,7 +213,7 @@ function getExplorerAddressUrl(chain = "", address = "") {
   return `${String(scanner).replace(/\/+$/, "")}/address/${address}`;
 }
 
-export default function LendPanel({
+export default function YieldPanel({
   data = [],
   selectedWalletEntry,
   tradeType,
@@ -259,14 +243,10 @@ export default function LendPanel({
   const [lendResult, setLendResult] = useState(null);
   const [autoApproval, setAutoApproval] = useState(false);
   const [showMarketMenu, setShowMarketMenu] = useState(false);
-  const [aaveAllMarketM, setAaveAllMarketM] = useState({});
-  const [aaveAllLoadingM, setAaveAllLoadingM] = useState({});
-  const [aaveAllErrorM, setAaveAllErrorM] = useState({});
-  const [aaveAllRetryTick, setAaveAllRetryTick] = useState(0);
-  const [venusAllMarketM, setVenusAllMarketM] = useState({});
-  const [venusAllLoadingM, setVenusAllLoadingM] = useState({});
-  const [venusAllErrorM, setVenusAllErrorM] = useState({});
-  const [venusAllRetryTick, setVenusAllRetryTick] = useState(0);
+  const [sparkAllMarketM, setSparkAllMarketM] = useState({});
+  const [sparkAllLoadingM, setSparkAllLoadingM] = useState({});
+  const [sparkAllErrorM, setSparkAllErrorM] = useState({});
+  const [sparkAllRetryTick, setSparkAllRetryTick] = useState(0);
   const [directBalanceM, setDirectBalanceM] = useState({});
   const [directBalanceLoadingM, setDirectBalanceLoadingM] = useState({});
   const [customCoinPreview, setCustomCoinPreview] = useState(null);
@@ -289,15 +269,15 @@ export default function LendPanel({
     );
   }, [chainList, defi]);
   const marketChains = useMemo(
-    () =>
-      chainList
-        .filter((chainE) =>
-          defi == "aave"
-            ? aaveConfiguredChainSet.has(chainE.chain) ||
-              chainMarketsM[chainE.chain]?.length
-            : chainMarketsM[chainE.chain]?.length,
+    () => {
+      return chainList
+        .filter(
+          (chainE) =>
+            chainMarketsM[chainE.chain]?.length ||
+            (defi == "spark" && sparkSupportedChains.has(chainE.chain)),
         )
-        .map((chainE) => chainE.chain),
+        .map((chainE) => chainE.chain);
+    },
     [chainList, chainMarketsM, defi],
   );
   const activeChain = marketChains.includes(chain) ? chain : marketChains[0] || "";
@@ -322,9 +302,9 @@ export default function LendPanel({
     }
     return entries;
   }, [chainE?.coinInfoM]);
-  const aaveAllKey = chainE?.chain || "";
-  const rawAaveAllMarkets = aaveAllMarketM[aaveAllKey] || [];
-  const aaveAllMarkets = rawAaveAllMarkets
+  const sparkAllKey = chainE?.chain || "";
+  const rawSparkAllMarkets = sparkAllMarketM[sparkAllKey] || [];
+  const sparkAllMarkets = rawSparkAllMarkets
     .map((entry) => {
       const addressKey = String(entry.lendAddress || "").toLowerCase();
       const underlyingAddressKey = String(entry.underlyingAddress || "").toLowerCase();
@@ -332,11 +312,11 @@ export default function LendPanel({
       const addedUnderlying =
         entry.addedUnderlying ||
         !!addedCoinAddressM[underlyingAddressKey] ||
-        !!locallyAddedAddressM[`${aaveAllKey}:${underlyingAddressKey}`];
+        !!locallyAddedAddressM[`${sparkAllKey}:${underlyingAddressKey}`];
       const addedLend =
         entry.addedLend ||
         !!addedValue ||
-        !!locallyAddedAddressM[`${aaveAllKey}:${addressKey}`];
+        !!locallyAddedAddressM[`${sparkAllKey}:${addressKey}`];
 
       return {
         ...entry,
@@ -346,55 +326,27 @@ export default function LendPanel({
       };
     })
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
-  const aaveAllLoading = !!aaveAllLoadingM[aaveAllKey];
-  const aaveAllError = aaveAllErrorM[aaveAllKey] || "";
-  const venusAllKey = chainE?.chain || "";
-  const rawVenusAllMarkets = venusAllMarketM[venusAllKey] || [];
-  const venusAllMarkets = rawVenusAllMarkets
+  const sparkAllLoading = !!sparkAllLoadingM[sparkAllKey];
+  const sparkAllError = sparkAllErrorM[sparkAllKey] || "";
+  const sparkAddedMarkets = rawSparkAllMarkets
     .map((entry) => {
       const addressKey = String(entry.lendAddress || "").toLowerCase();
-      const underlyingAddressKey = String(entry.underlyingAddress || "").toLowerCase();
-      const addedValue = addedMarketAddressM[addressKey] || "";
-      const addedUnderlying =
-        entry.addedUnderlying ||
-        !!addedCoinAddressM[underlyingAddressKey] ||
-        !!locallyAddedAddressM[`${venusAllKey}:${underlyingAddressKey}`];
-      const addedLend =
-        entry.addedLend ||
-        !!addedValue ||
-        !!locallyAddedAddressM[`${venusAllKey}:${addressKey}`];
+      const addedValue = addedMarketAddressM[addressKey] || entry.value;
 
       return {
         ...entry,
-        addedUnderlying,
-        addedLend,
         addedValue,
       };
     })
-    .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
-  const venusAllLoading = !!venusAllLoadingM[venusAllKey];
-  const venusAllError = venusAllErrorM[venusAllKey] || "";
-  const visibleAddedMarkets = addedMarkets;
-  const allMarkets =
-    defi == "aave"
-      ? aaveAllMarkets
-      : defi == "venus"
-        ? venusAllMarkets
-        : [];
-  const allLoading =
-    defi == "aave"
-      ? aaveAllLoading
-      : defi == "venus"
-        ? venusAllLoading
-        : false;
-  const allError =
-    defi == "aave"
-      ? aaveAllError
-      : defi == "venus"
-        ? venusAllError
-        : "";
-  const hasProtocolAllMarkets = defi == "aave" || defi == "venus";
-  const allProtocolLabel = defi == "venus" ? "Venus" : "Aave";
+    .filter((entry) => addedCoinAddressM[String(entry.lendAddress || "").toLowerCase()]);
+  const visibleAddedMarkets = sparkAddedMarkets.length
+    ? sparkAddedMarkets
+    : addedMarkets;
+  const allMarkets = sparkAllMarkets;
+  const allLoading = sparkAllLoading;
+  const allError = sparkAllError;
+  const hasProtocolAllMarkets = true;
+  const allProtocolLabel = "Spark";
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
@@ -403,10 +355,7 @@ export default function LendPanel({
     chainE,
     defi,
     marketE,
-    rawMarkets:
-      defi == "venus"
-        ? rawVenusAllMarkets
-        : rawAaveAllMarkets,
+    rawMarkets: rawSparkAllMarkets,
   });
   const marketButtonWidth = useMemo(() => {
     const maxLabelLength = Math.max(
@@ -427,8 +376,11 @@ export default function LendPanel({
   const underlyingCoin = marketE?.underlyingCoin || "";
   const lendCoin = marketE?.lendCoin || "";
   const lendName = marketE?.lendName || lendCoin;
+  const marketMatchesActiveChain =
+    !marketE?.chain || marketE.chain == chainE?.chain;
   const usesDirectMarket =
     hasProtocolAllMarkets &&
+    marketMatchesActiveChain &&
     !!marketE?.underlyingAddress &&
     !!marketE?.lendAddress;
   const directBalanceKey = usesDirectMarket
@@ -452,14 +404,28 @@ export default function LendPanel({
     lendCoin,
     selectedWalletEntry,
   );
+  const hasLocalUnderlyingBalance = hasLoadedBalance(localUnderlyingBalance);
+  const hasLocalReceiptBalance = hasLoadedBalance(localReceiptBalance);
+  const needsDirectBalance =
+    usesDirectMarket && (!hasLocalUnderlyingBalance || !hasLocalReceiptBalance);
   const underlyingBalance =
-    usesDirectMarket && directBalance.underlying
+    !hasLocalUnderlyingBalance && directBalance.underlying
       ? directBalance.underlying
       : localUnderlyingBalance;
   const receiptBalance =
-    usesDirectMarket && directBalance.lend
+    !hasLocalReceiptBalance && directBalance.lend
       ? directBalance.lend
       : localReceiptBalance;
+  const showUnderlyingBalanceLoading =
+    directBalanceLoading &&
+    needsDirectBalance &&
+    !hasLocalUnderlyingBalance &&
+    !directBalance.underlying;
+  const showReceiptBalanceLoading =
+    directBalanceLoading &&
+    needsDirectBalance &&
+    !hasLocalReceiptBalance &&
+    !directBalance.lend;
   const maxUnderlying = toNum(underlyingBalance.balance);
   const maxReceipt = toNum(receiptBalance.balance);
   const underlyingPriceKey = priceKey(chainE?.chain || "", underlyingCoin);
@@ -469,7 +435,7 @@ export default function LendPanel({
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    defi == "venus" ? toNum(marketPreview?.receiptPerUnderlying) : 0;
+    defi == "spark" ? toNum(marketPreview?.receiptPerUnderlying) : 0;
   const underlyingListPrice = toNum(underlyingBalance.price);
   const receiptListPrice = toNum(receiptBalance.price);
   const underlyingFallbackPrice = fallbackPriceM[underlyingPriceKey];
@@ -479,14 +445,12 @@ export default function LendPanel({
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
-    (defi == "venus" && underlyingPrice && marketReceiptRate
+    (defi == "spark" && underlyingPrice && marketReceiptRate
       ? underlyingPrice / marketReceiptRate
       : 0);
   const receiptRate =
-    defi == "aave"
-      ? 1
-      : defi == "venus" && marketReceiptRate
-        ? marketReceiptRate
+    defi == "spark" && marketReceiptRate
+      ? marketReceiptRate
       : underlyingPrice && receiptPrice
         ? underlyingPrice / receiptPrice
         : 1;
@@ -542,13 +506,16 @@ export default function LendPanel({
 
   useEffect(() => {
     const marketExists =
-      markets.some((entry) => entry.value == market) ||
-      allMarkets.some((entry) => entry.value == market);
+      visibleAddedMarkets.some((entry) => entry.value == market) ||
+      allMarkets.some((entry) => entry.value == market) ||
+      (!hasProtocolAllMarkets && markets.some((entry) => entry.value == market));
 
-    if (visibleAddedMarkets.length && !marketExists) {
+    if ((visibleAddedMarkets.length || allMarkets.length) && !marketExists) {
       setMarket(
         (hasProtocolAllMarkets ? visibleAddedMarkets[0] : null)?.value ||
-          visibleAddedMarkets[0].value,
+          visibleAddedMarkets[0]?.value ||
+          allMarkets[0]?.value ||
+          "",
       );
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
@@ -584,92 +551,50 @@ export default function LendPanel({
   }, []);
 
   useEffect(() => {
-    if (defi != "aave" || !showMarketMenu || !aaveAllKey) return;
-    if (aaveAllMarketM[aaveAllKey] !== undefined || aaveAllLoadingM[aaveAllKey]) {
+    if (defi != "spark" || !sparkAllKey) return;
+    if (sparkAllMarketM[sparkAllKey] !== undefined || sparkAllLoadingM[sparkAllKey]) {
       return;
     }
 
-    setAaveAllLoadingM((loadingM) => ({ ...loadingM, [aaveAllKey]: true }));
-    setAaveAllErrorM((errorM) => ({ ...errorM, [aaveAllKey]: "" }));
+    setSparkAllLoadingM((loadingM) => ({ ...loadingM, [sparkAllKey]: true }));
+    setSparkAllErrorM((errorM) => ({ ...errorM, [sparkAllKey]: "" }));
     withClientTimeout(
-      getAaveAllMarkets({ chain: aaveAllKey }),
-      aaveAllKey == "Ethereum" ? 45000 : 25000,
-      `${aaveAllKey} Aave loading timeout`,
+      getSparkAllMarkets({ chain: sparkAllKey }),
+      25000,
+      `${sparkAllKey} Spark loading timeout`,
     )
       .then((res) => {
         if (!mountedRef.current) return;
-        setAaveAllMarketM((marketM) => ({
+        setSparkAllMarketM((marketM) => ({
           ...marketM,
-          [aaveAllKey]: Array.isArray(res?.markets) ? res.markets : [],
+          [sparkAllKey]: Array.isArray(res?.markets) ? res.markets : [],
         }));
       })
       .catch((e) => {
         if (!mountedRef.current) return;
-        setAaveAllMarketM((marketM) => ({ ...marketM, [aaveAllKey]: [] }));
-        setAaveAllErrorM((errorM) => ({
+        setSparkAllMarketM((marketM) => ({ ...marketM, [sparkAllKey]: [] }));
+        setSparkAllErrorM((errorM) => ({
           ...errorM,
-          [aaveAllKey]: e?.message || "Aave markets failed",
+          [sparkAllKey]: e?.message || "Spark markets failed",
         }));
       })
       .finally(() => {
         if (!mountedRef.current) return;
-        setAaveAllLoadingM((loadingM) => ({
+        setSparkAllLoadingM((loadingM) => ({
           ...loadingM,
-          [aaveAllKey]: false,
-        }));
-      });
-  }, [
-    aaveAllKey,
-    aaveAllRetryTick,
-    defi,
-    showMarketMenu,
-  ]);
-
-  useEffect(() => {
-    if (defi != "venus" || !showMarketMenu || !venusAllKey) return;
-    if (venusAllMarketM[venusAllKey] !== undefined || venusAllLoadingM[venusAllKey]) {
-      return;
-    }
-
-    setVenusAllLoadingM((loadingM) => ({ ...loadingM, [venusAllKey]: true }));
-    setVenusAllErrorM((errorM) => ({ ...errorM, [venusAllKey]: "" }));
-    withClientTimeout(
-      getVenusAllMarkets({ chain: venusAllKey }),
-      45000,
-      `${venusAllKey} Venus loading timeout`,
-    )
-      .then((res) => {
-        if (!mountedRef.current) return;
-        setVenusAllMarketM((marketM) => ({
-          ...marketM,
-          [venusAllKey]: Array.isArray(res?.markets) ? res.markets : [],
-        }));
-      })
-      .catch((e) => {
-        if (!mountedRef.current) return;
-        setVenusAllMarketM((marketM) => ({ ...marketM, [venusAllKey]: [] }));
-        setVenusAllErrorM((errorM) => ({
-          ...errorM,
-          [venusAllKey]: e?.message || "Venus markets failed",
-        }));
-      })
-      .finally(() => {
-        if (!mountedRef.current) return;
-        setVenusAllLoadingM((loadingM) => ({
-          ...loadingM,
-          [venusAllKey]: false,
+          [sparkAllKey]: false,
         }));
       });
   }, [
     defi,
-    showMarketMenu,
-    venusAllKey,
-    venusAllRetryTick,
+    sparkAllKey,
+    sparkAllRetryTick,
   ]);
 
   useEffect(() => {
     if (
       !usesDirectMarket ||
+      !needsDirectBalance ||
       !directBalanceKey ||
       !selectedWalletEntry?.address ||
       directBalanceM[directBalanceKey] ||
@@ -683,10 +608,8 @@ export default function LendPanel({
       ...loadingM,
       [directBalanceKey]: true,
     }));
-    const getMarketBalance =
-      defi == "venus" ? getVenusMarketBalance : getAaveMarketBalance;
     withClientTimeout(
-      getMarketBalance({
+      getSparkMarketBalance({
         walletAddress: selectedWalletEntry.address,
         chain: chainE.chain,
         underlyingAddress: marketE.underlyingAddress,
@@ -695,7 +618,7 @@ export default function LendPanel({
         lendDecimals: marketE.lendDecimals,
       }),
       12000,
-      `${chainE.chain} ${defi == "venus" ? "Venus" : "Aave"} balance timeout`,
+      `${chainE.chain} Spark balance timeout`,
     )
       .then((res) => {
         if (cancelled) return;
@@ -733,13 +656,14 @@ export default function LendPanel({
     marketE?.lendDecimals,
     marketE?.underlyingAddress,
     marketE?.underlyingDecimals,
+    needsDirectBalance,
     selectedWalletEntry?.address,
     usesDirectMarket,
   ]);
 
   useEffect(() => {
     if (
-      defi != "venus" ||
+      defi != "spark" ||
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
@@ -754,7 +678,7 @@ export default function LendPanel({
       ...loadingM,
       [marketPreviewKey]: true,
     }));
-    getVenusLendPreview({
+    getSparkLendPreview({
       walletAddress: selectedWalletEntry.address,
       chain: chainE.chain,
       action: "lend",
@@ -766,6 +690,7 @@ export default function LendPanel({
             underlyingDecimals: marketE.underlyingDecimals,
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
+            psm3Address: marketE.psm3Address,
           }
         : {}),
       amount: "1",
@@ -984,39 +909,21 @@ export default function LendPanel({
     setShowMarketMenu(false);
   }
 
-  function retryAaveAllMarkets(e) {
+  function retrySparkAllMarkets(e) {
     e.preventDefault();
     e.stopPropagation();
-    setAaveAllMarketM((marketM) => {
+    setSparkAllMarketM((marketM) => {
       const next = { ...marketM };
-      delete next[aaveAllKey];
+      delete next[sparkAllKey];
       return next;
     });
-    setAaveAllErrorM((errorM) => ({ ...errorM, [aaveAllKey]: "" }));
-    setAaveAllLoadingM((loadingM) => ({ ...loadingM, [aaveAllKey]: false }));
-    setAaveAllRetryTick((tick) => tick + 1);
-  }
-
-  function retryVenusAllMarkets(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    setVenusAllMarketM((marketM) => {
-      const next = { ...marketM };
-      delete next[venusAllKey];
-      return next;
-    });
-    setVenusAllErrorM((errorM) => ({ ...errorM, [venusAllKey]: "" }));
-    setVenusAllLoadingM((loadingM) => ({ ...loadingM, [venusAllKey]: false }));
-    setVenusAllRetryTick((tick) => tick + 1);
+    setSparkAllErrorM((errorM) => ({ ...errorM, [sparkAllKey]: "" }));
+    setSparkAllLoadingM((loadingM) => ({ ...loadingM, [sparkAllKey]: false }));
+    setSparkAllRetryTick((tick) => tick + 1);
   }
 
   function retryAllMarkets(e) {
-    if (defi == "venus") {
-      retryVenusAllMarkets(e);
-      return;
-    }
-
-    retryAaveAllMarkets(e);
+    retrySparkAllMarkets(e);
   }
 
   function clearCustomCoinPreview() {
@@ -1126,14 +1033,13 @@ export default function LendPanel({
       toast.error(`${lendingE.label}: no lending market selected`);
       return;
     }
-    const isAave = defi == "aave";
-    const isVenus = defi == "venus";
+    const isSpark = defi == "spark";
 
-    if (!isAave && !isVenus) {
+    if (!isSpark) {
       toast(`${lendingE.label}: lending not wired yet`);
       return;
     }
-    const protocol = isVenus ? "Venus" : "Aave";
+    const protocol = "Spark";
     if (!selectedWalletEntry?.address) {
       toast.error("wallet missing");
       return;
@@ -1166,16 +1072,17 @@ export default function LendPanel({
     }
 
     const useBrowserWallet = !!selectedWalletEntry?.isBrowserWallet;
-    const buildTxs = isVenus ? buildVenusLendTxs : buildAaveLendTxs;
-    const executeLend = isVenus ? executeVenusLend : executeAaveLend;
-    const previewLend = isVenus ? getVenusLendPreview : getAaveLendPreview;
+    const buildTxs = buildSparkLendTxs;
+    const executeLend = executeSparkLend;
+    const previewLend = getSparkLendPreview;
     const directMarketArgs =
-      (isAave || isVenus) && usesDirectMarket
+      usesDirectMarket
         ? {
             underlyingAddress: marketE.underlyingAddress,
             underlyingDecimals: marketE.underlyingDecimals,
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
+            psm3Address: marketE.psm3Address,
           }
         : {};
     const toastId = toast.loading(`${protocol}: preparing ${action}...`);
@@ -1539,10 +1446,15 @@ export default function LendPanel({
                   </span>
                   <span className="sendWalletMenuCol">
                     <span className="sendWalletMenuTitle">all</span>
-                    {allLoading && (
+                    {allLoading && !visibleAddedMarkets.length && (
                       <span className="gray">loading {allProtocolLabel}...</span>
                     )}
-                    {!allLoading && allError && (
+                    {!allLoading && allError && visibleAddedMarkets.length > 0 && (
+                      <span className="sendWalletMenuItem lendMarketAllItem">
+                        <span className="gray">all added</span>
+                      </span>
+                    )}
+                    {!allLoading && allError && !visibleAddedMarkets.length && (
                       <span className="sendWalletMenuItem lendMarketAllItem">
                         <span className="red">{allError}</span>
                         <button
@@ -1556,14 +1468,18 @@ export default function LendPanel({
                     )}
                     {!allLoading && !allError && !allMarkets.length && (
                       <span className="sendWalletMenuItem lendMarketAllItem">
-                        <span className="gray">-</span>
-                        <button
-                          type="button"
-                          className="btn small bgGray"
-                          onClick={retryAllMarkets}
-                        >
-                          retry
-                        </button>
+                        <span className="gray">
+                          {visibleAddedMarkets.length ? "all added" : "-"}
+                        </span>
+                        {!visibleAddedMarkets.length && (
+                          <button
+                            type="button"
+                            className="btn small bgGray"
+                            onClick={retryAllMarkets}
+                          >
+                            retry
+                          </button>
+                        )}
                       </span>
                     )}
                     {!allLoading &&
@@ -1689,7 +1605,7 @@ export default function LendPanel({
               onClick={() => updateLendQty(inputQty(maxUnderlying))}
             >
               <span className="gray">{underlyingCoin}: </span>
-              {directBalanceLoading ? "..." : fmt(underlyingBalance.balance)}
+              {showUnderlyingBalanceLoading ? "..." : fmt(underlyingBalance.balance)}
               {underlyingUsd > 0 && (
                 <span className="gray"> ${fmt(underlyingUsd, 2)}</span>
               )}
@@ -1792,7 +1708,7 @@ export default function LendPanel({
           <div className="swapBalanceLine">
             <span className="swapAssetBalance">
               <span className="gray">{lendCoin}: </span>
-              {directBalanceLoading ? "..." : fmt(receiptBalance.balance)}
+              {showReceiptBalanceLoading ? "..." : fmt(receiptBalance.balance)}
               {receiptUsd > 0 && (
                 <span className="gray"> ${fmt(receiptUsd, 2)}</span>
               )}
