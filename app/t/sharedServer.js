@@ -259,7 +259,8 @@ export function getUsableChainRpc(chain = "") {
     (rpc) =>
       rpc &&
       !String(rpc).includes("undefined") &&
-      !String(rpc).includes("YOUR_KEY"),
+      !String(rpc).includes("YOUR_KEY") &&
+      !String(rpc).match(/\/v2\/?$/),
   );
 }
 
@@ -595,10 +596,7 @@ export async function sendSolanaRawTransaction({ transaction = "" } = {}) {
     Buffer.from(transaction, "base64"),
     { skipPreflight: false },
   );
-  const confirmation = await connection.confirmTransaction(
-    signature,
-    "confirmed",
-  );
+  const confirmation = await pollSolanaSignature(connection, signature);
 
   if (confirmation.value.err) {
     throw new Error(
@@ -609,14 +607,46 @@ export async function sendSolanaRawTransaction({ transaction = "" } = {}) {
   return { ok: true, chain: "Solana", hash: signature };
 }
 
+function sleep(ms = 0) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollSolanaSignature(connection, signature = "") {
+  const deadline = Date.now() + 60_000;
+  let lastStatus = null;
+
+  while (Date.now() < deadline) {
+    const res = await connection.getSignatureStatuses([signature], {
+      searchTransactionHistory: true,
+    });
+    const status = res?.value?.[0];
+
+    if (status) {
+      lastStatus = status;
+      if (status.err) return { value: status };
+      if (
+        status.confirmationStatus == "confirmed" ||
+        status.confirmationStatus == "finalized"
+      ) {
+        return { value: status };
+      }
+    }
+
+    await sleep(1200);
+  }
+
+  throw new Error(
+    lastStatus
+      ? `Solana transaction confirmation timeout: ${lastStatus.confirmationStatus || "unknown"}`
+      : "Solana transaction confirmation timeout",
+  );
+}
+
 export async function confirmSolanaTransaction({ signature = "" } = {}) {
   if (!signature) throw new Error("Solana signature missing");
 
   const connection = getSolanaConnection();
-  const confirmation = await connection.confirmTransaction(
-    signature,
-    "confirmed",
-  );
+  const confirmation = await pollSolanaSignature(connection, signature);
 
   if (confirmation.value.err) {
     throw new Error(

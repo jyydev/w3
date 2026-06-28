@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
   buildAcrossSwapTxs,
+  buildJupiterSwapTxs,
   buildRelaySwapSteps,
   buildUniswapSwapTxs,
   executeAcrossSwap,
+  executeJupiterSwap,
   executeRelaySwap,
   executeUniswapSwap,
   getAcrossSwapPreview,
+  getJupiterSwapPreview,
   getRelaySwapPreview,
   getTradeCoinBalance,
   getTradeCoinPrice,
@@ -37,6 +40,22 @@ import {
   SwapTxLink,
   toNum,
 } from "../sharedClient";
+
+function trimQtyToDecimals(value = "", decimals = 18) {
+  const text = String(value ?? "");
+  if (!text || !Number.isInteger(decimals) || decimals < 0) return text;
+  if (/e/i.test(text)) return trimQtyToDecimals(inputQty(Number(text)), decimals);
+
+  const parts = text.split(".");
+  if (parts.length < 2) return text;
+  if (decimals == 0) return parts[0] || "0";
+
+  return `${parts[0] || "0"}.${parts.slice(1).join("").slice(0, decimals)}`;
+}
+
+function qtyInputSize(value = "") {
+  return Math.min(Math.max(String(value ?? "").length + 1, 10), 34);
+}
 
 export default function SwapPanel({
   data = [],
@@ -98,6 +117,10 @@ export default function SwapPanel({
     chainList.find((chainE) => chainE.chain == toChain) || fromChainE;
   const fromCoins = useMemo(() => getChainCoins(fromChainE), [fromChainE]);
   const toCoins = useMemo(() => getChainCoins(toChainE), [toChainE]);
+  const fromCoinInfo = fromChainE?.coinInfoM?.[fromCoin] || {};
+  const fromCoinDecimals = Number.isInteger(fromCoinInfo.decimals)
+    ? fromCoinInfo.decimals
+    : 18;
   const isSolanaBridge =
     !!fromChain &&
     !!toChain &&
@@ -164,16 +187,21 @@ export default function SwapPanel({
         selectedWalletEntry.address,
       )})`
     : selectedWalletEntry?.name || selectedWalletEntry?.label || "";
-  const needsPrivateKey = ["relay", "uniswap", "across"].includes(defi);
+  const needsPrivateKey = ["jupiter", "relay", "uniswap", "across"].includes(defi);
   const canBrowserSignEvm =
     selectedWalletEntry?.isBrowserWallet && selectedWalletEntry?.type == "evm";
   const canBrowserSignSolana =
     selectedWalletEntry?.isBrowserWallet &&
     selectedWalletEntry?.type == "solana" &&
-    ["relay", "across"].includes(defi);
+    ["relay", "across", "jupiter"].includes(defi);
   const canBrowserSign = canBrowserSignEvm || canBrowserSignSolana;
   const swapCanExecute =
     !needsPrivateKey || !!selectedWalletEntry?.hasPrivateKey || canBrowserSign;
+  const canAutoApprove =
+    !selectedWalletEntry?.isBrowserWallet &&
+    fromChain != "Solana" &&
+    !!fromCoin &&
+    !fromCoinInfo.native;
   const recipientWalletType = toChain == "Solana" ? "solana" : "evm";
   const recipientWallets = useMemo(
     () =>
@@ -200,6 +228,10 @@ export default function SwapPanel({
       setToChain(fromChain);
     }
   }, [defiE.bridge, fromChain, toChain]);
+
+  useEffect(() => {
+    if (!canAutoApprove && autoApproval) setAutoApproval(false);
+  }, [autoApproval, canAutoApprove]);
 
   useEffect(() => {
     if (fromCoins.length && !fromCoins.includes(fromCoin)) {
@@ -232,11 +264,11 @@ export default function SwapPanel({
     }
 
     if (qtyInputSide == "buy") {
-      setFromQty(inputQty(toNum(toQty) / swapRate));
+      setFromQty(getSellQty(toQty));
     } else {
       setToQty(inputQty(toNum(fromQty) * swapRate));
     }
-  }, [fromChain, fromCoin, qtyInputSide, swapRate, toChain, toCoin]);
+  }, [fromChain, fromCoin, fromCoinDecimals, qtyInputSide, swapRate, toChain, toCoin]);
 
   useEffect(() => {
     if (isSolanaBridge) return;
@@ -398,7 +430,7 @@ export default function SwapPanel({
   }
 
   async function runSwap() {
-    if (!["relay", "uniswap", "across"].includes(defi)) {
+    if (!["jupiter", "relay", "uniswap", "across"].includes(defi)) {
       toast(`${defiE.label}: swap not wired yet`);
       return;
     }
@@ -408,7 +440,7 @@ export default function SwapPanel({
     const useBrowserSolanaWallet =
       selectedWalletEntry?.isBrowserWallet &&
       selectedWalletEntry?.type == "solana" &&
-      defi == "relay";
+      ["jupiter", "relay"].includes(defi);
     const useBrowserWallet = useBrowserEvmWallet || useBrowserSolanaWallet;
     if (!selectedWalletEntry?.hasPrivateKey && !useBrowserWallet) {
       if (selectedWalletEntry?.isBrowserWallet) {
@@ -421,7 +453,11 @@ export default function SwapPanel({
       );
       return;
     }
-    if (fromChain == "Solana" && !["relay", "across"].includes(defi)) {
+    if (defi == "jupiter" && (fromChain != "Solana" || toChain != "Solana")) {
+      toast.error("Jupiter is for Solana swaps only");
+      return;
+    }
+    if (fromChain == "Solana" && !["jupiter", "relay", "across"].includes(defi)) {
       toast.error(`${defiE.label} is not available for Solana-origin swaps`);
       return;
     }
@@ -465,7 +501,54 @@ export default function SwapPanel({
     const toastId = toast.loading(`${defiE.label}: preparing swap...`);
     try {
       let res;
-      if (defi == "relay") {
+      if (defi == "jupiter") {
+        toast.loading("Jupiter: submitting tx...", { id: toastId });
+        if (useBrowserWallet) {
+          toast.loading("Jupiter: building wallet prompt...", { id: toastId });
+          const built = await buildJupiterSwapTxs({
+            walletAddress: selectedWalletEntry.address,
+            fromChain,
+            toChain,
+            fromCoin,
+            toCoin,
+            amount,
+          });
+          const txs = [];
+
+          for (const tx of built.txs || []) {
+            toast.loading(`Jupiter: confirm ${tx.type}...`, { id: toastId });
+            txs.push(
+              await sendBrowserSolanaTx({
+                tx,
+                wallet: selectedWalletEntry.browserWallet,
+                address: selectedWalletEntry.address,
+              }),
+            );
+          }
+          res = { ...built, txs };
+        } else {
+          toast.loading("Jupiter: checking quote...", { id: toastId });
+          await getJupiterSwapPreview({
+            walletAddress: selectedWalletEntry.address,
+            fromChain,
+            toChain,
+            fromCoin,
+            toCoin,
+            amount,
+          });
+
+          toast.loading("Jupiter: submitting swap...", { id: toastId });
+          res = await executeJupiterSwap({
+            walletName: selectedWalletEntry.name,
+            walletAddress: selectedWalletEntry.address,
+            fromChain,
+            toChain,
+            fromCoin,
+            toCoin,
+            amount,
+          });
+        }
+      } else if (defi == "relay") {
         toast.loading(`${defiE.label}: submitting tx...`, { id: toastId });
         if (useBrowserWallet) {
           toast.loading("Relay: building wallet prompts...", { id: toastId });
@@ -501,9 +584,6 @@ export default function SwapPanel({
                     }),
               );
             } else if (item.kind == "signature") {
-              if (useBrowserSolanaWallet) {
-                throw new Error("Relay Solana signature step is not supported");
-              }
               toast.loading("Relay: sign message...", { id: toastId });
               signatures.push(
                 await signBrowserRelayItem({
@@ -715,7 +795,7 @@ export default function SwapPanel({
   }
 
   function setMaxSell() {
-    updateSellQty(inputQty(maxSell));
+    updateSellQty(trimQtyToDecimals(inputQty(maxSell), fromCoinDecimals));
   }
 
   function getBuyQty(value) {
@@ -723,11 +803,15 @@ export default function SwapPanel({
   }
 
   function getSellQty(value) {
-    return swapRate > 0 ? inputQty(toNum(value) / swapRate) : "0";
+    return swapRate > 0
+      ? trimQtyToDecimals(inputQty(toNum(value) / swapRate), fromCoinDecimals)
+      : "0";
   }
 
   function updateSellQty(value) {
-    const qty = normalizeQtyInput(clampInputValue(value, maxSell));
+    const qty = normalizeQtyInput(
+      trimQtyToDecimals(clampInputValue(value, maxSell), fromCoinDecimals),
+    );
     setQtyInputSide("sell");
     setFromQty(qty);
     setToQty(getBuyQty(qty));
@@ -741,9 +825,14 @@ export default function SwapPanel({
   }
 
   function updateSellEnd(value) {
-    const endQty = clampInputValue(value, maxSell);
+    const endQty = trimQtyToDecimals(
+      clampInputValue(value, maxSell),
+      fromCoinDecimals,
+    );
     setSellEndDraft(readQtyInput(endQty));
-    updateSellQty(inputQty(Math.max(0, maxSell - toNum(endQty))));
+    updateSellQty(
+      trimQtyToDecimals(inputQty(Math.max(0, maxSell - toNum(endQty))), fromCoinDecimals),
+    );
   }
 
   function updateBuyEnd(value) {
@@ -929,11 +1018,14 @@ export default function SwapPanel({
           <div className="swapAmountLine">
             <span className="gray">end</span>
             <input
-              type="number"
+              className="swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
               max={maxSell || 0}
               step="any"
               value={sellEndDraft || inputQty(sellEnd)}
+              size={qtyInputSize(sellEndDraft || inputQty(sellEnd))}
               onChange={(e) => updateSellEnd(e.target.value)}
               onBlur={() => setSellEndDraft("")}
             />
@@ -944,11 +1036,14 @@ export default function SwapPanel({
           <div className="swapAmountLine">
             <span className="gray">sell</span>
             <input
-              type="number"
+              className="swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
               max={maxSell || 0}
               step="any"
               value={fromQty}
+              size={qtyInputSize(fromQty)}
               onChange={(e) => updateSellQty(e.target.value)}
             />
             {fromPrice > 0 && (
@@ -997,7 +1092,7 @@ export default function SwapPanel({
           >
             {"→"}
           </button>
-          {!selectedWalletEntry?.isBrowserWallet && (
+          {canAutoApprove && (
             <label className="swapAutoApproval">
               <input
                 type="checkbox"
@@ -1074,11 +1169,14 @@ export default function SwapPanel({
           <div className="swapAmountLine">
             <span className="gray">end</span>
             <input
-              type="number"
+              className="swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
               max={maxBuyEnd || maxBuy || 0}
               step="any"
               value={buyEndDraft || inputQty(buyEnd)}
+              size={qtyInputSize(buyEndDraft || inputQty(buyEnd))}
               onChange={(e) => updateBuyEnd(e.target.value)}
               onBlur={() => setBuyEndDraft("")}
             />
@@ -1087,11 +1185,14 @@ export default function SwapPanel({
           <div className="swapAmountLine">
             <span className="gray">buy</span>
             <input
-              type="number"
+              className="swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
               max={maxBuyInput || 0}
               step="any"
               value={toQty}
+              size={qtyInputSize(toQty)}
               placeholder="quote"
               onChange={(e) => updateBuyQty(e.target.value)}
             />

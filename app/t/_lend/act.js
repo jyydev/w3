@@ -1,18 +1,31 @@
 "use server";
 
 import { ethers } from "ethers";
+import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import coinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
+  executeSolanaTx,
   getApprovalAmount,
   getApproveTx,
   getChainRpc,
   getCoinDecimals,
   getEvmTokenAddress,
   getPrivateKey,
+  getSolanaConnection,
+  getSolanaInstructionTx,
+  getSolanaKeypair,
+  getSolanaPublicKey,
   getTradeCoinPrice as getTradeCoinPriceShared,
   getUnsignedTx,
   getUsableChainRpc,
@@ -92,6 +105,24 @@ const venusBlocksPerYearM = {
   Optimism: 15768000,
   zkSyncEra: 31536000,
 };
+const jupiterLendProgramM = {
+  main: {
+    lending: new PublicKey("jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9"),
+    liquidity: new PublicKey("jupeiUmn818Jg1ekPURTpr4mFo29p46vygyykFJ3wZC"),
+    rewards: new PublicKey("jup7TthsMgcR9Y3L277b8Eo9uboVSmu1utkuXHNUKar"),
+  },
+  ethena: {
+    lending: new PublicKey("jup97Zx1NixM8UJMQFw8TtKzqTiRT3ETAJR7cVx3PfQ"),
+    liquidity: new PublicKey("jup6QF1sNDGpkkcu6F4qaFHcRBmnSS1VgyB4uFbBvNS"),
+    rewards: new PublicKey("jupGBUJYXuzz2hVSoqjrxoEwJUB6uuHJsQqkzmYyQ7n"),
+  },
+};
+const jupiterDepositDiscriminator = Buffer.from([
+  242, 35, 198, 137, 82, 225, 242, 182,
+]);
+const jupiterRedeemDiscriminator = Buffer.from([
+  184, 12, 86, 149, 70, 196, 97, 225,
+]);
 
 export async function getTradeCoinPrice(args) {
   return getTradeCoinPriceShared(args);
@@ -202,6 +233,353 @@ function getCoinByAddress(chain = "", address = "") {
       sameEvmAddress(coinE?.address, address),
     ) || null
   );
+}
+
+function isJupiterLendCoin(coin = "", coinE = {}) {
+  const text = `${coin} ${coinE?.name || ""}`.toLowerCase();
+
+  return (
+    coinE?.address &&
+    /^jl[A-Z0-9]/.test(coin) &&
+    (coinE.type == "lending" ||
+      coinE.type == "yield" ||
+      text.includes("jupiter lend"))
+  );
+}
+
+function getJupiterUnderlyingCoin(lendCoin = "") {
+  const stripped = String(lendCoin || "").replace(/^jl/, "");
+  const solanaCoins = coinM?.Solana || {};
+
+  if (solanaCoins[stripped] && solanaCoins[stripped]?.address) {
+    return stripped;
+  }
+
+  const lendText = `${lendCoin} ${solanaCoins[lendCoin]?.name || ""}`.toLowerCase();
+  return (
+    Object.keys(solanaCoins)
+      .filter((coin) => coin != lendCoin && solanaCoins[coin]?.address)
+      .sort((a, b) => b.length - a.length)
+      .find((coin) => lendText.includes(coin.toLowerCase())) || ""
+  );
+}
+
+function getJupiterMarketName({ lendCoin = "", coinE = {} } = {}) {
+  const configured = coinE?.jupiterMarket || coinE?.lendMarket || coinE?.market;
+  if (configured) return String(configured);
+
+  const text = `${lendCoin} ${coinE?.name || ""}`.toLowerCase();
+  return text.includes("juiced") || text.includes("jupusd") ? "ethena" : "main";
+}
+
+function getJupiterPrograms(market = "main") {
+  return jupiterLendProgramM[market] || jupiterLendProgramM.main;
+}
+
+function findPda(seeds = [], programId) {
+  return PublicKey.findProgramAddressSync(seeds, programId)[0];
+}
+
+function u64Buffer(value) {
+  const n = BigInt(value || 0);
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(n);
+
+  return buf;
+}
+
+function getJupiterInstructionData(action = "lend", amountIn = 0n) {
+  return Buffer.concat([
+    action == "redeem" ? jupiterRedeemDiscriminator : jupiterDepositDiscriminator,
+    u64Buffer(amountIn),
+  ]);
+}
+
+function getJupiterLendingAdmin(market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda([Buffer.from("lending_admin")], programs.lending);
+}
+
+function getJupiterLending(assetMint, fTokenMint, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda(
+    [Buffer.from("lending"), assetMint.toBuffer(), fTokenMint.toBuffer()],
+    programs.lending,
+  );
+}
+
+function getJupiterLiquidity(market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda([Buffer.from("liquidity")], programs.liquidity);
+}
+
+function getJupiterReserve(assetMint, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda([Buffer.from("reserve"), assetMint.toBuffer()], programs.liquidity);
+}
+
+function getJupiterSupplyPosition(assetMint, lending, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda(
+    [
+      Buffer.from("user_supply_position"),
+      assetMint.toBuffer(),
+      lending.toBuffer(),
+    ],
+    programs.liquidity,
+  );
+}
+
+function getJupiterRateModel(assetMint, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda([Buffer.from("rate_model"), assetMint.toBuffer()], programs.liquidity);
+}
+
+function getJupiterRewardsRateModel(assetMint, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda(
+    [Buffer.from("lending_rewards_rate_model"), assetMint.toBuffer()],
+    programs.rewards,
+  );
+}
+
+function getJupiterUserClaim(lendingAdmin, assetMint, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda(
+    [
+      Buffer.from("user_claim"),
+      lendingAdmin.toBuffer(),
+      assetMint.toBuffer(),
+    ],
+    programs.liquidity,
+  );
+}
+
+async function getSolanaMintTokenProgram(connection, mint) {
+  const account = await connection.getAccountInfo(mint, "confirmed");
+  if (!account) throw new Error(`Solana mint not found: ${mint.toBase58()}`);
+
+  return account.owner.equals(TOKEN_2022_PROGRAM_ID)
+    ? TOKEN_2022_PROGRAM_ID
+    : TOKEN_PROGRAM_ID;
+}
+
+async function getAtaWithCreateIx({
+  connection,
+  payer,
+  owner,
+  mint,
+  tokenProgram,
+} = {}) {
+  const ata = getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    true,
+    tokenProgram,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  const account = await connection.getAccountInfo(ata, "confirmed");
+
+  return {
+    ata,
+    createIx: account
+      ? null
+      : createAssociatedTokenAccountInstruction(
+          payer,
+          ata,
+          owner,
+          mint,
+          tokenProgram,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        ),
+  };
+}
+
+function getSolanaTokenAddress(chain = "", coin = "", label = "Solana token") {
+  const coinE = coinM?.[chain]?.[coin];
+  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+  if (coinE.native) throw new Error(`${label} native token not supported here`);
+  if (!coinE.address) throw new Error(`${label} address missing: ${chain} ${coin}`);
+
+  return getSolanaPublicKey(coinE.address, label);
+}
+
+function getJupiterAmount({
+  chain = "Solana",
+  action = "lend",
+  underlyingCoin = "",
+  lendCoin = "",
+  amount = "",
+  underlyingDecimals,
+  lendDecimals,
+} = {}) {
+  const coin = action == "redeem" ? lendCoin : underlyingCoin;
+  const decimals =
+    action == "redeem"
+      ? lendDecimals
+      : underlyingDecimals;
+  const amountIn = ethers.parseUnits(
+    String(amount || "0"),
+    Number.isInteger(decimals) ? decimals : getCoinDecimals(chain, coin),
+  );
+  if (amountIn <= 0n) throw new Error("amount must be greater than 0");
+
+  return amountIn;
+}
+
+function getJupiterMarket({
+  chain = "Solana",
+  underlyingCoin = "",
+  lendCoin = "",
+  underlyingAddress = "",
+  lendAddress = "",
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
+  const lendE = coinM?.Solana?.[lendCoin] || {};
+  const market = getJupiterMarketName({ lendCoin, coinE: lendE });
+  const underlying = underlyingAddress
+    ? getSolanaPublicKey(underlyingAddress, "Jupiter underlying")
+    : getSolanaTokenAddress(chain, underlyingCoin, "Jupiter underlying");
+  const fTokenMint = lendAddress
+    ? getSolanaPublicKey(lendAddress, "Jupiter lend token")
+    : getSolanaTokenAddress(chain, lendCoin, "Jupiter lend token");
+
+  return {
+    market,
+    underlying,
+    fTokenMint,
+  };
+}
+
+async function getSolanaMintBalance({
+  connection,
+  owner,
+  mint,
+  decimals = 0,
+} = {}) {
+  const accounts = await connection.getParsedTokenAccountsByOwner(owner, { mint });
+  const raw = accounts.value.reduce((sum, entry) => {
+    const amount = entry.account?.data?.parsed?.info?.tokenAmount?.amount ?? "0";
+    return sum + BigInt(amount);
+  }, 0n);
+
+  return {
+    address: mint.toBase58(),
+    raw: raw.toString(),
+    balance: ethers.formatUnits(raw, decimals),
+    decimals,
+  };
+}
+
+async function getJupiterInstruction({
+  walletAddress = "",
+  action = "lend",
+  underlyingMint,
+  fTokenMint,
+  amountIn,
+  market = "main",
+} = {}) {
+  const connection = getSolanaConnection();
+  const user = getSolanaPublicKey(walletAddress, "Solana wallet address");
+  const programs = getJupiterPrograms(market);
+  const tokenProgram = await getSolanaMintTokenProgram(connection, underlyingMint);
+  const lendingAdmin = getJupiterLendingAdmin(market);
+  const lending = getJupiterLending(underlyingMint, fTokenMint, market);
+  const reserve = getJupiterReserve(underlyingMint, market);
+  const supplyPosition = getJupiterSupplyPosition(underlyingMint, lending, market);
+  const rateModel = getJupiterRateModel(underlyingMint, market);
+  const liquidity = getJupiterLiquidity(market);
+  const vault = getAssociatedTokenAddressSync(
+    underlyingMint,
+    liquidity,
+    true,
+    tokenProgram,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  const rewardsRateModel = getJupiterRewardsRateModel(underlyingMint, market);
+  const { ata: underlyingAta, createIx: createUnderlyingAtaIx } =
+    await getAtaWithCreateIx({
+      connection,
+      payer: user,
+      owner: user,
+      mint: underlyingMint,
+      tokenProgram,
+    });
+  const { ata: fTokenAta, createIx: createFTokenAtaIx } =
+    await getAtaWithCreateIx({
+      connection,
+      payer: user,
+      owner: user,
+      mint: fTokenMint,
+      tokenProgram,
+    });
+  const data = getJupiterInstructionData(action, amountIn);
+  const commonEnd = [
+    { pubkey: reserve, isSigner: false, isWritable: true },
+    { pubkey: supplyPosition, isSigner: false, isWritable: true },
+    { pubkey: rateModel, isSigner: false, isWritable: false },
+    { pubkey: vault, isSigner: false, isWritable: true },
+  ];
+  const keys =
+    action == "redeem"
+      ? [
+          { pubkey: user, isSigner: true, isWritable: true },
+          { pubkey: fTokenAta, isSigner: false, isWritable: true },
+          { pubkey: underlyingAta, isSigner: false, isWritable: true },
+          { pubkey: lendingAdmin, isSigner: false, isWritable: false },
+          { pubkey: lending, isSigner: false, isWritable: true },
+          { pubkey: underlyingMint, isSigner: false, isWritable: false },
+          { pubkey: fTokenMint, isSigner: false, isWritable: true },
+          ...commonEnd,
+          {
+            pubkey: getJupiterUserClaim(lendingAdmin, underlyingMint, market),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: liquidity, isSigner: false, isWritable: true },
+          { pubkey: programs.liquidity, isSigner: false, isWritable: true },
+          { pubkey: rewardsRateModel, isSigner: false, isWritable: false },
+          { pubkey: tokenProgram, isSigner: false, isWritable: false },
+          { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ]
+      : [
+          { pubkey: user, isSigner: true, isWritable: true },
+          { pubkey: underlyingAta, isSigner: false, isWritable: true },
+          { pubkey: fTokenAta, isSigner: false, isWritable: true },
+          { pubkey: underlyingMint, isSigner: false, isWritable: false },
+          { pubkey: lendingAdmin, isSigner: false, isWritable: false },
+          { pubkey: lending, isSigner: false, isWritable: true },
+          { pubkey: fTokenMint, isSigner: false, isWritable: true },
+          ...commonEnd,
+          { pubkey: liquidity, isSigner: false, isWritable: true },
+          { pubkey: programs.liquidity, isSigner: false, isWritable: true },
+          { pubkey: rewardsRateModel, isSigner: false, isWritable: false },
+          { pubkey: tokenProgram, isSigner: false, isWritable: false },
+          { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ];
+  const ix = new TransactionInstruction({
+    programId: programs.lending,
+    keys,
+    data,
+  });
+
+  return {
+    market,
+    instructions: [
+      action == "redeem" ? createUnderlyingAtaIx : createFTokenAtaIx,
+      ix,
+    ].filter(Boolean),
+  };
 }
 
 async function getTokenMeta(
@@ -1381,4 +1759,233 @@ export async function executeVenusLend({
   } finally {
     provider.destroy?.();
   }
+}
+
+export async function getJupiterAllMarkets({ chain = "" } = {}) {
+  if (chain != "Solana") return { ok: true, chain, markets: [] };
+
+  const markets = Object.entries(coinM?.Solana || {})
+    .filter(([coin, coinE]) => isJupiterLendCoin(coin, coinE))
+    .map(([lendCoin, lendE]) => {
+      const underlyingCoin = getJupiterUnderlyingCoin(lendCoin);
+      const underlyingE = coinM?.Solana?.[underlyingCoin];
+      if (!underlyingCoin || !underlyingE?.address) return null;
+
+      return {
+        value: `${underlyingCoin}:${lendCoin}:${lendE.address}`,
+        chain,
+        underlyingCoin,
+        underlyingName: underlyingE.name || underlyingCoin,
+        underlyingAddress: underlyingE.address,
+        underlyingDecimals: underlyingE.decimals,
+        lendCoin,
+        lendName: lendE.name || lendCoin,
+        lendAddress: lendE.address,
+        lendDecimals: lendE.decimals,
+        addedUnderlying: true,
+        addedLend: true,
+        supplyApr: 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.underlyingCoin.localeCompare(b.underlyingCoin));
+
+  return {
+    ok: true,
+    chain,
+    markets,
+  };
+}
+
+export async function getJupiterMarketBalance({
+  walletAddress = "",
+  chain = "",
+  underlyingAddress = "",
+  underlyingDecimals = 6,
+  lendAddress = "",
+  lendDecimals = 6,
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
+  if (!walletAddress) throw new Error("Solana wallet address required");
+
+  const connection = getSolanaConnection();
+  const owner = getSolanaPublicKey(walletAddress, "Solana wallet address");
+  const underlyingMint = getSolanaPublicKey(
+    underlyingAddress,
+    "Jupiter underlying",
+  );
+  const fTokenMint = getSolanaPublicKey(lendAddress, "Jupiter lend token");
+  const [underlying, lend] = await Promise.all([
+    getSolanaMintBalance({
+      connection,
+      owner,
+      mint: underlyingMint,
+      decimals: underlyingDecimals,
+    }),
+    getSolanaMintBalance({
+      connection,
+      owner,
+      mint: fTokenMint,
+      decimals: lendDecimals,
+    }),
+  ]);
+
+  return {
+    ok: true,
+    chain,
+    walletAddress: owner.toBase58(),
+    underlying,
+    lend,
+  };
+}
+
+export async function getJupiterLendPreview({
+  walletAddress = "",
+  chain = "",
+  action = "lend",
+  underlyingCoin = "",
+  lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
+  amount = "",
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
+  if (!walletAddress) throw new Error("Solana wallet address required");
+
+  const amountIn = getJupiterAmount({
+    chain,
+    action,
+    underlyingCoin,
+    lendCoin,
+    amount,
+    underlyingDecimals,
+    lendDecimals,
+  });
+  const market = getJupiterMarket({
+    chain,
+    underlyingCoin,
+    lendCoin,
+    underlyingAddress,
+    lendAddress,
+  });
+
+  return {
+    ok: true,
+    defi: "Jupiter",
+    chain,
+    action,
+    approvalNeeded: false,
+    allowance: amountIn.toString(),
+    amountIn: amountIn.toString(),
+    market: market.market,
+    receiptPerUnderlying: 1,
+    underlyingPerReceipt: 1,
+  };
+}
+
+export async function buildJupiterLendTxs({
+  walletAddress = "",
+  chain = "",
+  action = "lend",
+  underlyingCoin = "",
+  lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
+  amount = "",
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
+  if (!walletAddress) throw new Error("Solana wallet address required");
+
+  const amountIn = getJupiterAmount({
+    chain,
+    action,
+    underlyingCoin,
+    lendCoin,
+    amount,
+    underlyingDecimals,
+    lendDecimals,
+  });
+  const market = getJupiterMarket({
+    chain,
+    underlyingCoin,
+    lendCoin,
+    underlyingAddress,
+    lendAddress,
+  });
+  const { instructions } = await getJupiterInstruction({
+    walletAddress,
+    action,
+    underlyingMint: market.underlying,
+    fTokenMint: market.fTokenMint,
+    amountIn,
+    market: market.market,
+  });
+  const tx = await getSolanaInstructionTx({
+    user: walletAddress,
+    instructions,
+    type: action,
+  });
+
+  return {
+    ok: true,
+    defi: "Jupiter",
+    chain,
+    action,
+    underlyingCoin,
+    lendCoin,
+    amountIn: amountIn.toString(),
+    market: market.market,
+    txs: [tx],
+  };
+}
+
+export async function executeJupiterLend({
+  walletName = "",
+  walletAddress = "",
+  chain = "",
+  action = "lend",
+  underlyingCoin = "",
+  lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
+  amount = "",
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
+  if (!walletAddress) throw new Error("Solana wallet address required");
+
+  const keypair = getSolanaKeypair(walletName);
+  const built = await buildJupiterLendTxs({
+    walletAddress,
+    chain,
+    action,
+    underlyingCoin,
+    lendCoin,
+    underlyingAddress,
+    underlyingDecimals,
+    lendAddress,
+    lendDecimals,
+    amount,
+  });
+  const txs = [];
+
+  for (const tx of built.txs || []) {
+    txs.push(
+      await executeSolanaTx({
+        keypair,
+        expectedAddress: walletAddress,
+        tx,
+      }),
+    );
+  }
+
+  return {
+    ...built,
+    txs,
+  };
 }

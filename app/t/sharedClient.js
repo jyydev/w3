@@ -1,5 +1,6 @@
 "use client";
 
+import "ygb/client";
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import { dexs, lendings, scanners, yields } from "@/sets";
@@ -463,9 +464,19 @@ export function inputQty(value) {
 }
 
 function cleanInputValue(value) {
-  const text = String(value ?? "");
+  let text = String(value ?? "")
+    .trim()
+    .replace(/,/g, "");
+  text = text.replace(/[^\d.]/g, "");
+  const dotIndex = text.indexOf(".");
+  if (dotIndex >= 0) {
+    text =
+      text.slice(0, dotIndex + 1) + text.slice(dotIndex + 1).replace(/\./g, "");
+  }
   if (!text) return "";
-  if (/^0+[^.]/.test(text)) return text.replace(/^0+/, "") || "0";
+  if (text.startsWith(".")) text = `0${text}`;
+  if (/^0+(?=\.)/.test(text)) return text.replace(/^0+(?=\.)/, "0");
+  if (/^0+(?=\d)/.test(text)) return text.replace(/^0+(?=\d)/, "") || "0";
 
   return text;
 }
@@ -482,7 +493,12 @@ export function clampInputValue(value, maxValue) {
 }
 
 export function normalizeQtyInput(value) {
-  return value === "" ? "0" : fp(value);
+  const text = cleanInputValue(value);
+
+  if (text === "") return "0";
+  if (text.endsWith(".")) return text;
+
+  return String(globalThis.fp(text));
 }
 
 export function readQtyInput(value) {
@@ -555,6 +571,33 @@ function bytesToBase64(bytes) {
 
 function base64ToBytes(text = "") {
   return Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
+}
+
+function relaySignMessageBytes(sign = {}) {
+  const message =
+    sign.message ?? sign.data ?? sign.value ?? sign.signableMessage ?? "";
+  if (message instanceof Uint8Array) return message;
+  if (Array.isArray(message)) return Uint8Array.from(message);
+  if (Array.isArray(message?.data)) return Uint8Array.from(message.data);
+  if (typeof message != "string") {
+    return ethers.toUtf8Bytes(JSON.stringify(message || ""));
+  }
+
+  const text = message.trim();
+  if (ethers.isHexString(text)) return ethers.getBytes(text);
+  if (
+    /^[A-Za-z0-9+/]+={0,2}$/.test(text) &&
+    text.length % 4 == 0 &&
+    text.length > 16
+  ) {
+    try {
+      return base64ToBytes(text);
+    } catch {
+      // Fall through to UTF-8.
+    }
+  }
+
+  return ethers.toUtf8Bytes(message);
 }
 
 function bytesToBase58(bytes = []) {
@@ -792,11 +835,55 @@ export async function sendBrowserSolanaTx({ tx, wallet = "", address = "" }) {
   throw new Error("Solana wallet cannot sign transactions");
 }
 
+function isRelaySolanaSignatureItem(item = {}) {
+  const signatureKind = String(item?.sign?.signatureKind || "").toLowerCase();
+
+  return (
+    Number(item?.chainId) == 792703809 ||
+    ["ed25519", "solana", "svm"].some((key) => signatureKind.includes(key))
+  );
+}
+
+async function signBrowserRelaySolanaItem({ item, wallet = "", address = "" }) {
+  const provider = await getBrowserSolanaSigner({ wallet, address });
+  const message = relaySignMessageBytes(item.sign || {});
+  let result;
+
+  if (provider.walletStandard) {
+    const standardWallet = provider.walletStandardWallet;
+    const account = getWalletStandardAccount(provider, address);
+    const signMessage =
+      standardWallet?.features?.["solana:signMessage"]?.signMessage;
+    if (!account) throw new Error("Solana wallet account missing");
+    if (signMessage) {
+      result = await signMessage({
+        account,
+        message,
+      });
+    }
+  }
+
+  if (!result && provider.signMessage) {
+    result = await provider.signMessage(message, "utf8");
+  }
+  if (!result) throw new Error("Solana wallet cannot sign Relay message");
+
+  const signature = getSolanaSignature(result);
+  if (!signature) throw new Error("Solana wallet returned no signature");
+  await submitRelaySignature({ post: item.post, signature });
+
+  return { signatureKind: item.sign?.signatureKind || "ed25519" };
+}
+
 export async function signBrowserRelayItem({
   item,
   wallet = "",
   address = "",
 }) {
+  if (isRelaySolanaSignatureItem(item)) {
+    return signBrowserRelaySolanaItem({ item, wallet, address });
+  }
+
   const signer = await getBrowserSigner({
     wallet,
     address,

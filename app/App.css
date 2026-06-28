@@ -1092,6 +1092,11 @@ span.chainIcon {
 .swapAmountLine input[type="number"] {
   min-width: 150px;
 }
+.swapAmountLine .swapQtyInput {
+  width: auto;
+  min-width: 100px;
+  max-width: 320px;
+}
 .swapCoinPrice,
 .swapRateLine {
   white-space: nowrap;

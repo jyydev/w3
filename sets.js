@@ -5,6 +5,7 @@ exports.ckPrefix = "w3_";
 
 exports.dexs = [
   { value: "relay", label: "Relay.link", bridge: true },
+  { value: "jupiter", label: "Jupiter", bridge: false },
   { value: "across", label: "Across.to", bridge: true },
   { value: "uniswap", label: "Uniswap", bridge: false },
   // { value: "pancake", label: "PancakeSwap", bridge: false },
@@ -13,6 +14,7 @@ exports.dexs = [
 exports.lendings = [
   { value: "aave", label: "Aave" },
   { value: "venus", label: "Venus" },
+  { value: "jupiter", label: "Jupiter" },
 ];
 
 exports.yields = [
@@ -34,6 +36,8 @@ exports.alchemyNetworks = {
   zkSyncEra: "zksync-mainnet",
   Solana: "solana-mainnet",
 };
+
+const solanaAlchemyKey = process.env.rpc_solana_alchemy1 || process.env.rpc_key_alchemy;
 
 exports.rpcs = {
   BSC: [
@@ -78,10 +82,12 @@ exports.rpcs = {
     "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc",
   ],
   Solana: [
-    `https://solana-mainnet.g.alchemy.com/v2/${process.env.rpc_solana_alchemy1}`,
-    // "https://solana-rpc.publicnode.com",
-    // "https://api.mainnet-beta.solana.com",
-    // "https://api.mainnet.solana.com",
+    solanaAlchemyKey
+      ? `https://solana-mainnet.g.alchemy.com/v2/${solanaAlchemyKey}`
+      : "",
+    "https://solana-rpc.publicnode.com",
+    "https://api.mainnet-beta.solana.com",
+    "https://api.mainnet.solana.com",
     // "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY",
     // "https://rpc.ankr.com/solana", // neeed key
   ],

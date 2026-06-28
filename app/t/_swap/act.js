@@ -6,6 +6,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
+import { ed25519 } from "@noble/curves/ed25519";
 import coinM from "@/fn/coinM";
 import {
   approveExactIfNeeded,
@@ -32,7 +33,12 @@ import {
 
 const relayApiBase = "https://api.relay.link";
 const acrossApiBase = "https://app.across.to/api";
+const jupiterApiBase =
+  process.env.JUPITER_API_BASE ||
+  process.env.jupiter_api_base ||
+  "https://lite-api.jup.ag/swap/v1";
 const nativeSolanaAddress = "11111111111111111111111111111111";
+const jupiterNativeSolAddress = "So11111111111111111111111111111111111111112";
 const defaultSlippageBps = 50n;
 const uniswapFeeTiers = [100, 500, 3000, 10000];
 const acrossChainIds = {
@@ -282,6 +288,14 @@ function getAcrossToken(chain = "", coin = "") {
   return ethers.getAddress(coinE.address);
 }
 
+function getJupiterToken(coin = "") {
+  const coinE = coinM?.Solana?.[coin];
+  if (!coinE) throw new Error(`coin not found: Solana ${coin}`);
+  if (coinE.native) return jupiterNativeSolAddress;
+
+  return getSolanaPublicKey(coinE.address, "Jupiter token mint").toBase58();
+}
+
 function getUniswapToken(chain = "", coin = "") {
   const coinE = coinM?.[chain]?.[coin];
   if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
@@ -318,6 +332,15 @@ function getAcrossHeaders() {
   if (!apiKey) throw new Error("Across API key missing: ACROSS_API_KEY");
 
   return { Authorization: `Bearer ${apiKey}` };
+}
+
+function getJupiterHeaders() {
+  const apiKey = process.env.JUPITER_API_KEY || process.env.jupiter_api_key;
+
+  return {
+    "Content-Type": "application/json",
+    ...(apiKey ? { "x-api-key": apiKey } : {}),
+  };
 }
 
 function getAcrossIntegratorId() {
@@ -383,6 +406,29 @@ async function acrossFetch(endpoint, params = {}) {
   return data;
 }
 
+async function jupiterFetch(endpoint, options = {}) {
+  const res = await fetch(`${jupiterApiBase}${endpoint}`, {
+    ...options,
+    headers: {
+      ...getJupiterHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const text = await res.text();
+  const data = parseJson(text);
+
+  if (!res.ok || data?.error) {
+    const message =
+      data?.message ||
+      data?.error ||
+      data?.errorMessage ||
+      `Jupiter request failed: ${res.status}`;
+    throw new Error(message);
+  }
+
+  return data;
+}
+
 async function postRelaySignature(post = {}, signature = "") {
   const endpoint = post.endpoint || "";
   if (!endpoint) throw new Error("Relay signature post endpoint missing");
@@ -404,17 +450,86 @@ async function postRelaySignature(post = {}, signature = "") {
   return data;
 }
 
-async function executeRelaySignatureStep({ privateKey, item }) {
-  const wallet = new ethers.Wallet(privateKey);
+function relaySignMessageBytes(sign = {}) {
+  const message =
+    sign.message ??
+    sign.data ??
+    sign.value ??
+    sign.signableMessage ??
+    "";
+  if (message instanceof Uint8Array) return message;
+  if (Array.isArray(message)) return Uint8Array.from(message);
+  if (Array.isArray(message?.data)) return Uint8Array.from(message.data);
+  if (typeof message != "string") {
+    return ethers.toUtf8Bytes(JSON.stringify(message || ""));
+  }
+
+  const text = message.trim();
+  if (ethers.isHexString(text)) return ethers.getBytes(text);
+  if (
+    /^[A-Za-z0-9+/]+={0,2}$/.test(text) &&
+    text.length % 4 == 0 &&
+    text.length > 16
+  ) {
+    try {
+      return Uint8Array.from(Buffer.from(text, "base64"));
+    } catch {
+      // Fall through to UTF-8.
+    }
+  }
+
+  return ethers.toUtf8Bytes(message);
+}
+
+function bytesToBase58(bytes = []) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = [0];
+  const bytesE = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+
+  for (const byte of bytesE) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i += 1) {
+      carry += digits[i] << 8;
+      digits[i] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+
+  let zeroes = 0;
+  while (zeroes < bytesE.length && bytesE[zeroes] == 0) zeroes += 1;
+
+  return (
+    "1".repeat(zeroes) +
+    digits
+      .reverse()
+      .map((digit) => alphabet[digit])
+      .join("")
+  );
+}
+
+async function executeRelaySignatureStep({ privateKey = "", solanaKeypair = null, item }) {
   const sign = item?.sign || {};
   let signature;
 
-  if (sign.signatureKind == "eip191") {
+  if (item?.chainId == relayChainIds.Solana || sign.signatureKind == "ed25519") {
+    if (!solanaKeypair) throw new Error("Solana private key missing");
+    const signed = ed25519.sign(
+      relaySignMessageBytes(sign),
+      solanaKeypair.secretKey.slice(0, 32),
+    );
+    signature = bytesToBase58(signed);
+  } else if (sign.signatureKind == "eip191") {
+    const wallet = new ethers.Wallet(privateKey);
     const message = sign.message || "";
     signature = await wallet.signMessage(
       ethers.isHexString(message) ? ethers.getBytes(message) : message,
     );
   } else if (sign.signatureKind == "eip712") {
+    const wallet = new ethers.Wallet(privateKey);
     const types = { ...(sign.types || {}) };
     delete types.EIP712Domain;
     signature = await wallet.signTypedData(sign.domain, types, sign.value);
@@ -479,6 +594,16 @@ function getAcrossAmountIn({ chain, fromCoin, amount }) {
   return amountIn;
 }
 
+function getJupiterAmountIn({ fromCoin, amount }) {
+  const amountIn = ethers.parseUnits(
+    String(amount || "0"),
+    getCoinDecimals("Solana", fromCoin),
+  );
+  if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
+
+  return amountIn;
+}
+
 function getAcrossChainId(chain = "") {
   const chainId = acrossChainIds[chain];
   if (!chainId) throw new Error(`Across chain unsupported: ${chain}`);
@@ -493,6 +618,113 @@ function getAcrossAddress(chain = "", address = "", label = "Across address") {
   if (!ethers.isAddress(address)) throw new Error(`${label} must be EVM`);
 
   return ethers.getAddress(address);
+}
+
+function assertJupiterRoute({
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+} = {}) {
+  if (fromChain != "Solana" || toChain != "Solana") {
+    throw new Error("Jupiter is Solana-only");
+  }
+  getSolanaPublicKey(walletAddress, "Solana wallet address");
+  if (fromCoin == toCoin) throw new Error("sell coin and buy coin are the same");
+}
+
+async function getJupiterQuote({
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  amount = "",
+} = {}) {
+  assertJupiterRoute({
+    walletAddress,
+    fromChain,
+    toChain,
+    fromCoin,
+    toCoin,
+  });
+
+  const amountIn = getJupiterAmountIn({ fromCoin, amount });
+  const params = new URLSearchParams({
+    inputMint: getJupiterToken(fromCoin),
+    outputMint: getJupiterToken(toCoin),
+    amount: amountIn.toString(),
+    slippageBps: String(defaultSlippageBps),
+    restrictIntermediateTokens: "true",
+  });
+
+  return {
+    amountIn,
+    quote: await jupiterFetch(`/quote?${params}`),
+  };
+}
+
+function getJupiterTx({
+  swapResponse = {},
+  type = "swap",
+} = {}) {
+  const transaction = swapResponse.swapTransaction || swapResponse.transaction;
+  if (!transaction) {
+    throw new Error(
+      swapResponse.simulationError ||
+        swapResponse.error ||
+        swapResponse.errorMessage ||
+        "Jupiter returned no swap transaction",
+    );
+  }
+
+  return {
+    chain: "Solana",
+    chainId: relayChainIds.Solana,
+    type,
+    transaction,
+    format: "solana:v0",
+  };
+}
+
+async function getJupiterSwapBuild({
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  amount = "",
+} = {}) {
+  const { amountIn, quote } = await getJupiterQuote({
+    walletAddress,
+    fromChain,
+    toChain,
+    fromCoin,
+    toCoin,
+    amount,
+  });
+  const swapResponse = await jupiterFetch("/swap", {
+    method: "POST",
+    body: JSON.stringify({
+      quoteResponse: quote,
+      userPublicKey: getSolanaPublicKey(
+        walletAddress,
+        "Solana wallet address",
+      ).toBase58(),
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      dynamicSlippage: true,
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          maxLamports: 1_000_000,
+          priorityLevel: "high",
+        },
+      },
+    }),
+  });
+
+  return { amountIn, quote, swapResponse };
 }
 
 function isAcrossSolanaTx(txData = {}) {
@@ -1194,6 +1426,115 @@ export async function executeAcrossSwap({
   };
 }
 
+export async function getJupiterSwapPreview({
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  amount = "",
+} = {}) {
+  const { amountIn, quote } = await getJupiterQuote({
+    walletAddress,
+    fromChain,
+    toChain,
+    fromCoin,
+    toCoin,
+    amount,
+  });
+
+  return {
+    ok: true,
+    dex: "Jupiter",
+    fromChain,
+    toChain,
+    approvalNeeded: false,
+    amountIn: amountIn.toString(),
+    quote: {
+      amountOut: quote.outAmount,
+      amountOutMinimum: quote.otherAmountThreshold,
+      slippageBps: quote.slippageBps,
+      priceImpactPct: quote.priceImpactPct,
+      swapUsdValue: quote.swapUsdValue,
+      route: (quote.routePlan || [])
+        .map((route) => route?.swapInfo?.label)
+        .filter(Boolean),
+    },
+  };
+}
+
+export async function buildJupiterSwapTxs({
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  amount = "",
+} = {}) {
+  const { amountIn, quote, swapResponse } = await getJupiterSwapBuild({
+    walletAddress,
+    fromChain,
+    toChain,
+    fromCoin,
+    toCoin,
+    amount,
+  });
+
+  return {
+    ok: true,
+    dex: "Jupiter",
+    chain: "Solana",
+    txs: [getJupiterTx({ swapResponse, type: "swap" })],
+    quote: {
+      amountIn: amountIn.toString(),
+      amountOut: quote.outAmount,
+      amountOutMinimum: quote.otherAmountThreshold,
+      slippageBps: quote.slippageBps,
+      priceImpactPct: quote.priceImpactPct,
+      swapUsdValue: quote.swapUsdValue,
+      route: (quote.routePlan || [])
+        .map((route) => route?.swapInfo?.label)
+        .filter(Boolean),
+      lastValidBlockHeight: swapResponse.lastValidBlockHeight,
+      prioritizationFeeLamports: swapResponse.prioritizationFeeLamports,
+      computeUnitLimit: swapResponse.computeUnitLimit,
+    },
+  };
+}
+
+export async function executeJupiterSwap({
+  walletName = "",
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  amount = "",
+} = {}) {
+  const solanaKeypair = getSolanaKeypair(walletName);
+  const built = await buildJupiterSwapTxs({
+    walletAddress,
+    fromChain,
+    toChain,
+    fromCoin,
+    toCoin,
+    amount,
+  });
+  const txs = [];
+
+  for (const tx of built.txs || []) {
+    txs.push(
+      await executeSolanaTx({
+        keypair: solanaKeypair,
+        expectedAddress: walletAddress,
+        tx,
+      }),
+    );
+  }
+
+  return { ...built, txs };
+}
+
 export async function executeRelaySwap({
   walletName = "",
   walletAddress = "",
@@ -1254,15 +1595,10 @@ export async function executeRelaySwap({
         );
       }
     } else if (item.kind == "signature") {
-      if (fromChain == "Solana") {
-        throw new Error(
-          `Relay Solana signature unsupported: ${item.sign?.signatureKind || ""}`,
-        );
-      }
-
       signatures.push(
         await executeRelaySignatureStep({
           privateKey,
+          solanaKeypair,
           item,
         }),
       );

@@ -540,12 +540,21 @@ function TradePanels({
     });
   }
 
-  const refreshWalletBalances = useCallback(() => {
-    if (useLocalStorageEditor()) {
-      setLocalBalanceRefresh((value) => value + 1);
-    }
-    router.refresh();
-    setTimeout(() => router.refresh(), 4000);
+  const refreshWalletBalances = useCallback((res = {}) => {
+    const txs = Array.isArray(res?.txs) ? res.txs : [];
+    const hasSolanaTx = txs.some((tx) => tx?.chain == "Solana");
+    const delays = hasSolanaTx ? [0, 2500, 7000, 14000] : [0, 4000];
+    const refresh = () => {
+      if (useLocalStorageEditor()) {
+        setLocalBalanceRefresh((value) => value + 1);
+      }
+      router.refresh();
+    };
+
+    delays.forEach((delay) => {
+      if (delay) setTimeout(refresh, delay);
+      else refresh();
+    });
   }, [router]);
 
   function renderTradePane(panelType, setPanelType, cyclePanelType) {

@@ -5,12 +5,17 @@ import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import {
   buildAaveLendTxs,
+  buildJupiterLendTxs,
   buildVenusLendTxs,
   executeAaveLend,
+  executeJupiterLend,
   executeVenusLend,
   getAaveAllMarkets,
   getAaveLendPreview,
   getAaveMarketBalance,
+  getJupiterAllMarkets,
+  getJupiterLendPreview,
+  getJupiterMarketBalance,
   getTradeCoinPrice,
   getVenusAllMarkets,
   getVenusLendPreview,
@@ -35,6 +40,7 @@ import {
   priceKey,
   readQtyInput,
   sameAddress,
+  sendBrowserSolanaTx,
   sendBrowserTx,
   SwapTxLink,
   toNum,
@@ -42,6 +48,13 @@ import {
 
 function isProtocolCoin(protocol, coin, coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
+  if (protocol == "jupiter") {
+    return (
+      (coinE.type == "lending" || coinE.type == "yield") &&
+      /^jl[A-Z0-9]/.test(coin) &&
+      text.includes("jupiter")
+    );
+  }
   if (coinE.type != "lending") return false;
   if (protocol == "aave") return text.includes("aave") || /^a[A-Z]/.test(coin);
   if (protocol == "venus") {
@@ -65,7 +78,9 @@ function getUnderlyingCoin(chainE, lendCoin) {
 
   return (
     candidates.find((coin) => text.includes(coin.toLowerCase())) ||
-    candidates.find((coin) => ["USDT", "USDC", "DAI"].includes(coin)) ||
+    candidates.find((coin) =>
+      ["USDT", "USDC", "USDS", "EURC", "DAI", "USD1"].includes(coin),
+    ) ||
     candidates[0] ||
     ""
   );
@@ -78,7 +93,13 @@ function getLendingMarkets(chainE, protocol) {
     .filter((coin) => isProtocolCoin(protocol, coin, chainE.coinInfoM?.[coin]))
     .map((lendCoin) => {
       const lendE = chainE.coinInfoM?.[lendCoin] || {};
-      const underlyingCoin = getUnderlyingCoin(chainE, lendCoin);
+      const jupiterUnderlying = String(lendCoin || "").replace(/^jl/, "");
+      const underlyingCoin =
+        protocol == "jupiter"
+          ? chainE.coinInfoM?.[jupiterUnderlying]?.address
+            ? jupiterUnderlying
+            : ""
+          : getUnderlyingCoin(chainE, lendCoin);
 
       return {
         value: lendCoin,
@@ -111,7 +132,7 @@ function sameAddressText(a = "", b = "") {
 }
 
 function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
-  if (defi != "aave" && defi != "venus") return 0;
+  if (defi != "aave" && defi != "venus" && defi != "jupiter") return 0;
   if (marketE?.supplyApr) return toNum(marketE.supplyApr);
 
   const lendAddress =
@@ -267,6 +288,10 @@ export default function LendPanel({
   const [venusAllLoadingM, setVenusAllLoadingM] = useState({});
   const [venusAllErrorM, setVenusAllErrorM] = useState({});
   const [venusAllRetryTick, setVenusAllRetryTick] = useState(0);
+  const [jupiterAllMarketM, setJupiterAllMarketM] = useState({});
+  const [jupiterAllLoadingM, setJupiterAllLoadingM] = useState({});
+  const [jupiterAllErrorM, setJupiterAllErrorM] = useState({});
+  const [jupiterAllRetryTick, setJupiterAllRetryTick] = useState(0);
   const [directBalanceM, setDirectBalanceM] = useState({});
   const [directBalanceLoadingM, setDirectBalanceLoadingM] = useState({});
   const [customCoinPreview, setCustomCoinPreview] = useState(null);
@@ -291,12 +316,19 @@ export default function LendPanel({
   const marketChains = useMemo(
     () =>
       chainList
-        .filter((chainE) =>
-          defi == "aave"
-            ? aaveConfiguredChainSet.has(chainE.chain) ||
+        .filter((chainE) => {
+          if (defi == "aave") {
+            return (
+              aaveConfiguredChainSet.has(chainE.chain) ||
               chainMarketsM[chainE.chain]?.length
-            : chainMarketsM[chainE.chain]?.length,
-        )
+            );
+          }
+          if (defi == "jupiter") {
+            return chainE.chain == "Solana" && chainMarketsM[chainE.chain]?.length;
+          }
+
+          return chainMarketsM[chainE.chain]?.length;
+        })
         .map((chainE) => chainE.chain),
     [chainList, chainMarketsM, defi],
   );
@@ -374,27 +406,61 @@ export default function LendPanel({
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
   const venusAllLoading = !!venusAllLoadingM[venusAllKey];
   const venusAllError = venusAllErrorM[venusAllKey] || "";
+  const jupiterAllKey = chainE?.chain || "";
+  const rawJupiterAllMarkets = jupiterAllMarketM[jupiterAllKey] || [];
+  const jupiterAllMarkets = rawJupiterAllMarkets
+    .map((entry) => {
+      const addressKey = String(entry.lendAddress || "").toLowerCase();
+      const underlyingAddressKey = String(entry.underlyingAddress || "").toLowerCase();
+      const addedValue = addedMarketAddressM[addressKey] || "";
+      const addedUnderlying =
+        entry.addedUnderlying ||
+        !!addedCoinAddressM[underlyingAddressKey] ||
+        !!locallyAddedAddressM[`${jupiterAllKey}:${underlyingAddressKey}`];
+      const addedLend =
+        entry.addedLend ||
+        !!addedValue ||
+        !!locallyAddedAddressM[`${jupiterAllKey}:${addressKey}`];
+
+      return {
+        ...entry,
+        addedUnderlying,
+        addedLend,
+        addedValue,
+      };
+    })
+    .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
+  const jupiterAllLoading = !!jupiterAllLoadingM[jupiterAllKey];
+  const jupiterAllError = jupiterAllErrorM[jupiterAllKey] || "";
   const visibleAddedMarkets = addedMarkets;
   const allMarkets =
     defi == "aave"
       ? aaveAllMarkets
       : defi == "venus"
         ? venusAllMarkets
-        : [];
+        : defi == "jupiter"
+          ? jupiterAllMarkets
+          : [];
   const allLoading =
     defi == "aave"
       ? aaveAllLoading
       : defi == "venus"
         ? venusAllLoading
-        : false;
+        : defi == "jupiter"
+          ? jupiterAllLoading
+          : false;
   const allError =
     defi == "aave"
       ? aaveAllError
       : defi == "venus"
         ? venusAllError
-        : "";
-  const hasProtocolAllMarkets = defi == "aave" || defi == "venus";
-  const allProtocolLabel = defi == "venus" ? "Venus" : "Aave";
+        : defi == "jupiter"
+          ? jupiterAllError
+          : "";
+  const hasProtocolAllMarkets =
+    defi == "aave" || defi == "venus" || defi == "jupiter";
+  const allProtocolLabel =
+    defi == "venus" ? "Venus" : defi == "jupiter" ? "Jupiter" : "Aave";
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
@@ -406,7 +472,9 @@ export default function LendPanel({
     rawMarkets:
       defi == "venus"
         ? rawVenusAllMarkets
-        : rawAaveAllMarkets,
+        : defi == "jupiter"
+          ? rawJupiterAllMarkets
+          : rawAaveAllMarkets,
   });
   const marketButtonWidth = useMemo(() => {
     const maxLabelLength = Math.max(
@@ -469,7 +537,9 @@ export default function LendPanel({
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    defi == "venus" ? toNum(marketPreview?.receiptPerUnderlying) : 0;
+    defi == "venus" || defi == "jupiter"
+      ? toNum(marketPreview?.receiptPerUnderlying)
+      : 0;
   const underlyingListPrice = toNum(underlyingBalance.price);
   const receiptListPrice = toNum(receiptBalance.price);
   const underlyingFallbackPrice = fallbackPriceM[underlyingPriceKey];
@@ -479,13 +549,15 @@ export default function LendPanel({
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
-    (defi == "venus" && underlyingPrice && marketReceiptRate
+    ((defi == "venus" || defi == "jupiter") &&
+    underlyingPrice &&
+    marketReceiptRate
       ? underlyingPrice / marketReceiptRate
       : 0);
   const receiptRate =
     defi == "aave"
       ? 1
-      : defi == "venus" && marketReceiptRate
+      : (defi == "venus" || defi == "jupiter") && marketReceiptRate
         ? marketReceiptRate
       : underlyingPrice && receiptPrice
         ? underlyingPrice / receiptPrice
@@ -668,6 +740,57 @@ export default function LendPanel({
   ]);
 
   useEffect(() => {
+    if (defi != "jupiter" || !showMarketMenu || !jupiterAllKey) return;
+    if (
+      jupiterAllMarketM[jupiterAllKey] !== undefined ||
+      jupiterAllLoadingM[jupiterAllKey]
+    ) {
+      return;
+    }
+
+    setJupiterAllLoadingM((loadingM) => ({
+      ...loadingM,
+      [jupiterAllKey]: true,
+    }));
+    setJupiterAllErrorM((errorM) => ({ ...errorM, [jupiterAllKey]: "" }));
+    withClientTimeout(
+      getJupiterAllMarkets({ chain: jupiterAllKey }),
+      10000,
+      `${jupiterAllKey} Jupiter loading timeout`,
+    )
+      .then((res) => {
+        if (!mountedRef.current) return;
+        setJupiterAllMarketM((marketM) => ({
+          ...marketM,
+          [jupiterAllKey]: Array.isArray(res?.markets) ? res.markets : [],
+        }));
+      })
+      .catch((e) => {
+        if (!mountedRef.current) return;
+        setJupiterAllMarketM((marketM) => ({
+          ...marketM,
+          [jupiterAllKey]: [],
+        }));
+        setJupiterAllErrorM((errorM) => ({
+          ...errorM,
+          [jupiterAllKey]: e?.message || "Jupiter markets failed",
+        }));
+      })
+      .finally(() => {
+        if (!mountedRef.current) return;
+        setJupiterAllLoadingM((loadingM) => ({
+          ...loadingM,
+          [jupiterAllKey]: false,
+        }));
+      });
+  }, [
+    defi,
+    jupiterAllKey,
+    jupiterAllRetryTick,
+    showMarketMenu,
+  ]);
+
+  useEffect(() => {
     if (
       !usesDirectMarket ||
       !directBalanceKey ||
@@ -684,7 +807,11 @@ export default function LendPanel({
       [directBalanceKey]: true,
     }));
     const getMarketBalance =
-      defi == "venus" ? getVenusMarketBalance : getAaveMarketBalance;
+      defi == "venus"
+        ? getVenusMarketBalance
+        : defi == "jupiter"
+          ? getJupiterMarketBalance
+          : getAaveMarketBalance;
     withClientTimeout(
       getMarketBalance({
         walletAddress: selectedWalletEntry.address,
@@ -695,7 +822,7 @@ export default function LendPanel({
         lendDecimals: marketE.lendDecimals,
       }),
       12000,
-      `${chainE.chain} ${defi == "venus" ? "Venus" : "Aave"} balance timeout`,
+      `${chainE.chain} ${allProtocolLabel} balance timeout`,
     )
       .then((res) => {
         if (cancelled) return;
@@ -727,6 +854,7 @@ export default function LendPanel({
     };
   }, [
     chainE?.chain,
+    allProtocolLabel,
     defi,
     directBalanceKey,
     marketE?.lendAddress,
@@ -739,7 +867,7 @@ export default function LendPanel({
 
   useEffect(() => {
     if (
-      defi != "venus" ||
+      (defi != "venus" && defi != "jupiter") ||
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
@@ -754,7 +882,9 @@ export default function LendPanel({
       ...loadingM,
       [marketPreviewKey]: true,
     }));
-    getVenusLendPreview({
+    const getLendPreview =
+      defi == "jupiter" ? getJupiterLendPreview : getVenusLendPreview;
+    getLendPreview({
       walletAddress: selectedWalletEntry.address,
       chain: chainE.chain,
       action: "lend",
@@ -1010,9 +1140,29 @@ export default function LendPanel({
     setVenusAllRetryTick((tick) => tick + 1);
   }
 
+  function retryJupiterAllMarkets(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setJupiterAllMarketM((marketM) => {
+      const next = { ...marketM };
+      delete next[jupiterAllKey];
+      return next;
+    });
+    setJupiterAllErrorM((errorM) => ({ ...errorM, [jupiterAllKey]: "" }));
+    setJupiterAllLoadingM((loadingM) => ({
+      ...loadingM,
+      [jupiterAllKey]: false,
+    }));
+    setJupiterAllRetryTick((tick) => tick + 1);
+  }
+
   function retryAllMarkets(e) {
     if (defi == "venus") {
       retryVenusAllMarkets(e);
+      return;
+    }
+    if (defi == "jupiter") {
+      retryJupiterAllMarkets(e);
       return;
     }
 
@@ -1128,18 +1278,22 @@ export default function LendPanel({
     }
     const isAave = defi == "aave";
     const isVenus = defi == "venus";
+    const isJupiter = defi == "jupiter";
 
-    if (!isAave && !isVenus) {
+    if (!isAave && !isVenus && !isJupiter) {
       toast(`${lendingE.label}: lending not wired yet`);
       return;
     }
-    const protocol = isVenus ? "Venus" : "Aave";
+    const protocol = isVenus ? "Venus" : isJupiter ? "Jupiter" : "Aave";
     if (!selectedWalletEntry?.address) {
       toast.error("wallet missing");
       return;
     }
-    if (selectedWalletEntry?.isBrowserWallet && selectedWalletEntry.type != "evm") {
-      toast.error(`${protocol} needs an EVM browser wallet`);
+    if (
+      selectedWalletEntry?.isBrowserWallet &&
+      selectedWalletEntry.type != (isJupiter ? "solana" : "evm")
+    ) {
+      toast.error(`${protocol} needs a ${isJupiter ? "Solana" : "EVM"} browser wallet`);
       return;
     }
     if (!selectedWalletEntry?.isBrowserWallet && !selectedWalletEntry?.hasPrivateKey) {
@@ -1149,7 +1303,7 @@ export default function LendPanel({
 
     const redeem = action == "redeem";
     const qty = redeem ? readQtyInput(receiptQty) : readQtyInput(lendQty);
-    const autoApprovalAmount = !redeem && autoApproval ? qty : "";
+    const autoApprovalAmount = !redeem && !isJupiter && autoApproval ? qty : "";
     const getApprovalAmount = (approvalNeeded) => {
       if (!approvalNeeded) return "";
       return (
@@ -1166,11 +1320,23 @@ export default function LendPanel({
     }
 
     const useBrowserWallet = !!selectedWalletEntry?.isBrowserWallet;
-    const buildTxs = isVenus ? buildVenusLendTxs : buildAaveLendTxs;
-    const executeLend = isVenus ? executeVenusLend : executeAaveLend;
-    const previewLend = isVenus ? getVenusLendPreview : getAaveLendPreview;
+    const buildTxs = isVenus
+      ? buildVenusLendTxs
+      : isJupiter
+        ? buildJupiterLendTxs
+        : buildAaveLendTxs;
+    const executeLend = isVenus
+      ? executeVenusLend
+      : isJupiter
+        ? executeJupiterLend
+        : executeAaveLend;
+    const previewLend = isVenus
+      ? getVenusLendPreview
+      : isJupiter
+        ? getJupiterLendPreview
+        : getAaveLendPreview;
     const directMarketArgs =
-      (isAave || isVenus) && usesDirectMarket
+      (isAave || isVenus || isJupiter) && usesDirectMarket
         ? {
             underlyingAddress: marketE.underlyingAddress,
             underlyingDecimals: marketE.underlyingDecimals,
@@ -1203,11 +1369,17 @@ export default function LendPanel({
         for (const tx of built.txs || []) {
           toast.loading(`${protocol}: confirm ${tx.type}...`, { id: toastId });
           txs.push(
-            await sendBrowserTx({
-              tx,
-              wallet: selectedWalletEntry.browserWallet,
-              address: selectedWalletEntry.address,
-            }),
+            isJupiter
+              ? await sendBrowserSolanaTx({
+                  tx,
+                  wallet: selectedWalletEntry.browserWallet,
+                  address: selectedWalletEntry.address,
+                })
+              : await sendBrowserTx({
+                  tx,
+                  wallet: selectedWalletEntry.browserWallet,
+                  address: selectedWalletEntry.address,
+                }),
           );
         }
         res = { ...built, txs };
@@ -1225,7 +1397,7 @@ export default function LendPanel({
         }
 
         let approvalAmount = "";
-        if (!redeem) {
+        if (!redeem && !isJupiter) {
           toast.loading(`${protocol}: checking allowance...`, { id: toastId });
           const preview = await previewLend({
             walletAddress: selectedWalletEntry.address,
@@ -1760,7 +1932,7 @@ export default function LendPanel({
               <option value="default">default</option>
             </select>
           </label>
-          {!selectedWalletEntry?.isBrowserWallet && (
+          {!selectedWalletEntry?.isBrowserWallet && defi != "jupiter" && (
             <label className="swapAutoApproval">
               <input
                 type="checkbox"
