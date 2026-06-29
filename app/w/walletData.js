@@ -3,6 +3,7 @@ import path from "path";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ethers } from "ethers";
+import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import { defaultMulticallAddress, multicalls } from "@/data/basic";
 import getCoinM from "@/fn/getCoinM";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
@@ -10,6 +11,7 @@ import { getWalletDisableKey } from "./walletSettingData";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallet");
 const customCoinRootDir = path.join(process.cwd(), "data", "editor", "coins");
+const customDefiRootDir = path.join(process.cwd(), "data", "editor", "defi");
 export const defaultWalletType = "evm";
 export const walletTypes = ["evm", "solana"];
 const dexChainM = {
@@ -96,6 +98,11 @@ const priceFetchTimeoutMs = 3500;
 const alchemyFetchTimeoutMs = 10000;
 const alchemyWalletChunkSize = 2;
 const alchemyPortfolioBaseUrl = "https://api.g.alchemy.com/data/v1";
+const hyperliquidApiBase =
+  process.env.HYPERLIQUID_API_BASE ||
+  process.env.hyperliquid_api_base ||
+  "https://api.hyperliquid.xyz";
+const hyperliquidFetchTimeoutMs = 5000;
 const solanaTokenProgramIds = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
 const reservedWalletNames = new Set(["watch"]);
 const erc20Interface = new ethers.Interface([
@@ -166,6 +173,9 @@ function getRpcs(chainE) {
 async function readCustomCoins(chain = "") {
   const cleanChain = String(chain || "").trim();
   if (!cleanChain) return {};
+  if (cleanChain == "Hyperliquid") {
+    return readCustomHyperliquidVaultM();
+  }
 
   try {
     const parsed = JSON.parse(
@@ -178,6 +188,84 @@ async function readCustomCoins(chain = "") {
     if (e.code == "ENOENT") return {};
     return {};
   }
+}
+
+function cleanHyperliquidVaultCoin(value = "", address = "") {
+  const clean = String(value || "")
+    .trim()
+    .replace(/\(([^)]{1,20})\)\s*$/, "$1")
+    .replace(/\s+/g, "")
+    .replace(/[^\w.-]/g, "");
+  const cleanAddress = String(address || "").replace(/^0x/i, "");
+  const fallback = cleanAddress
+    ? `HL_${cleanAddress.slice(0, 3)}..${cleanAddress.slice(-3)}`
+    : "";
+
+  return clean || fallback || "HL_VAULT";
+}
+
+function getHyperliquidVaultEntryCoin(entry = {}, fallbackAddress = "") {
+  const name = String(entry.name || "").trim();
+  const paren = name.match(/\(([^)]{1,20})\)\s*$/)?.[1] || "";
+
+  return cleanHyperliquidVaultCoin(
+    entry.coin || entry.symbol || paren || name,
+    entry.address || fallbackAddress,
+  );
+}
+
+function normalizeHyperliquidVaultEntries(input = [], { source = "hyperliquid" } = {}) {
+  const rows = Array.isArray(input)
+    ? input
+    : input && typeof input == "object"
+      ? Object.entries(input).map(([coin, entry]) => ({ coin, ...(entry || {}) }))
+      : [];
+  const vaultM = {};
+  const usedCoins = new Set();
+
+  for (const entry of rows) {
+    const address = String(entry?.address || entry?.vaultAddress || "").trim();
+    if (!ethers.isAddress(address)) continue;
+
+    const cleanAddress = ethers.getAddress(address);
+    const baseCoin = getHyperliquidVaultEntryCoin(entry, cleanAddress);
+    let coin = baseCoin;
+    let i = 2;
+    while (usedCoins.has(coin)) {
+      coin = `${baseCoin}_${i}`;
+      i += 1;
+    }
+    usedCoins.add(coin);
+
+    vaultM[coin] = {
+      address: cleanAddress,
+      decimals: Number.isInteger(entry.decimals) ? entry.decimals : 6,
+      name: String(entry.name || coin).trim() || coin,
+      type: "vault",
+      source: entry.source || source,
+    };
+  }
+
+  return vaultM;
+}
+
+async function readCustomHyperliquidVaultM() {
+  try {
+    const parsed = JSON.parse(
+      await fs.readFile(
+        path.join(customDefiRootDir, "hyperliquid.json"),
+        "utf8",
+      ),
+    );
+    return normalizeHyperliquidVaultEntries(parsed, { source: "editor" });
+  } catch (e) {
+    if (e.code == "ENOENT") return {};
+    return {};
+  }
+}
+
+function getHyperliquidBaseVaultM() {
+  return normalizeHyperliquidVaultEntries(baseHyperliquidVaults);
 }
 
 export async function readCustomCoinM(chains = []) {
@@ -1192,6 +1280,189 @@ function addError(errors, coin, message) {
   errors[coin] = message;
 }
 
+function getHyperliquidVaultCoin(address = "", usedCoins = null) {
+  const cleanAddress = String(address || "").replace(/^0x/i, "");
+  const base = cleanAddress
+    ? `HL_${cleanAddress.slice(0, 3)}..${cleanAddress.slice(-3)}`
+    : "HL_VAULT";
+  let coin = base || "HL_VAULT";
+  let i = 2;
+
+  if (!usedCoins) return coin;
+
+  while (usedCoins.has(coin)) {
+    coin = `${base}_${i}`;
+    i += 1;
+  }
+  usedCoins.add(coin);
+
+  return coin;
+}
+
+function normalizeHyperliquidVault(entry = {}) {
+  const address = String(entry.vaultAddress || "").trim();
+  const equity = Number(entry.equity);
+  if (!ethers.isAddress(address) || !(equity > 0)) return null;
+
+  const lockedUntilTimestamp = Number(entry.lockedUntilTimestamp);
+
+  return {
+    address: ethers.getAddress(address),
+    equity,
+    usd: equity,
+    lockedUntilTimestamp: Number.isFinite(lockedUntilTimestamp)
+      ? lockedUntilTimestamp
+      : 0,
+  };
+}
+
+async function hyperliquidInfo(body = {}) {
+  const res = await fetchWithTimeout(
+    `${hyperliquidApiBase.replace(/\/+$/, "")}/info`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    },
+    hyperliquidFetchTimeoutMs,
+  );
+  const data = await res.json().catch(() => null);
+  if (!res.ok || data?.error) {
+    throw new Error(data?.error || `${res.status} ${res.statusText}`);
+  }
+
+  return data;
+}
+
+async function getHyperliquidVaultEquities(address = "") {
+  if (!ethers.isAddress(address)) return [];
+
+  const data = await hyperliquidInfo({
+    type: "userVaultEquities",
+    user: ethers.getAddress(address),
+  });
+
+  return (Array.isArray(data) ? data : [])
+    .map(normalizeHyperliquidVault)
+    .filter(Boolean);
+}
+
+function getHyperliquidSpotPrice(ctx = {}) {
+  for (const key of ["midPx", "markPx", "prevDayPx"]) {
+    const value = Number(ctx?.[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  return 0;
+}
+
+function cleanHyperliquidSpotCoin(value = "", token = "") {
+  const clean = String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^\w.-]/g, "");
+  return clean || `SPOT_${token}`;
+}
+
+function getUniqueHyperliquidSpotCoin({ coin = "", token = "", usedCoins }) {
+  const base = cleanHyperliquidSpotCoin(coin, token);
+  if (!usedCoins.has(base)) {
+    usedCoins.add(base);
+    return base;
+  }
+
+  const tokenCoin = cleanHyperliquidSpotCoin(`${base}_${token}`, token);
+  if (!usedCoins.has(tokenCoin)) {
+    usedCoins.add(tokenCoin);
+    return tokenCoin;
+  }
+
+  let i = 2;
+  let next = `${tokenCoin}_${i}`;
+  while (usedCoins.has(next)) {
+    i += 1;
+    next = `${tokenCoin}_${i}`;
+  }
+  usedCoins.add(next);
+  return next;
+}
+
+async function getHyperliquidSpotMeta() {
+  const data = await hyperliquidInfo({ type: "spotMetaAndAssetCtxs" });
+  const meta = Array.isArray(data) ? data[0] : {};
+  const contexts = Array.isArray(data) ? data[1] || [] : [];
+  const tokenM = {};
+  const priceM = { USDC: 1 };
+
+  for (const token of meta?.tokens || []) {
+    if (!Number.isFinite(Number(token.index))) continue;
+    tokenM[Number(token.index)] = token;
+    if (String(token.name || "").toUpperCase() == "USDC") {
+      priceM[Number(token.index)] = 1;
+    }
+  }
+
+  (meta?.universe || []).forEach((market, index) => {
+    const [baseToken, quoteToken] = market?.tokens || [];
+    const base = tokenM[baseToken];
+    const quote = tokenM[quoteToken];
+    const price = getHyperliquidSpotPrice(contexts[index]);
+    if (!base || !quote || !(price > 0)) return;
+
+    const quoteName = String(quote.name || "").toUpperCase();
+    const baseName = String(base.name || "").toUpperCase();
+    if (quoteName == "USDC") {
+      priceM[Number(baseToken)] = price;
+      priceM[base.name] = price;
+    } else if (baseName == "USDC") {
+      priceM[Number(quoteToken)] = 1 / price;
+      priceM[quote.name] = 1 / price;
+    }
+  });
+
+  return { tokenM, priceM };
+}
+
+function normalizeHyperliquidSpotBalance(balance = {}, spotMeta = {}) {
+  const tokenIndex = Number(balance.token);
+  const tokenMeta = spotMeta.tokenM?.[tokenIndex] || {};
+  const coin = cleanHyperliquidSpotCoin(balance.coin || tokenMeta.name, tokenIndex);
+  const qty = Number(balance.total);
+  if (!(qty > 0)) return null;
+  const decimals = Number(tokenMeta.weiDecimals);
+
+  const price =
+    Number(spotMeta.priceM?.[tokenIndex]) ||
+    Number(spotMeta.priceM?.[coin]) ||
+    (String(coin).toUpperCase() == "USDC" ? 1 : 0);
+
+  return {
+    token: tokenIndex,
+    coin,
+    balance: String(balance.total),
+    hold: String(balance.hold ?? "0"),
+    entryNtl: String(balance.entryNtl ?? "0"),
+    decimals: Number.isInteger(decimals) ? decimals : 8,
+    price: Number.isFinite(price) && price > 0 ? price : 0,
+    usd: price > 0 ? qty * price : 0,
+    name: tokenMeta.fullName || tokenMeta.name || coin,
+  };
+}
+
+async function getHyperliquidSpotBalances(address = "", spotMeta = {}) {
+  if (!ethers.isAddress(address)) return [];
+
+  const data = await hyperliquidInfo({
+    type: "spotClearinghouseState",
+    user: ethers.getAddress(address),
+  });
+
+  return (Array.isArray(data?.balances) ? data.balances : [])
+    .map((balance) => normalizeHyperliquidSpotBalance(balance, spotMeta))
+    .filter(Boolean);
+}
+
 function getMulticallResultE(result) {
   return {
     success: result.success ?? result[0],
@@ -1782,6 +2053,189 @@ export async function getSolanaWalletBalances({
       error: e?.message ?? "Solana wallet balance error",
     };
   }
+}
+
+export async function getHyperliquidWalletBalances({
+  walletFile = "",
+  walletType = defaultWalletType,
+  walletAddress = "",
+  walletName = "",
+  walletEntryList = null,
+  customCoinM = {},
+  disabledCoins = [],
+  disabledWallets = [],
+  disabledWalletNames = [],
+} = {}) {
+  const chain = "Hyperliquid";
+  const scanner = "https://app.hyperliquid.xyz";
+  const wallets = await loadWallets(walletFile, walletType, {
+    walletAddress,
+    walletName,
+    walletEntryList,
+    disabledWallets,
+    disabledWalletNames,
+  });
+  const walletEntries = Object.entries(wallets);
+
+  if (!walletEntries.length) {
+    return { chain, coins: [], allCoins: [], coinInfoM: {}, scanner, rows: [] };
+  }
+
+  const rows = walletEntries.map(([name, address]) =>
+    ethers.isAddress(address)
+      ? { name, address: ethers.getAddress(address), balances: {} }
+      : { name, address, balances: {}, error: "invalid address" },
+  );
+  const validRows = rows.filter((row) => !row.error);
+  const [vaultResults, spotMetaResult] = await Promise.allSettled([
+    Promise.allSettled(
+      validRows.map((row) => getHyperliquidVaultEquities(row.address)),
+    ),
+    getHyperliquidSpotMeta(),
+  ]);
+  const results = vaultResults.status == "fulfilled" ? vaultResults.value : [];
+  const spotMeta = spotMetaResult.status == "fulfilled" ? spotMetaResult.value : null;
+  const addressCoinM = {};
+  const spotTokenCoinM = {};
+  const usedCoins = new Set();
+  const coinInfoM = {};
+  const allCoins = [];
+  const discoveredCoins = new Set();
+  const baseVaultM = getHyperliquidBaseVaultM();
+  const editorVaultM = {
+    ...(await readCustomHyperliquidVaultM()),
+    ...(customCoinM && typeof customCoinM == "object" && !Array.isArray(customCoinM)
+      ? customCoinM
+      : {}),
+  };
+  const vaultMetaM = { ...baseVaultM, ...editorVaultM };
+  const vaultAddressMetaM = Object.fromEntries(
+    Object.entries(vaultMetaM)
+      .filter(([, entry]) => ethers.isAddress(entry?.address))
+      .map(([coin, entry]) => [ethers.getAddress(entry.address).toLowerCase(), [coin, entry]]),
+  );
+  const disabled = new Set(disabledCoins);
+
+  results.forEach((result, index) => {
+    const row = validRows[index];
+    if (result.status != "fulfilled") {
+      row.error = result.reason?.message || "Hyperliquid vault error";
+      return;
+    }
+
+    for (const vault of result.value || []) {
+      const addressKey = vault.address.toLowerCase();
+      if (!addressCoinM[addressKey]) {
+        const meta = vaultAddressMetaM[addressKey];
+        const baseCoin = meta?.[0] || getHyperliquidVaultCoin(vault.address);
+        let coin = baseCoin;
+        let i = 2;
+        while (usedCoins.has(coin)) {
+          coin = `${baseCoin}_${i}`;
+          i += 1;
+        }
+        usedCoins.add(coin);
+        addressCoinM[addressKey] = coin;
+        allCoins.push(coin);
+        if (!meta) discoveredCoins.add(coin);
+        coinInfoM[coin] = {
+          ...(meta?.[1] || {}),
+          address: vault.address,
+          decimals: meta?.[1]?.decimals ?? 6,
+          name: meta?.[1]?.name || `Hyperliquid vault ${vault.address}`,
+          type: "vault",
+          source: meta?.[1]?.source || "hyperliquid",
+          lockedUntilTimestamp: vault.lockedUntilTimestamp,
+        };
+      }
+
+      const coin = addressCoinM[addressKey];
+      if (disabled.has(coin)) continue;
+
+      row.balances[coin] = {
+        coin,
+        balance: String(vault.equity),
+        decimals: 6,
+        price: 1,
+        usd: vault.usd,
+        source: "hyperliquid",
+        lockedUntilTimestamp: vault.lockedUntilTimestamp,
+      };
+    }
+  });
+
+  if (spotMeta) {
+    const spotResults = await Promise.allSettled(
+      validRows.map((row) => getHyperliquidSpotBalances(row.address, spotMeta)),
+    );
+
+    spotResults.forEach((result, index) => {
+      const row = validRows[index];
+      if (result.status != "fulfilled") {
+        row.errors = {
+          ...(row.errors || {}),
+          Spot: result.reason?.message || "Hyperliquid spot error",
+        };
+        return;
+      }
+
+      for (const spot of result.value || []) {
+        if (!spotTokenCoinM[spot.token]) {
+          const coin = getUniqueHyperliquidSpotCoin({
+            coin: spot.coin,
+            token: spot.token,
+            usedCoins,
+          });
+          spotTokenCoinM[spot.token] = coin;
+          allCoins.push(coin);
+          coinInfoM[coin] = {
+            decimals: spot.decimals,
+            name: spot.name || spot.coin,
+            type: "spot",
+            source: "hyperliquid",
+            token: spot.token,
+          };
+        }
+
+        const coin = spotTokenCoinM[spot.token];
+        if (disabled.has(coin)) continue;
+
+        row.balances[coin] = {
+          coin,
+          balance: spot.balance,
+          decimals: spot.decimals,
+          price: spot.price,
+          usd: spot.usd,
+          source: "hyperliquid",
+          hold: spot.hold,
+          entryNtl: spot.entryNtl,
+          token: spot.token,
+        };
+      }
+    });
+  } else if (spotMetaResult.status == "rejected") {
+    for (const row of validRows) {
+      row.errors = {
+        ...(row.errors || {}),
+        Spot: spotMetaResult.reason?.message || "Hyperliquid spot meta error",
+      };
+    }
+  }
+
+  const coins = getReturnedCoins({
+    rows,
+    coinEntries: allCoins.map((coin) => [coin, coinInfoM[coin]]),
+  });
+
+  return {
+    chain,
+    coins,
+    allCoins,
+    coinInfoM,
+    discoveredCoins: [...discoveredCoins],
+    scanner,
+    rows,
+  };
 }
 
 export async function getWalletBalances({

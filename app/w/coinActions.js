@@ -10,11 +10,18 @@ import {
   getMint,
 } from "@solana/spl-token";
 import { ethers } from "ethers";
+import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import baseCoinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import { projectFileWriteBlockedResult } from "../projectFileWrites";
 
 const customCoinDir = path.join(process.cwd(), "data", "editor", "coins");
+const customDefiDir = path.join(process.cwd(), "data", "editor", "defi");
+const hyperliquidApiBase =
+  process.env.HYPERLIQUID_API_BASE ||
+  process.env.hyperliquid_api_base ||
+  "https://api.hyperliquid.xyz";
+const hyperliquidFetchTimeoutMs = 5000;
 const metadataProgramId = new PublicKey(
   "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
 );
@@ -128,6 +135,10 @@ function getCustomCoinFile(chain) {
   return path.join(customCoinDir, `${chain}.json`);
 }
 
+function getCustomHyperliquidFile() {
+  return path.join(customDefiDir, "hyperliquid.json");
+}
+
 function cleanSymbol(symbol, address) {
   const cleanAddress = String(address || "").replace(/^0x/i, "");
   const clean = String(symbol || "")
@@ -150,6 +161,20 @@ function cleanType(value = "", fallback = "token") {
       .toLowerCase()
       .replace(/[^a-z0-9_-]+/g, "") || fallback
   );
+}
+
+function cleanVaultCoin(value = "", address = "") {
+  const clean = String(value || "")
+    .trim()
+    .replace(/\(([^)]{1,20})\)\s*$/, "$1")
+    .replace(/\s+/g, "")
+    .replace(/[^\w.-]/g, "");
+  const cleanAddress = String(address || "").replace(/^0x/i, "");
+  const fallback = cleanAddress
+    ? `HL_${cleanAddress.slice(0, 3)}..${cleanAddress.slice(-3)}`
+    : "";
+
+  return clean || fallback || "HL_VAULT";
 }
 
 function sameAddress(a, b) {
@@ -365,6 +390,168 @@ function findCoinByAddress(coinMap, address) {
   );
 }
 
+function getVaultCoinFromEntry(entry = {}, address = "") {
+  const name = String(entry.name || "").trim();
+  const paren = name.match(/\(([^)]{1,20})\)\s*$/)?.[1] || "";
+  return cleanVaultCoin(entry.coin || entry.symbol || paren || name, address);
+}
+
+function normalizeHyperliquidVaultList(input = []) {
+  if (Array.isArray(input)) return input.filter(Boolean);
+  if (input && typeof input == "object") {
+    return Object.entries(input).map(([coin, entry]) => ({
+      coin,
+      ...(entry || {}),
+    }));
+  }
+
+  return [];
+}
+
+function getWritableHyperliquidVaults(vaults = []) {
+  return normalizeHyperliquidVaultList(vaults)
+    .map((entry) => {
+      const address = String(entry?.address || entry?.vaultAddress || "").trim();
+      const name = String(entry?.name || "").trim();
+      return address ? { address, name } : null;
+    })
+    .filter(Boolean);
+}
+
+async function readCustomHyperliquidVaults() {
+  try {
+    return normalizeHyperliquidVaultList(
+      JSON.parse(await fs.readFile(getCustomHyperliquidFile(), "utf8")),
+    );
+  } catch (e) {
+    if (e.code == "ENOENT") return [];
+    throw e;
+  }
+}
+
+function getHyperliquidVaultM(vaults = []) {
+  const vaultM = {};
+
+  for (const entry of normalizeHyperliquidVaultList(vaults)) {
+    const address = String(entry?.address || entry?.vaultAddress || "").trim();
+    if (!ethers.isAddress(address)) continue;
+
+    const cleanAddress = ethers.getAddress(address);
+    const coin = getVaultCoinFromEntry(entry, cleanAddress);
+    vaultM[coin] = {
+      address: cleanAddress,
+      decimals: 6,
+      name: String(entry.name || coin).trim() || coin,
+      type: "vault",
+    };
+  }
+
+  return vaultM;
+}
+
+function findVaultByAddress(vaultM, address) {
+  return Object.entries(vaultM).find(([, entry]) =>
+    sameAddress(entry?.address, address),
+  );
+}
+
+function validateHyperliquidVaultAddress(address = "") {
+  if (!ethers.isAddress(address)) return { error: "invalid vault address" };
+  return { selectedChain: "Hyperliquid", tokenAddress: ethers.getAddress(address) };
+}
+
+async function hyperliquidInfo(body = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), hyperliquidFetchTimeoutMs);
+  try {
+    const res = await fetch(`${hyperliquidApiBase.replace(/\/+$/, "")}/info`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || `${res.status} ${res.statusText}`);
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getHyperliquidVaultMeta(address) {
+  const data = await hyperliquidInfo({
+    type: "vaultDetails",
+    vaultAddress: address,
+  });
+  const name = cleanText(data?.name, `Hyperliquid vault ${address}`);
+
+  return {
+    name,
+    symbol: getVaultCoinFromEntry({ name }, address),
+    decimals: 6,
+    type: "vault",
+  };
+}
+
+async function previewHyperliquidVault({ address } = {}) {
+  const validated = validateHyperliquidVaultAddress(address);
+  if (validated.error) return { ok: 0, msg: validated.error };
+
+  const { selectedChain, tokenAddress } = validated;
+
+  try {
+    const customVaults = await readCustomHyperliquidVaults();
+    const vaultM = {
+      ...getHyperliquidVaultM(baseHyperliquidVaults),
+      ...getHyperliquidVaultM(customVaults),
+    };
+    const existingVault = findVaultByAddress(vaultM, tokenAddress);
+    if (existingVault) {
+      const [coin, entry] = existingVault;
+      return {
+        ok: 1,
+        exists: 1,
+        chain: selectedChain,
+        coin,
+        entry,
+        msg: `${selectedChain} ${coin} already exists`,
+      };
+    }
+
+    const meta = await getHyperliquidVaultMeta(tokenAddress);
+    const coin = getCoinKey({
+      chain: selectedChain,
+      symbol: meta.symbol,
+      address: tokenAddress,
+      customCoins: {
+        ...getHyperliquidVaultM(baseHyperliquidVaults),
+        ...getHyperliquidVaultM(customVaults),
+      },
+    });
+
+    return {
+      ok: 1,
+      chain: selectedChain,
+      coin,
+      entry: {
+        address: tokenAddress,
+        decimals: meta.decimals,
+        name: meta.name || coin,
+        type: "vault",
+      },
+    };
+  } catch (e) {
+    return {
+      ok: 0,
+      msg:
+        e?.shortMessage ?? e?.reason ?? e?.message ?? "preview custom vault error",
+    };
+  }
+}
+
 function getCoinKey({ chain, symbol, address, customCoins }) {
   const coinMap = { ...(baseCoinM[chain] ?? {}), ...customCoins };
   const baseKey = cleanSymbol(symbol, address);
@@ -443,7 +630,139 @@ async function getTokenMeta(selectedChain, tokenAddress) {
       });
 }
 
+async function addHyperliquidVault({
+  address,
+  coin = "",
+  name = "",
+} = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
+  const validated = validateHyperliquidVaultAddress(address);
+  if (validated.error) return { ok: 0, msg: validated.error };
+
+  const { selectedChain, tokenAddress } = validated;
+
+  try {
+    const customVaults = await readCustomHyperliquidVaults();
+    const customVaultM = getHyperliquidVaultM(customVaults);
+    const vaultM = {
+      ...getHyperliquidVaultM(baseHyperliquidVaults),
+      ...customVaultM,
+    };
+    const existingVault = findVaultByAddress(vaultM, tokenAddress);
+    if (existingVault) {
+      const [existingCoin, entry] = existingVault;
+      return {
+        ok: 1,
+        exists: 1,
+        chain: selectedChain,
+        coin: existingCoin,
+        entry,
+        msg: `${selectedChain} ${existingCoin} already exists`,
+      };
+    }
+
+    const meta = await getHyperliquidVaultMeta(tokenAddress);
+    const requestedCoin = getCoinKey({
+      chain: selectedChain,
+      symbol: coin || meta.symbol,
+      address: tokenAddress,
+      customCoins: vaultM,
+    });
+    const existing = vaultM[requestedCoin];
+    if (existing && !sameAddress(existing.address, tokenAddress)) {
+      return {
+        ok: 0,
+        msg: `${selectedChain} ${requestedCoin} already exists with another address`,
+      };
+    }
+
+    customVaults.push({
+      address: tokenAddress,
+      name: cleanText(name, meta.name || requestedCoin),
+    });
+
+    await fs.mkdir(customDefiDir, { recursive: true });
+    await fs.writeFile(
+      getCustomHyperliquidFile(),
+      `${JSON.stringify(getWritableHyperliquidVaults(customVaults), null, 2)}\n`,
+    );
+
+    revalidatePath("/w");
+    revalidatePath("/t");
+
+    return {
+      ok: 1,
+      chain: selectedChain,
+      coin: requestedCoin,
+      entry: {
+        address: tokenAddress,
+        decimals: 6,
+        name: cleanText(name, meta.name || requestedCoin),
+        type: "vault",
+      },
+      file: "data/editor/defi/hyperliquid.json",
+    };
+  } catch (e) {
+    return {
+      ok: 0,
+      msg: e?.shortMessage ?? e?.reason ?? e?.message ?? "add custom vault error",
+    };
+  }
+}
+
+async function deleteHyperliquidVault({ coin } = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
+  const selectedCoin = String(coin || "").trim();
+  if (!selectedCoin) return { ok: 0, msg: "missing vault" };
+
+  try {
+    const customVaults = await readCustomHyperliquidVaults();
+    const nextVaults = customVaults.filter((entry) => {
+      const address = String(entry?.address || entry?.vaultAddress || "").trim();
+      const vaultCoin = getVaultCoinFromEntry(entry, address);
+      return vaultCoin != selectedCoin;
+    });
+    if (nextVaults.length == customVaults.length) {
+      return {
+        ok: 0,
+        msg: `Hyperliquid ${selectedCoin} is not an editor vault`,
+      };
+    }
+
+    await fs.mkdir(customDefiDir, { recursive: true });
+    await fs.writeFile(
+      getCustomHyperliquidFile(),
+      `${JSON.stringify(getWritableHyperliquidVaults(nextVaults), null, 2)}\n`,
+    );
+
+    revalidatePath("/w");
+    revalidatePath("/t");
+
+    return {
+      ok: 1,
+      chain: "Hyperliquid",
+      coin: selectedCoin,
+      file: "data/editor/defi/hyperliquid.json",
+    };
+  } catch (e) {
+    return {
+      ok: 0,
+      msg: e?.shortMessage ?? e?.reason ?? e?.message ?? "delete custom vault error",
+    };
+  }
+}
+
 export async function previewCustomCoin({ chain, address } = {}) {
+  if (String(chain || "").trim() == "Hyperliquid") {
+    return previewHyperliquidVault({ address });
+  }
+
   const validated = validateCoinAddress({ chain, address });
   if (validated.error) return { ok: 0, msg: validated.error };
 
@@ -505,6 +824,10 @@ export async function addCustomCoin({
   name = "",
   type = "",
 } = {}) {
+  if (String(chain || "").trim() == "Hyperliquid") {
+    return addHyperliquidVault({ address, coin, name });
+  }
+
   if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
     return projectFileWriteBlockedResult();
   }
@@ -581,6 +904,10 @@ export async function addCustomCoin({
 }
 
 export async function deleteCustomCoin({ chain, coin } = {}) {
+  if (String(chain || "").trim() == "Hyperliquid") {
+    return deleteHyperliquidVault({ coin });
+  }
+
   if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
     return projectFileWriteBlockedResult();
   }

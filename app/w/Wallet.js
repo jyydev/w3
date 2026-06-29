@@ -9,7 +9,7 @@ import ethereumIcon from "@/data/img/ethereum.svg";
 import solanaIcon from "@/data/img/solana.svg";
 import { pc } from "@/fn/basic";
 import permanentCoinM from "@/fn/coinM";
-import { ckPrefix, scanners, walletNotes } from "@/sets";
+import { ckPrefix, scanners } from "@/sets";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
 import {
@@ -106,6 +106,15 @@ function shortContract(address) {
   return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
 }
 
+function getCoinDisplayLabel(chain = "", coin = "", coinE = {}) {
+  const address = String(coinE.address || "").replace(/^0x/i, "");
+  if (chain == "Hyperliquid" && /^HL_/i.test(coin) && address) {
+    return `HL_${address.slice(-3)}`;
+  }
+
+  return coin;
+}
+
 const chainIconM = {
   Arbitrum: arbitrumIcon,
   BSC: bscIcon,
@@ -117,6 +126,7 @@ const chainTextIconM = {
   Base: "Ba",
   Kaia: "Ka",
   Optimism: "Op",
+  Hyperliquid: "Hy",
   WEMIX: "We",
   zkSyncEra: "Zk",
 };
@@ -221,6 +231,8 @@ function getNameDisableKey(name = "") {
 function getScannerTokenUrl(chainE, address) {
   if (!chainE?.scanner || !address) return "";
   const scanner = chainE.scanner.replace(/\/+$/, "");
+  if (chainE.chain == "Hyperliquid") return `${scanner}/vaults/${address}`;
+
   return chainE.chain == "Solana"
     ? `${scanner}/token/${address}`
     : `${scanner}/address/${address}`;
@@ -229,6 +241,8 @@ function getScannerTokenUrl(chainE, address) {
 function getScannerAccountUrl(chainE, address) {
   if (!chainE?.scanner || !address) return "";
   const scanner = chainE.scanner.replace(/\/+$/, "");
+  if (chainE.chain == "Hyperliquid") return `${scanner}/${address}`;
+
   return chainE.chain == "Solana"
     ? `${scanner}/account/${address}`
     : `${scanner}/address/${address}`;
@@ -257,6 +271,7 @@ function Wallet({
   routeBase = "/w",
   customCoinChains = [],
   customCoinM = {},
+  walletNotes = {},
   data,
   walletFiles = [],
   walletFilesM = {},
@@ -1335,8 +1350,8 @@ function Wallet({
     setCustomCoinDraft({
       coin: res.coin || "",
       name: res.entry?.name || "",
-      type: res.entry?.type || "token",
-      customType: res.entry?.type || "token",
+      type: res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
+      customType: res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
     });
   }
 
@@ -2345,6 +2360,7 @@ function Wallet({
 
   function CoinHeader({ chainE, coin }) {
     const coinE = chainE.coinInfoM?.[coin] ?? {};
+    const displayCoin = getCoinDisplayLabel(chainE.chain, coin, coinE);
     const address = coinE.address;
     const addressUrl = getScannerTokenUrl(chainE, address);
     const price = getCoinPrice(chainE.chain, coin);
@@ -2361,7 +2377,12 @@ function Wallet({
         <SortHeader sortKey={sortKey} className="coinSortHeader">
           <span className="coinHeaderLabel">
             <CoinIcon coin={coin} coinE={coinE} />
-            <span className="coinSymbol">{coin}</span>
+            <span
+              className="coinSymbol"
+              title={displayCoin == coin ? undefined : coin}
+            >
+              {displayCoin}
+            </span>
           </span>
         </SortHeader>
         <span className="infoCard">
@@ -2440,6 +2461,7 @@ function Wallet({
     if (!customCoinPreview) return null;
 
     const entry = customCoinPreview.entry || {};
+    const isVault = customCoinPreview.chain == "Hyperliquid";
     const typeSelectWidth =
       Math.max(...coinTypeOptions.map((type) => type.length), 5) + 2;
     const confirmChainE =
@@ -2461,7 +2483,9 @@ function Wallet({
             confirmCustomCoin();
           }}
         >
-          <div className="walletCoinConfirmTitle">Confirm coin</div>
+          <div className="walletCoinConfirmTitle">
+            Confirm {isVault ? "vault" : "coin"}
+          </div>
           <div className="walletCoinConfirmGrid">
             <span className="gray">chain</span>
             <span className="white">{customCoinPreview.chain}</span>
@@ -2487,7 +2511,7 @@ function Wallet({
             <span className="white">{entry.decimals ?? "-"}</span>
 
             <label className="gray" htmlFor="coinConfirmKey">
-              coin
+              {isVault ? "vault" : "coin"}
             </label>
             <input
               id="coinConfirmKey"
@@ -2798,7 +2822,12 @@ function Wallet({
             >
               {showAddWallet && (
                 <>
-                  <span className="gray">coin:</span>
+                  {customCoinChainValue == "Hyperliquid" && (
+                    <span className="gray">vault:</span>
+                  )}
+                  {customCoinChainValue != "Hyperliquid" && (
+                    <span className="gray">coin:</span>
+                  )}
                   <select
                     name="chain"
                     value={customCoinChainValue}
@@ -2820,7 +2849,11 @@ function Wallet({
                     value={customCoinAddress}
                     onChange={(e) => setCustomCoinAddress(e.target.value)}
                     placeholder={
-                      customCoinChainValue == "Solana" ? "mint" : "coin addr"
+                      customCoinChainValue == "Hyperliquid"
+                        ? "vault addr"
+                        : customCoinChainValue == "Solana"
+                          ? "mint"
+                          : "coin addr"
                     }
                     style={{
                       width: `${
@@ -2837,7 +2870,11 @@ function Wallet({
                       !customCoinAddress.trim()
                     }
                   >
-                    {addingCoin ? "..." : "add"}
+                    {addingCoin
+                      ? "..."
+                      : customCoinChainValue == "Hyperliquid"
+                        ? "add vault"
+                        : "add"}
                   </button>
                 </>
               )}
@@ -2996,7 +3033,10 @@ function Wallet({
     if (!rows.length) return null;
 
     const noBalances = visibleChainList.every(
-      (chainE) => !chainE?.coins?.length && !chainE?.error,
+      (chainE) =>
+        !chainE?.coins?.length &&
+        !chainE?.error &&
+        !(getTotalChainUsd(chainE.chain) > 0),
     );
     if (!noBalances) return null;
 

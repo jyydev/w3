@@ -3,6 +3,7 @@
 import coinM from "@/fn/coinM";
 import { rpcs, sets } from "@/sets";
 import {
+  getHyperliquidWalletBalances,
   getSolanaWalletBalances,
   getWalletBalances,
   getWalletType,
@@ -23,6 +24,7 @@ function cleanEntry(entry = {}) {
 
 function cleanChainList(chains = []) {
   const available = new Set(Object.keys(coinM).filter((chain) => rpcs?.[chain]));
+  available.add("Hyperliquid");
   return (Array.isArray(chains) ? chains : [])
     .map((chain) => String(chain || "").trim())
     .filter((chain) => available.has(chain));
@@ -68,17 +70,26 @@ export async function getLocalWalletBalanceData({
   const chainList = cleanChainList(chains).filter((chain) => chain != "Solana");
   return await Promise.all(
     chainList.map((chain) =>
-      getWalletBalances({
-        chain,
-        walletType: type,
-        walletEntryList: entries,
-        customCoinM: customCoinM[chain] ?? {},
-        disabledCoins: disabledCoinM[chain] ?? [],
-        disabledWallets,
-        disabledWalletNames,
-        useAlchemy: useAlchemyValue,
-        alchemyMinUsd: Number.isFinite(minUsd) ? minUsd : 0.01,
-      }),
+      chain == "Hyperliquid"
+        ? getHyperliquidWalletBalances({
+            walletType: type,
+            walletEntryList: entries,
+            customCoinM: customCoinM.Hyperliquid ?? {},
+            disabledCoins: disabledCoinM.Hyperliquid ?? [],
+            disabledWallets,
+            disabledWalletNames,
+          })
+        : getWalletBalances({
+            chain,
+            walletType: type,
+            walletEntryList: entries,
+            customCoinM: customCoinM[chain] ?? {},
+            disabledCoins: disabledCoinM[chain] ?? [],
+            disabledWallets,
+            disabledWalletNames,
+            useAlchemy: useAlchemyValue,
+            alchemyMinUsd: Number.isFinite(minUsd) ? minUsd : 0.01,
+          }),
     ),
   );
 }

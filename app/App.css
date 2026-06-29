@@ -527,6 +527,12 @@ span.chainIcon {
   background: #0052ff;
   font-size: 8px;
 }
+.chainIcon-hyperliquid {
+  background: #111827;
+  border: 1px solid #00e6c3;
+  color: #00e6c3;
+  font-size: 8px;
+}
 .chainIcon-kaia {
   background: #7bff00;
   color: black;
@@ -573,6 +579,11 @@ span.chainIcon {
 .coinIcon-yield {
   background: #111827;
   border: 1px solid #f59e0b;
+  color: white;
+}
+.coinIcon-vault {
+  background: #111827;
+  border: 1px solid #00e6c3;
   color: white;
 }
 .coinIcon-native {

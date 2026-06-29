@@ -107,6 +107,7 @@ exports.scanners = {
   WEMIX: "https://explorer.wemix.com",
   Avalanche: "https://snowscan.xyz",
   zkSyncEra: "https://explorer.zksync.io",
+  Hyperliquid: "https://app.hyperliquid.xyz",
 };
 
 exports.publicWallets = {

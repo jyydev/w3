@@ -422,6 +422,9 @@ export function readLocalWalletEntries(
 export function getLocalCustomCoinM(chain = "") {
   const cleanChain = String(chain || "").trim();
   if (!cleanChain) return {};
+  if (cleanChain == "Hyperliquid") {
+    return getLocalHyperliquidVaultM();
+  }
 
   try {
     const parsed = JSON.parse(readLocalEditorFile(`coins/${cleanChain}.json`, "{}") || "{}");
@@ -431,6 +434,89 @@ export function getLocalCustomCoinM(chain = "") {
   } catch {
     return {};
   }
+}
+
+function cleanLocalHyperliquidVaultCoin(value = "", address = "") {
+  const clean = String(value || "")
+    .trim()
+    .replace(/\(([^)]{1,20})\)\s*$/, "$1")
+    .replace(/\s+/g, "")
+    .replace(/[^\w.-]/g, "");
+  const cleanAddress = String(address || "").replace(/^0x/i, "");
+  const fallback = cleanAddress
+    ? `HL_${cleanAddress.slice(0, 3)}..${cleanAddress.slice(-3)}`
+    : "";
+
+  return clean || fallback || "HL_VAULT";
+}
+
+function normalizeLocalHyperliquidVaultM(input = []) {
+  const rows = Array.isArray(input)
+    ? input
+    : input && typeof input == "object"
+      ? Object.entries(input).map(([coin, entry]) => ({ coin, ...(entry || {}) }))
+      : [];
+  const used = new Set();
+  const vaultM = {};
+
+  for (const entry of rows) {
+    const address = String(entry?.address || entry?.vaultAddress || "").trim();
+    if (!address) continue;
+    const name = String(entry.name || "").trim();
+    const paren = name.match(/\(([^)]{1,20})\)\s*$/)?.[1] || "";
+    const baseCoin = cleanLocalHyperliquidVaultCoin(
+      entry.coin || entry.symbol || paren || name,
+      address,
+    );
+    let coin = baseCoin;
+    let i = 2;
+    while (used.has(coin)) {
+      coin = `${baseCoin}_${i}`;
+      i += 1;
+    }
+    used.add(coin);
+
+    vaultM[coin] = {
+      address,
+      decimals: Number.isInteger(entry.decimals) ? entry.decimals : 6,
+      name: name || coin,
+      type: "vault",
+      source: "editor",
+    };
+  }
+
+  return vaultM;
+}
+
+function getLocalHyperliquidVaultList() {
+  try {
+    const parsed = JSON.parse(
+      readLocalEditorFile("defi/hyperliquid.json", "[]") || "[]",
+    );
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed == "object") {
+      return Object.entries(parsed).map(([coin, entry]) => ({
+        coin,
+        ...(entry || {}),
+      }));
+    }
+  } catch {}
+
+  return [];
+}
+
+function getWritableLocalHyperliquidVaults(vaults = []) {
+  return vaults
+    .map((entry) => {
+      const address = String(entry?.address || entry?.vaultAddress || "").trim();
+      const name = String(entry?.name || "").trim();
+      return address ? { address, name } : null;
+    })
+    .filter(Boolean);
+}
+
+function getLocalHyperliquidVaultM() {
+  return normalizeLocalHyperliquidVaultM(getLocalHyperliquidVaultList());
 }
 
 export function getAllLocalCustomCoinM(chains = []) {
@@ -445,6 +531,29 @@ export function addLocalCustomCoin({ chain = "", coin = "", entry = {} } = {}) {
   const cleanChain = String(chain || "").trim();
   const cleanCoin = String(coin || "").trim();
   if (!cleanChain || !cleanCoin) return { ok: 0, msg: "missing coin data" };
+  if (cleanChain == "Hyperliquid") {
+    const file = "defi/hyperliquid.json";
+    const vaults = getLocalHyperliquidVaultList();
+    const address = String(entry.address || "").trim();
+    const exists = vaults.find(
+      (vault) =>
+        String(vault.address || vault.vaultAddress || "").toLowerCase() ==
+        address.toLowerCase(),
+    );
+    if (exists) {
+      return { ok: 1, exists: 1, chain: cleanChain, coin: cleanCoin, file };
+    }
+
+    vaults.push({
+      address,
+      name: entry.name || cleanCoin,
+    });
+    saveLocalEditorFile(
+      file,
+      `${JSON.stringify(getWritableLocalHyperliquidVaults(vaults), null, 2)}\n`,
+    );
+    return { ok: 1, chain: cleanChain, coin: cleanCoin, entry, file };
+  }
 
   const file = `coins/${cleanChain}.json`;
   let coins = {};
@@ -467,6 +576,28 @@ export function deleteLocalCustomCoin({ chain = "", coin = "" } = {}) {
   const cleanChain = String(chain || "").trim();
   const cleanCoin = String(coin || "").trim();
   if (!cleanChain || !cleanCoin) return { ok: 0, msg: "missing coin data" };
+  if (cleanChain == "Hyperliquid") {
+    const file = "defi/hyperliquid.json";
+    const vaults = getLocalHyperliquidVaultList();
+    const next = vaults.filter((vault) => {
+      const name = String(vault.name || "").trim();
+      const paren = name.match(/\(([^)]{1,20})\)\s*$/)?.[1] || "";
+      const vaultCoin = cleanLocalHyperliquidVaultCoin(
+        vault.coin || vault.symbol || paren || name,
+        vault.address || vault.vaultAddress,
+      );
+      return vaultCoin != cleanCoin;
+    });
+    if (next.length == vaults.length) {
+      return { ok: 0, msg: "custom vault not found" };
+    }
+
+    saveLocalEditorFile(
+      file,
+      `${JSON.stringify(getWritableLocalHyperliquidVaults(next), null, 2)}\n`,
+    );
+    return { ok: 1, chain: cleanChain, coin: cleanCoin, file };
+  }
 
   const file = `coins/${cleanChain}.json`;
   let coins = {};

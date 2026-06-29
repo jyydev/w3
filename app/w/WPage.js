@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import { cloneElement, isValidElement } from "react";
 import Logo from "@/components/Logo";
+import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import coinM from "@/fn/coinM";
-import { rpcs, sets } from "@/sets";
+import { rpcs, sets, walletNotes } from "@/sets";
 import BrowserWalletConnect from "./BrowserWalletConnect";
 import Wallet from "./Wallet";
 import WalletInfo from "./WalletInfo";
@@ -23,6 +24,7 @@ import {
 } from "./walletSettingData";
 import {
   defaultWalletType,
+  getHyperliquidWalletBalances,
   getWalletBalances,
   getSolanaWalletBalances,
   getWalletType,
@@ -37,6 +39,30 @@ function getSelectedWallet(walletFile, walletFiles) {
   if (!walletFiles.includes(walletFile)) return "";
 
   return walletFile;
+}
+
+function getHyperliquidVaultCoin(entry = {}) {
+  const address = String(entry.address || entry.vaultAddress || "").trim();
+  const name = String(entry.name || "").trim();
+  const paren = name.match(/\(([^)]{1,20})\)\s*$/)?.[1] || "";
+  const clean = String(entry.coin || entry.symbol || paren || name)
+    .trim()
+    .replace(/\(([^)]{1,20})\)\s*$/, "$1")
+    .replace(/\s+/g, "")
+    .replace(/[^\w.-]/g, "");
+  const cleanAddress = address.replace(/^0x/i, "");
+
+  return clean || (cleanAddress
+    ? `HL_${cleanAddress.slice(0, 3)}..${cleanAddress.slice(-3)}`
+    : "HL_VAULT");
+}
+
+function getHyperliquidVaultCoinM() {
+  return Object.fromEntries(
+    (Array.isArray(baseHyperliquidVaults) ? baseHyperliquidVaults : [])
+      .map((entry) => [getHyperliquidVaultCoin(entry), entry])
+      .filter(([coin]) => coin),
+  );
 }
 
 function hasWalletPrivateKey(name = "", walletType = defaultWalletType) {
@@ -154,12 +180,17 @@ async function WPage({
       : "";
   const selectedWalletAddress = rawWalletAddress || walletNameAddress;
   const selectedWalletName = walletNameAddress ? "" : rawWalletName;
-  const availableChains = Object.keys(coinM).filter((chain) => rpcs?.[chain]);
+  const evmRpcChains = Object.keys(coinM).filter((chain) => rpcs?.[chain]);
+  const hyperliquidChain = "Hyperliquid";
+  const availableChains = [...evmRpcChains, hyperliquidChain];
   const customCoinM = await readCustomCoinM(availableChains);
   const availableCoinM = Object.fromEntries(
-    Object.entries(coinM).map(([chain, coins]) => [
+    availableChains.map((chain) => [
       chain,
-      Object.keys({ ...coins, ...(customCoinM[chain] ?? {}) }),
+      Object.keys({
+        ...(chain == hyperliquidChain ? getHyperliquidVaultCoinM() : coinM[chain] ?? {}),
+        ...(customCoinM[chain] ?? {}),
+      }),
     ]),
   );
   const cookieStore = await cookies();
@@ -200,9 +231,11 @@ async function WPage({
     requestedWalletType == "solana" && disabledChainM.has("Solana")
       ? defaultWalletType
       : requestedWalletType;
-  const chains = availableChains.filter(
+  const chains = evmRpcChains.filter(
     (chain) => chain != "Solana" && !disabledChainM.has(chain),
   );
+  const includeHyperliquid =
+    selectedWalletType != "solana" && !disabledChainM.has(hyperliquidChain);
   const walletTypeOptions = [
     ["evm", "EVM"],
     ...(!disabledChainM.has("Solana") ? [["solana", "Solana"]] : []),
@@ -212,7 +245,7 @@ async function WPage({
       ? disabledChainM.has("Solana")
         ? []
         : ["Solana"]
-      : chains;
+      : [...chains, ...(includeHyperliquid ? [hyperliquidChain] : [])];
   const walletFilesM = {
     evm: await listWalletFiles("evm"),
     solana: await listWalletFiles("solana"),
@@ -297,25 +330,45 @@ async function WPage({
             }),
           ]
       : await Promise.all(
-          chains.map((chain) =>
-            getWalletBalances({
-              chain,
-              walletFile: selectedWalletFile,
-              walletType: selectedWalletType,
-              walletAddress: selectedWalletAddress,
-              walletName: selectedWalletName,
-              walletEntryList,
-              customCoinM: customCoinM[chain] ?? {},
-              disabledCoins: [
-                ...(disabledCoinM[chain] ?? []),
-                ...(offCoinM[chain] ?? []),
-              ],
-              disabledWallets,
-              disabledWalletNames: offAddrs,
-              useAlchemy,
-              alchemyMinUsd,
-            }),
-          ),
+          [
+            ...chains.map((chain) =>
+              getWalletBalances({
+                chain,
+                walletFile: selectedWalletFile,
+                walletType: selectedWalletType,
+                walletAddress: selectedWalletAddress,
+                walletName: selectedWalletName,
+                walletEntryList,
+                customCoinM: customCoinM[chain] ?? {},
+                disabledCoins: [
+                  ...(disabledCoinM[chain] ?? []),
+                  ...(offCoinM[chain] ?? []),
+                ],
+                disabledWallets,
+                disabledWalletNames: offAddrs,
+                useAlchemy,
+                alchemyMinUsd,
+              }),
+            ),
+            ...(includeHyperliquid
+              ? [
+                  getHyperliquidWalletBalances({
+                    walletFile: selectedWalletFile,
+                    walletType: selectedWalletType,
+                    walletAddress: selectedWalletAddress,
+                    walletName: selectedWalletName,
+                    walletEntryList,
+                    customCoinM: customCoinM[hyperliquidChain] ?? {},
+                    disabledCoins: [
+                      ...(disabledCoinM[hyperliquidChain] ?? []),
+                      ...(offCoinM[hyperliquidChain] ?? []),
+                    ],
+                    disabledWallets,
+                    disabledWalletNames: offAddrs,
+                  }),
+                ]
+              : []),
+          ],
         );
   const dataByChain = new Map(
     (Array.isArray(data) ? data : data ? [data] : []).map((chainE) => [
@@ -323,7 +376,7 @@ async function WPage({
       chainE,
     ]),
   );
-  const tradeData = availableChains
+  const tradeData = evmRpcChains
     .filter((chain) => !disabledChainM.has(chain))
     .map((chain) => {
       const loaded = dataByChain.get(chain);
@@ -368,6 +421,7 @@ async function WPage({
         data={data}
         customCoinM={customCoinM}
         customCoinChains={customCoinChains}
+        walletNotes={walletNotes}
         walletFiles={walletFiles}
         walletFilesM={walletFilesM}
         selectedAddress={selectedWalletAddress}
