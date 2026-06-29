@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import {
@@ -28,10 +29,13 @@ import {
 } from "../../browserEditorStorage";
 import {
   clampInputValue,
+  cookieMaxAge,
+  emitTradeChainSelect,
   fmt,
   fmtPrice,
   fmtRate,
   getChainCoins,
+  getTradeModeCookie,
   inputQty,
   lendingOptions,
   nextValue,
@@ -43,6 +47,9 @@ import {
   sendBrowserSolanaTx,
   sendBrowserTx,
   SwapTxLink,
+  tradeLendChainCookie,
+  tradeLendDefiCookie,
+  tradeLendMarketCookie,
   toNum,
 } from "../sharedClient";
 
@@ -51,8 +58,12 @@ function isProtocolCoin(protocol, coin, coinE = {}) {
   if (protocol == "jupiter") {
     return (
       (coinE.type == "lending" || coinE.type == "yield") &&
-      /^jl[A-Z0-9]/.test(coin) &&
-      text.includes("jupiter")
+      (/^jl[A-Z0-9]/.test(coin) ||
+        coin == "JUICED" ||
+        text.includes("jupusd")) &&
+      (text.includes("jupiter") ||
+        text.includes("jupusd") ||
+        coin == "JUICED")
     );
   }
   if (coinE.type != "lending") return false;
@@ -65,6 +76,15 @@ function isProtocolCoin(protocol, coin, coinE = {}) {
   }
 
   return false;
+}
+
+function getJupiterUnderlyingCoin(chainE, lendCoin) {
+  if (lendCoin == "JUICED") return "JupUSD";
+
+  const stripped = String(lendCoin || "").replace(/^jl/, "");
+  if (stripped) return stripped;
+
+  return getUnderlyingCoin(chainE, lendCoin);
 }
 
 function getUnderlyingCoin(chainE, lendCoin) {
@@ -93,22 +113,23 @@ function getLendingMarkets(chainE, protocol) {
     .filter((coin) => isProtocolCoin(protocol, coin, chainE.coinInfoM?.[coin]))
     .map((lendCoin) => {
       const lendE = chainE.coinInfoM?.[lendCoin] || {};
-      const jupiterUnderlying = String(lendCoin || "").replace(/^jl/, "");
       const underlyingCoin =
         protocol == "jupiter"
-          ? chainE.coinInfoM?.[jupiterUnderlying]?.address
-            ? jupiterUnderlying
-            : ""
+          ? getJupiterUnderlyingCoin(chainE, lendCoin)
           : getUnderlyingCoin(chainE, lendCoin);
 
       return {
         value: lendCoin,
         lendCoin,
         lendName: lendE.name || lendCoin,
+        lendAddress: lendE.address || "",
+        lendDecimals: lendE.decimals,
         underlyingCoin,
+        underlyingAddress: chainE.coinInfoM?.[underlyingCoin]?.address || "",
+        underlyingDecimals: chainE.coinInfoM?.[underlyingCoin]?.decimals,
       };
     })
-    .filter((entry) => entry.underlyingCoin);
+    .filter((entry) => protocol == "jupiter" || entry.underlyingCoin);
 }
 
 function getMarketLabel(entry = {}) {
@@ -231,6 +252,23 @@ const aaveConfiguredChainSet = new Set([
   "zkSyncEra",
 ]);
 
+function isLendingProtocolSupportedForWallet(option = {}, walletType = "evm") {
+  if (walletType == "solana") return option.value == "jupiter";
+  if (option.value == "jupiter") return false;
+
+  return true;
+}
+
+function getProtocolCookie(base = "", walletType = "evm", defi = "", chain = "") {
+  return [
+    getTradeModeCookie(base, walletType),
+    defi || "defi",
+    chain || "",
+  ]
+    .filter(Boolean)
+    .join("_");
+}
+
 function getSelectedBalance(chainE, coin, selectedWalletEntry) {
   if (!chainE || !coin || !selectedWalletEntry) return {};
 
@@ -253,6 +291,7 @@ function getExplorerAddressUrl(chain = "", address = "") {
 export default function LendPanel({
   data = [],
   selectedWalletEntry,
+  walletType = "evm",
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
@@ -260,8 +299,15 @@ export default function LendPanel({
   onTxComplete = () => {},
 }) {
   const chainList = useMemo(
-    () => (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean),
-    [data],
+    () =>
+      (Array.isArray(data) ? data : data ? [data] : [])
+        .filter(Boolean)
+        .filter((chainE) =>
+          walletType == "solana"
+            ? chainE.chain == "Solana"
+            : chainE.chain != "Solana",
+        ),
+    [data, walletType],
   );
   const [defi, setDefi] = useState(lendingOptions[0]?.value || "");
   const [chain, setChain] = useState("");
@@ -306,8 +352,6 @@ export default function LendPanel({
   const marketPickerRef = useRef(null);
   const mountedRef = useRef(false);
   const useLocalEditorStore = useLocalStorageEditor();
-  const lendingE =
-    lendingOptions.find((entry) => entry.value == defi) || noLending;
   const chainMarketsM = useMemo(() => {
     return Object.fromEntries(
       chainList.map((chainE) => [chainE.chain, getLendingMarkets(chainE, defi)]),
@@ -324,7 +368,7 @@ export default function LendPanel({
             );
           }
           if (defi == "jupiter") {
-            return chainE.chain == "Solana" && chainMarketsM[chainE.chain]?.length;
+            return chainE.chain == "Solana";
           }
 
           return chainMarketsM[chainE.chain]?.length;
@@ -337,6 +381,15 @@ export default function LendPanel({
     chainList.find((entry) => entry.chain == activeChain) ||
     chainList.find((entry) => marketChains.includes(entry.chain)) ||
     chainList[0];
+  const availableLendingOptions = useMemo(
+    () =>
+      lendingOptions.filter((option) =>
+        isLendingProtocolSupportedForWallet(option, walletType),
+      ),
+    [walletType],
+  );
+  const lendingE =
+    availableLendingOptions.find((entry) => entry.value == defi) || noLending;
   const markets = chainMarketsM[chainE?.chain] || [];
   const addedMarkets = markets;
   const addedMarketAddressM = useMemo(() => {
@@ -406,7 +459,8 @@ export default function LendPanel({
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
   const venusAllLoading = !!venusAllLoadingM[venusAllKey];
   const venusAllError = venusAllErrorM[venusAllKey] || "";
-  const jupiterAllKey = chainE?.chain || "";
+  const jupiterAllKey =
+    defi == "jupiter" ? (chainE?.chain == "Solana" ? "Solana" : "") : chainE?.chain || "";
   const rawJupiterAllMarkets = jupiterAllMarketM[jupiterAllKey] || [];
   const jupiterAllMarkets = rawJupiterAllMarkets
     .map((entry) => {
@@ -432,7 +486,6 @@ export default function LendPanel({
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
   const jupiterAllLoading = !!jupiterAllLoadingM[jupiterAllKey];
   const jupiterAllError = jupiterAllErrorM[jupiterAllKey] || "";
-  const visibleAddedMarkets = addedMarkets;
   const allMarkets =
     defi == "aave"
       ? aaveAllMarkets
@@ -441,6 +494,38 @@ export default function LendPanel({
         : defi == "jupiter"
           ? jupiterAllMarkets
           : [];
+  const rawAllMarkets =
+    defi == "aave"
+      ? rawAaveAllMarkets
+      : defi == "venus"
+        ? rawVenusAllMarkets
+        : defi == "jupiter"
+          ? rawJupiterAllMarkets
+          : [];
+  const visibleAddedMarkets = useMemo(() => {
+    if (!rawAllMarkets.length) return addedMarkets;
+
+    const rawMarketByLendAddress = Object.fromEntries(
+      rawAllMarkets
+        .filter((entry) => entry.lendAddress)
+        .map((entry) => [String(entry.lendAddress).toLowerCase(), entry]),
+    );
+
+    return addedMarkets.map((entry) => {
+      const lendAddress =
+        entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
+      const raw = rawMarketByLendAddress[String(lendAddress).toLowerCase()];
+      if (!raw) return entry;
+
+      return {
+        ...entry,
+        ...raw,
+        value: entry.value,
+        addedValue: entry.value,
+        addedLend: true,
+      };
+    });
+  }, [addedMarkets, chainE?.coinInfoM, rawAllMarkets]);
   const allLoading =
     defi == "aave"
       ? aaveAllLoading
@@ -469,12 +554,7 @@ export default function LendPanel({
     chainE,
     defi,
     marketE,
-    rawMarkets:
-      defi == "venus"
-        ? rawVenusAllMarkets
-        : defi == "jupiter"
-          ? rawJupiterAllMarkets
-          : rawAaveAllMarkets,
+    rawMarkets: rawAllMarkets,
   });
   const marketButtonWidth = useMemo(() => {
     const maxLabelLength = Math.max(
@@ -594,43 +674,77 @@ export default function LendPanel({
       : noPriceCoins.length
         ? `price n/a: ${[...new Set(noPriceCoins)].join(", ")}`
         : "";
+  const marketCookieValues = useMemo(() => {
+    const values = hasProtocolAllMarkets
+      ? [
+          ...visibleAddedMarkets.map((entry) => entry.value),
+          ...allMarkets.map((entry) => getAllMarketSelectValue(entry)),
+        ]
+      : markets.map((entry) => entry.value);
+
+    return [...new Set(values.filter(Boolean))];
+  }, [allMarkets, hasProtocolAllMarkets, markets, visibleAddedMarkets]);
+
+  useEffect(() => {
+    const savedDefi = getCookie(getTradeModeCookie(tradeLendDefiCookie, walletType));
+    if (savedDefi && lendingOptions.some((entry) => entry.value == savedDefi)) {
+      setDefi(savedDefi);
+    }
+  }, [walletType]);
 
   useEffect(() => {
     if (
-      lendingOptions.length &&
-      !lendingOptions.some((entry) => entry.value == defi)
+      availableLendingOptions.length &&
+      !availableLendingOptions.some((entry) => entry.value == defi)
     ) {
-      setDefi(lendingOptions[0].value);
+      setDefi(availableLendingOptions[0].value);
+    } else if (!availableLendingOptions.length && defi) {
+      setDefi("");
     }
-  }, [defi]);
+  }, [availableLendingOptions, defi]);
 
   useEffect(() => {
-    if (marketChains.length && !marketChains.includes(chain)) {
-      setChain(marketChains[0]);
+    if (marketChains.length) {
+      const savedChain = getCookie(
+        getProtocolCookie(tradeLendChainCookie, walletType, defi),
+      );
+      const nextChain = marketChains.includes(savedChain)
+        ? savedChain
+        : marketChains.includes(chain)
+          ? chain
+          : marketChains[0];
+      if (nextChain != chain) setChain(nextChain);
     } else if (!marketChains.length && chain) {
       setChain("");
     }
-  }, [chain, marketChains]);
+  }, [defi, marketChains, walletType]);
 
   useEffect(() => {
-    const marketExists =
-      markets.some((entry) => entry.value == market) ||
-      allMarkets.some((entry) => entry.value == market);
+    const marketExists = marketCookieValues.includes(market);
 
-    if (visibleAddedMarkets.length && !marketExists) {
-      setMarket(
-        (hasProtocolAllMarkets ? visibleAddedMarkets[0] : null)?.value ||
-          visibleAddedMarkets[0].value,
+    if (marketCookieValues.length && !marketExists) {
+      const savedMarket = getCookie(
+        getProtocolCookie(
+          tradeLendMarketCookie,
+          walletType,
+          defi,
+          chainE?.chain,
+        ),
       );
+      const nextMarket = marketCookieValues.includes(savedMarket)
+        ? savedMarket
+        : marketCookieValues[0];
+      setMarket(nextMarket || "");
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
     }
   }, [
-    allMarkets,
-    hasProtocolAllMarkets,
+    chainE?.chain,
+    defi,
     market,
+    marketCookieValues,
     markets,
-    visibleAddedMarkets,
+    walletType,
   ]);
 
   useEffect(() => {
@@ -755,7 +869,7 @@ export default function LendPanel({
     setJupiterAllErrorM((errorM) => ({ ...errorM, [jupiterAllKey]: "" }));
     withClientTimeout(
       getJupiterAllMarkets({ chain: jupiterAllKey }),
-      10000,
+      25000,
       `${jupiterAllKey} Jupiter loading timeout`,
     )
       .then((res) => {
@@ -896,6 +1010,7 @@ export default function LendPanel({
             underlyingDecimals: marketE.underlyingDecimals,
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
+            marketName: marketE.market,
           }
         : {}),
       amount: "1",
@@ -1079,39 +1194,94 @@ export default function LendPanel({
 
   function nextDefi() {
     const next = nextValue(
-      lendingOptions.map((option) => option.value),
+      availableLendingOptions.map((option) => option.value),
       defi,
     );
-    if (next) setDefi(next);
+    if (next) selectDefi(next);
+  }
+
+  function selectDefi(value) {
+    setDefi(value);
+    if (!value) return;
+    setCookie(getTradeModeCookie(tradeLendDefiCookie, walletType), value, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function nextChain() {
     const next = nextValue(marketChains, chainE?.chain || chain);
-    if (next) setChain(next);
+    if (next) selectChain(next);
+  }
+
+  function selectChain(chain) {
+    setChain(chain);
+    saveLendChainCookie(chain);
+    emitTradeChainSelect(chain);
+  }
+
+  function focusSelectedChain() {
+    const currentChain = chainE?.chain || chain;
+    if (currentChain) emitTradeChainSelect(currentChain);
+  }
+
+  function saveLendChainCookie(chain) {
+    if (!defi || !chain || !marketChains.includes(chain)) return;
+    setCookie(getProtocolCookie(tradeLendChainCookie, walletType, defi), chain, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function nextMarket() {
-    const cycleMarkets = hasProtocolAllMarkets ? visibleAddedMarkets : markets;
+    const cycleMarkets = hasProtocolAllMarkets
+      ? visibleAddedMarkets.length
+        ? visibleAddedMarkets
+        : allMarkets
+      : markets;
     const next = nextValue(
       cycleMarkets.map((entry) => entry.value),
       market,
     );
-    if (next) setMarket(next);
+    if (next) selectMarket(next);
   }
 
   function prevMarket() {
-    const cycleMarkets = hasProtocolAllMarkets ? visibleAddedMarkets : markets;
+    const cycleMarkets = hasProtocolAllMarkets
+      ? visibleAddedMarkets.length
+        ? visibleAddedMarkets
+        : allMarkets
+      : markets;
     const values = cycleMarkets.map((entry) => entry.value);
     const index = values.indexOf(market);
     const next = values.length
       ? values[(index - 1 + values.length) % values.length]
       : "";
-    if (next) setMarket(next);
+    if (next) selectMarket(next);
   }
 
   function selectMarket(value) {
     setMarket(value);
+    saveLendMarketCookie(value);
     setShowMarketMenu(false);
+  }
+
+  function saveLendMarketCookie(value) {
+    if (!defi || !chainE?.chain || !marketCookieValues.includes(value)) return;
+    setCookie(
+      getProtocolCookie(
+        tradeLendMarketCookie,
+        walletType,
+        defi,
+        chainE.chain,
+      ),
+      value,
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function getAllMarketSelectValue(entry = {}) {
+    return entry.addedUnderlying && entry.addedLend && entry.addedValue
+      ? entry.addedValue
+      : entry.value;
   }
 
   function retryAaveAllMarkets(e) {
@@ -1342,6 +1512,7 @@ export default function LendPanel({
             underlyingDecimals: marketE.underlyingDecimals,
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
+            marketName: marketE.market,
           }
         : {};
     const toastId = toast.loading(`${protocol}: preparing ${action}...`);
@@ -1436,7 +1607,21 @@ export default function LendPanel({
       toast.success(`${protocol} ${action} submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
-      onTxComplete(res);
+      onTxComplete({
+        ...res,
+        refreshTargets: [
+          {
+            chain: chainE.chain,
+            coin: underlyingCoin,
+            address: selectedWalletEntry.address,
+          },
+          {
+            chain: chainE.chain,
+            coin: lendCoin,
+            address: selectedWalletEntry.address,
+          },
+        ],
+      });
     } catch (e) {
       const message = e?.message || `${protocol} ${action} failed`;
       setLendResult({ ok: false, error: message });
@@ -1619,10 +1804,14 @@ export default function LendPanel({
           <span className="gray">DeFi:</span>
           <select
             id="lendDefi"
-            value={defi}
-            onChange={(e) => setDefi(e.target.value)}
+            value={availableLendingOptions.length ? defi : ""}
+            onChange={(e) => selectDefi(e.target.value)}
+            disabled={!availableLendingOptions.length}
           >
-            {lendingOptions.map((option) => (
+            {!availableLendingOptions.length && (
+              <option value="">no DeFi</option>
+            )}
+            {availableLendingOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -1632,7 +1821,7 @@ export default function LendPanel({
             type="button"
             className="btn nx bgGray"
             onClick={nextDefi}
-            disabled={lendingOptions.length < 2}
+            disabled={availableLendingOptions.length < 2}
           >
             {">"}
           </button>
@@ -1640,7 +1829,9 @@ export default function LendPanel({
         <span className="selectCycle">
           <select
             value={marketChains.length ? chainE?.chain || "" : ""}
-            onChange={(e) => setChain(e.target.value)}
+            onChange={(e) => selectChain(e.target.value)}
+            onClick={focusSelectedChain}
+            onFocus={focusSelectedChain}
             disabled={!marketChains.length}
           >
             {!marketChains.length && <option value="">no chain</option>}
@@ -1690,8 +1881,8 @@ export default function LendPanel({
                           type="button"
                           className={
                             entry.value == market
-                              ? "sendWalletMenuItem on"
-                              : "sendWalletMenuItem"
+                              ? "sendWalletMenuItem lendMarketAddedItem on"
+                              : "sendWalletMenuItem lendMarketAddedItem"
                           }
                           onClick={() => selectMarket(entry.value)}
                         >
@@ -1703,6 +1894,7 @@ export default function LendPanel({
                               name={entry.lendName}
                             />
                           </span>
+                          <AprText apr={entry.supplyApr} label={false} />
                         </button>
                       ))
                     ) : (
@@ -1728,14 +1920,23 @@ export default function LendPanel({
                     )}
                     {!allLoading && !allError && !allMarkets.length && (
                       <span className="sendWalletMenuItem lendMarketAllItem">
-                        <span className="gray">-</span>
-                        <button
-                          type="button"
-                          className="btn small bgGray"
-                          onClick={retryAllMarkets}
-                        >
-                          retry
-                        </button>
+                        <span className="gray">
+                          {defi == "jupiter" && !jupiterAllKey
+                            ? "Solana not loaded"
+                            : rawAllMarkets.length
+                              ? "all added"
+                              : "-"}
+                        </span>
+                        {!rawAllMarkets.length &&
+                        (defi != "jupiter" || jupiterAllKey) ? (
+                          <button
+                            type="button"
+                            className="btn small bgGray"
+                            onClick={retryAllMarkets}
+                          >
+                            retry
+                          </button>
+                        ) : null}
                       </span>
                     )}
                     {!allLoading &&
@@ -1744,7 +1945,7 @@ export default function LendPanel({
                         <span
                           key={`${defi}_${entry.value}`}
                           className={
-                            entry.addedValue == market
+                            getAllMarketSelectValue(entry) == market
                               ? "sendWalletMenuItem lendMarketAllItem on"
                               : "sendWalletMenuItem lendMarketAllItem"
                           }
@@ -1753,7 +1954,7 @@ export default function LendPanel({
                             type="button"
                             className="lendMarketAllSelect"
                             onClick={() =>
-                              selectMarket(entry.addedValue || entry.value)
+                              selectMarket(getAllMarketSelectValue(entry))
                             }
                             title={entry.underlyingName}
                           >
@@ -1779,7 +1980,7 @@ export default function LendPanel({
                               type="button"
                               className="lendMarketAllSelect lendMarketAllLendSelect"
                               onClick={() =>
-                                selectMarket(entry.addedValue || entry.value)
+                                selectMarket(getAllMarketSelectValue(entry))
                               }
                             >
                               <span className="gray">{entry.lendCoin}</span>
@@ -1824,7 +2025,7 @@ export default function LendPanel({
           <span className="selectCycle">
             <select
               value={marketE?.value || ""}
-              onChange={(e) => setMarket(e.target.value)}
+              onChange={(e) => selectMarket(e.target.value)}
               disabled={!markets.length}
             >
               {!markets.length && <option value="">no coin</option>}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import {
@@ -18,10 +19,13 @@ import {
 } from "../../browserEditorStorage";
 import {
   clampInputValue,
+  cookieMaxAge,
+  emitTradeChainSelect,
   fmt,
   fmtPrice,
   fmtRate,
   getChainCoins,
+  getTradeModeCookie,
   inputQty,
   yieldOptions as lendingOptions,
   nextValue,
@@ -32,6 +36,9 @@ import {
   sameAddress,
   sendBrowserTx,
   SwapTxLink,
+  tradeYieldChainCookie,
+  tradeYieldDefiCookie,
+  tradeYieldMarketCookie,
   toNum,
 } from "../sharedClient";
 
@@ -57,6 +64,23 @@ const sparkSupportedChains = new Set([
   "Base",
   "Optimism",
 ]);
+
+function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
+  if (walletType == "solana") return false;
+  if (option.value == "spark") return true;
+
+  return false;
+}
+
+function getProtocolCookie(base = "", walletType = "evm", defi = "", chain = "") {
+  return [
+    getTradeModeCookie(base, walletType),
+    defi || "defi",
+    chain || "",
+  ]
+    .filter(Boolean)
+    .join("_");
+}
 
 function getUnderlyingCoin(chainE, lendCoin) {
   const coinInfoM = chainE?.coinInfoM || {};
@@ -216,6 +240,7 @@ function getExplorerAddressUrl(chain = "", address = "") {
 export default function YieldPanel({
   data = [],
   selectedWalletEntry,
+  walletType = "evm",
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
@@ -223,8 +248,15 @@ export default function YieldPanel({
   onTxComplete = () => {},
 }) {
   const chainList = useMemo(
-    () => (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean),
-    [data],
+    () =>
+      (Array.isArray(data) ? data : data ? [data] : [])
+        .filter(Boolean)
+        .filter((chainE) =>
+          walletType == "solana"
+            ? chainE.chain == "Solana"
+            : chainE.chain != "Solana",
+        ),
+    [data, walletType],
   );
   const [defi, setDefi] = useState(lendingOptions[0]?.value || "");
   const [chain, setChain] = useState("");
@@ -261,8 +293,6 @@ export default function YieldPanel({
   const marketPickerRef = useRef(null);
   const mountedRef = useRef(false);
   const useLocalEditorStore = useLocalStorageEditor();
-  const lendingE =
-    lendingOptions.find((entry) => entry.value == defi) || noLending;
   const chainMarketsM = useMemo(() => {
     return Object.fromEntries(
       chainList.map((chainE) => [chainE.chain, getLendingMarkets(chainE, defi)]),
@@ -285,6 +315,15 @@ export default function YieldPanel({
     chainList.find((entry) => entry.chain == activeChain) ||
     chainList.find((entry) => marketChains.includes(entry.chain)) ||
     chainList[0];
+  const availableYieldOptions = useMemo(
+    () =>
+      lendingOptions.filter((option) =>
+        isYieldProtocolSupportedForWallet(option, walletType),
+      ),
+    [walletType],
+  );
+  const lendingE =
+    availableYieldOptions.find((entry) => entry.value == defi) || noLending;
   const markets = chainMarketsM[chainE?.chain] || [];
   const addedMarkets = markets;
   const addedMarketAddressM = useMemo(() => {
@@ -486,46 +525,77 @@ export default function YieldPanel({
       : noPriceCoins.length
         ? `price n/a: ${[...new Set(noPriceCoins)].join(", ")}`
         : "";
+  const marketCookieValues = useMemo(() => {
+    const values = hasProtocolAllMarkets
+      ? [
+          ...visibleAddedMarkets.map((entry) => entry.value),
+          ...allMarkets.map((entry) => entry.addedValue || entry.value),
+        ]
+      : markets.map((entry) => entry.value);
+
+    return [...new Set(values.filter(Boolean))];
+  }, [allMarkets, hasProtocolAllMarkets, markets, visibleAddedMarkets]);
+
+  useEffect(() => {
+    const savedDefi = getCookie(getTradeModeCookie(tradeYieldDefiCookie, walletType));
+    if (savedDefi && lendingOptions.some((entry) => entry.value == savedDefi)) {
+      setDefi(savedDefi);
+    }
+  }, [walletType]);
 
   useEffect(() => {
     if (
-      lendingOptions.length &&
-      !lendingOptions.some((entry) => entry.value == defi)
+      availableYieldOptions.length &&
+      !availableYieldOptions.some((entry) => entry.value == defi)
     ) {
-      setDefi(lendingOptions[0].value);
+      setDefi(availableYieldOptions[0].value);
+    } else if (!availableYieldOptions.length && defi) {
+      setDefi("");
     }
-  }, [defi]);
+  }, [availableYieldOptions, defi]);
 
   useEffect(() => {
-    if (marketChains.length && !marketChains.includes(chain)) {
-      setChain(marketChains[0]);
+    if (marketChains.length) {
+      const savedChain = getCookie(
+        getProtocolCookie(tradeYieldChainCookie, walletType, defi),
+      );
+      const nextChain = marketChains.includes(savedChain)
+        ? savedChain
+        : marketChains.includes(chain)
+          ? chain
+          : marketChains[0];
+      if (nextChain != chain) setChain(nextChain);
     } else if (!marketChains.length && chain) {
       setChain("");
     }
-  }, [chain, marketChains]);
+  }, [defi, marketChains, walletType]);
 
   useEffect(() => {
-    const marketExists =
-      visibleAddedMarkets.some((entry) => entry.value == market) ||
-      allMarkets.some((entry) => entry.value == market) ||
-      (!hasProtocolAllMarkets && markets.some((entry) => entry.value == market));
+    const marketExists = marketCookieValues.includes(market);
 
-    if ((visibleAddedMarkets.length || allMarkets.length) && !marketExists) {
-      setMarket(
-        (hasProtocolAllMarkets ? visibleAddedMarkets[0] : null)?.value ||
-          visibleAddedMarkets[0]?.value ||
-          allMarkets[0]?.value ||
-          "",
+    if (marketCookieValues.length && !marketExists) {
+      const savedMarket = getCookie(
+        getProtocolCookie(
+          tradeYieldMarketCookie,
+          walletType,
+          defi,
+          chainE?.chain,
+        ),
       );
+      const nextMarket = marketCookieValues.includes(savedMarket)
+        ? savedMarket
+        : marketCookieValues[0];
+      setMarket(nextMarket || "");
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
     }
   }, [
-    allMarkets,
-    hasProtocolAllMarkets,
+    chainE?.chain,
+    defi,
     market,
+    marketCookieValues,
     markets,
-    visibleAddedMarkets,
+    walletType,
   ]);
 
   useEffect(() => {
@@ -874,15 +944,41 @@ export default function YieldPanel({
 
   function nextDefi() {
     const next = nextValue(
-      lendingOptions.map((option) => option.value),
+      availableYieldOptions.map((option) => option.value),
       defi,
     );
-    if (next) setDefi(next);
+    if (next) selectDefi(next);
+  }
+
+  function selectDefi(value) {
+    setDefi(value);
+    if (!value) return;
+    setCookie(getTradeModeCookie(tradeYieldDefiCookie, walletType), value, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function nextChain() {
     const next = nextValue(marketChains, chainE?.chain || chain);
-    if (next) setChain(next);
+    if (next) selectChain(next);
+  }
+
+  function selectChain(chain) {
+    setChain(chain);
+    saveYieldChainCookie(chain);
+    emitTradeChainSelect(chain);
+  }
+
+  function focusSelectedChain() {
+    const currentChain = chainE?.chain || chain;
+    if (currentChain) emitTradeChainSelect(currentChain);
+  }
+
+  function saveYieldChainCookie(chain) {
+    if (!defi || !chain || !marketChains.includes(chain)) return;
+    setCookie(getProtocolCookie(tradeYieldChainCookie, walletType, defi), chain, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function nextMarket() {
@@ -891,7 +987,7 @@ export default function YieldPanel({
       cycleMarkets.map((entry) => entry.value),
       market,
     );
-    if (next) setMarket(next);
+    if (next) selectMarket(next);
   }
 
   function prevMarket() {
@@ -901,12 +997,27 @@ export default function YieldPanel({
     const next = values.length
       ? values[(index - 1 + values.length) % values.length]
       : "";
-    if (next) setMarket(next);
+    if (next) selectMarket(next);
   }
 
   function selectMarket(value) {
     setMarket(value);
+    saveYieldMarketCookie(value);
     setShowMarketMenu(false);
+  }
+
+  function saveYieldMarketCookie(value) {
+    if (!defi || !chainE?.chain || !marketCookieValues.includes(value)) return;
+    setCookie(
+      getProtocolCookie(
+        tradeYieldMarketCookie,
+        walletType,
+        defi,
+        chainE.chain,
+      ),
+      value,
+      { maxAge: cookieMaxAge },
+    );
   }
 
   function retrySparkAllMarkets(e) {
@@ -1171,7 +1282,21 @@ export default function YieldPanel({
       toast.success(`${protocol} ${action} submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
-      onTxComplete(res);
+      onTxComplete({
+        ...res,
+        refreshTargets: [
+          {
+            chain: chainE.chain,
+            coin: underlyingCoin,
+            address: selectedWalletEntry.address,
+          },
+          {
+            chain: chainE.chain,
+            coin: lendCoin,
+            address: selectedWalletEntry.address,
+          },
+        ],
+      });
     } catch (e) {
       const message = e?.message || `${protocol} ${action} failed`;
       setLendResult({ ok: false, error: message });
@@ -1354,10 +1479,12 @@ export default function YieldPanel({
           <span className="gray">DeFi:</span>
           <select
             id="lendDefi"
-            value={defi}
-            onChange={(e) => setDefi(e.target.value)}
+            value={availableYieldOptions.length ? defi : ""}
+            onChange={(e) => selectDefi(e.target.value)}
+            disabled={!availableYieldOptions.length}
           >
-            {lendingOptions.map((option) => (
+            {!availableYieldOptions.length && <option value="">no DeFi</option>}
+            {availableYieldOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -1367,7 +1494,7 @@ export default function YieldPanel({
             type="button"
             className="btn nx bgGray"
             onClick={nextDefi}
-            disabled={lendingOptions.length < 2}
+            disabled={availableYieldOptions.length < 2}
           >
             {">"}
           </button>
@@ -1375,7 +1502,9 @@ export default function YieldPanel({
         <span className="selectCycle">
           <select
             value={marketChains.length ? chainE?.chain || "" : ""}
-            onChange={(e) => setChain(e.target.value)}
+            onChange={(e) => selectChain(e.target.value)}
+            onClick={focusSelectedChain}
+            onFocus={focusSelectedChain}
             disabled={!marketChains.length}
           >
             {!marketChains.length && <option value="">no chain</option>}
@@ -1568,7 +1697,7 @@ export default function YieldPanel({
           <span className="selectCycle">
             <select
               value={marketE?.value || ""}
-              onChange={(e) => setMarket(e.target.value)}
+              onChange={(e) => selectMarket(e.target.value)}
               disabled={!markets.length}
             >
               {!markets.length && <option value="">no coin</option>}

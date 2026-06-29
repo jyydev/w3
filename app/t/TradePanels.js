@@ -20,6 +20,7 @@ import LendPanel from "./_lend/Lend";
 import SendPanel from "./_send/Send";
 import SwapPanel from "./_swap/Swap";
 import YieldPanel from "./_yield/Yield";
+import { getTradeCoinBalance } from "./sharedAct";
 import {
   cookieMaxAge,
   findWalletEntryByAddress,
@@ -32,6 +33,8 @@ import {
   shortAddress,
   tradeShowCookie,
 } from "./sharedClient";
+
+const walletBalancePatchEvent = "w3:walletBalancePatch";
 
 function getEntryKey(entry = {}) {
   return `${entry.source || ""}:${entry.name || ""}:${String(
@@ -61,6 +64,57 @@ function isReservedWalletSource(source = "") {
 
 function filterReservedWalletEntries(entries = []) {
   return entries.filter((entry) => !isReservedWalletSource(entry?.source));
+}
+
+function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
+  return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+}
+
+function applyBalancePatches(data = [], patchM = {}) {
+  const patches = Object.values(patchM || {}).filter(
+    (patch) => patch?.chain && patch?.coin && patch?.address && patch?.balance,
+  );
+  if (!patches.length) return data;
+
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+
+  return list.map((chainE) => {
+    const chainPatches = patches.filter((patch) => patch.chain == chainE.chain);
+    if (!chainPatches.length) return chainE;
+
+    const patchCoins = chainPatches.map((patch) => patch.coin);
+
+    return {
+      ...chainE,
+      allCoins: [...new Set([...(chainE.allCoins || []), ...patchCoins])],
+      coins: [...new Set([...(chainE.coins || []), ...patchCoins])],
+      rows: (chainE.rows || []).map((row) => {
+        const rowPatches = chainPatches.filter((patch) =>
+          sameAddress(row.address, patch.address),
+        );
+        if (!rowPatches.length) return row;
+
+        const balances = { ...(row.balances || {}) };
+        for (const patch of rowPatches) {
+          balances[patch.coin] = {
+            ...(balances[patch.coin] || {}),
+            ...patch.balance,
+          };
+        }
+
+        return { ...row, balances };
+      }),
+    };
+  });
+}
+
+function emitBalancePatches(patches = []) {
+  if (typeof window == "undefined" || !patches.length) return;
+  window.dispatchEvent(
+    new CustomEvent(walletBalancePatchEvent, {
+      detail: { balances: patches },
+    }),
+  );
 }
 
 function getLocalSelectedWalletEntries({
@@ -133,7 +187,7 @@ function TradePanels({
   const [localOffCoinM, setLocalOffCoinM] = useState({});
   const [localWalletData, setLocalWalletData] = useState(null);
   const [loadingLocalWalletData, setLoadingLocalWalletData] = useState(false);
-  const [localBalanceRefresh, setLocalBalanceRefresh] = useState(0);
+  const [balancePatchM, setBalancePatchM] = useState({});
   const baseData = useMemo(
     () => (Array.isArray(data) ? data : data ? [data] : []),
     [data],
@@ -153,17 +207,14 @@ function TradePanels({
   }, [customCoinM, localCustomCoinM]);
   const effectiveData = useMemo(() => {
     const sourceData = localWalletData || baseData;
-
-    return sourceData.map((chainE) => {
+    const mergedData = sourceData.map((chainE) => {
       const localCoins = effectiveCustomCoinM[chainE.chain] || {};
       const localCoinNames = Object.keys(localCoins);
       if (!localCoinNames.length) return chainE;
 
       return {
         ...chainE,
-        allCoins: [
-          ...new Set([...(chainE.allCoins || []), ...localCoinNames]),
-        ],
+        allCoins: [...new Set([...(chainE.allCoins || []), ...localCoinNames])],
         coins: [...new Set([...(chainE.coins || []), ...localCoinNames])],
         coinInfoM: {
           ...(chainE.coinInfoM || {}),
@@ -171,7 +222,9 @@ function TradePanels({
         },
       };
     });
-  }, [baseData, effectiveCustomCoinM, localWalletData]);
+
+    return applyBalancePatches(mergedData, balancePatchM);
+  }, [balancePatchM, baseData, effectiveCustomCoinM, localWalletData]);
   const effectiveWalletEntriesM = useMemo(
     () => ({
       evm: mergeWalletEntries(
@@ -424,7 +477,6 @@ function TradePanels({
     JSON.stringify(disabledWallets),
     JSON.stringify(offAddrs),
     JSON.stringify(localOffAddrs),
-    localBalanceRefresh,
     useAlchemy,
     alchemyMinUsd,
   ]);
@@ -489,7 +541,8 @@ function TradePanels({
     const leftPaneCookie = getCookie(tradeLeftPaneCookie);
     const rightPaneSelectCookie = getCookie(tradeRightPaneSelectCookie);
     if (tradeTypes.includes(leftPaneCookie)) setTradeType(leftPaneCookie);
-    if (paneTypes.includes(rightPaneSelectCookie)) setPane(rightPaneSelectCookie);
+    if (paneTypes.includes(rightPaneSelectCookie))
+      setPane(rightPaneSelectCookie);
     setPaneCookiesLoaded(true);
   }, []);
 
@@ -541,19 +594,64 @@ function TradePanels({
   }
 
   const refreshWalletBalances = useCallback((res = {}) => {
-    const txs = Array.isArray(res?.txs) ? res.txs : [];
-    const hasSolanaTx = txs.some((tx) => tx?.chain == "Solana");
-    const delays = hasSolanaTx ? [0, 2500, 7000, 14000] : [0, 4000];
-    const refresh = () => {
-      if (useLocalStorageEditor()) {
-        setLocalBalanceRefresh((value) => value + 1);
+    const rawTargets = Array.isArray(res?.refreshTargets)
+      ? res.refreshTargets
+      : [];
+    const targetM = new Map();
+
+    for (const target of rawTargets) {
+      const clean = {
+        chain: String(target?.chain || "").trim(),
+        coin: String(target?.coin || "").trim(),
+        address: String(target?.address || "").trim(),
+      };
+      const key = getBalancePatchKey(clean);
+      if (clean.chain && clean.coin && clean.address && !targetM.has(key)) {
+        targetM.set(key, clean);
       }
+    }
+
+    const targets = [...targetM.values()];
+    if (!targets.length) {
       router.refresh();
-    };
+      return;
+    }
+
+    const txs = Array.isArray(res?.txs) ? res.txs : [];
+    const hasSolanaTx =
+      txs.some((tx) => tx?.chain == "Solana") ||
+      targets.some((target) => target.chain == "Solana");
+    const delays = hasSolanaTx ? [0, 2500, 7000, 14000] : [0, 4000];
+
+    async function refreshTargets() {
+      const patches = (
+        await Promise.all(
+          targets.map(async (target) => {
+            try {
+              const balance = await getTradeCoinBalance(target);
+              return { ...target, balance };
+            } catch (e) {
+              console.error(e);
+              return null;
+            }
+          }),
+        )
+      ).filter(Boolean);
+
+      if (!patches.length) return;
+      setBalancePatchM((patchM) => {
+        const next = { ...patchM };
+        for (const patch of patches) {
+          next[getBalancePatchKey(patch)] = patch;
+        }
+        return next;
+      });
+      emitBalancePatches(patches);
+    }
 
     delays.forEach((delay) => {
-      if (delay) setTimeout(refresh, delay);
-      else refresh();
+      if (delay) setTimeout(refreshTargets, delay);
+      else refreshTargets();
     });
   }, [router]);
 
@@ -574,6 +672,7 @@ function TradePanels({
       <LendPanel
         data={effectiveData}
         selectedWalletEntry={selectedWalletEntry}
+        walletType={walletType}
         tradeType={panelType}
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
@@ -584,6 +683,7 @@ function TradePanels({
       <YieldPanel
         data={effectiveData}
         selectedWalletEntry={selectedWalletEntry}
+        walletType={walletType}
         tradeType={panelType}
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
@@ -715,7 +815,9 @@ function TradePanels({
             </label>
           </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}
-          {loadingLocalWalletData && <span className="yellow">loading balance...</span>}
+          {loadingLocalWalletData && (
+            <span className="yellow">loading balance...</span>
+          )}
           {privateKeyMissing && <span className="red">no private key</span>}
         </div>
         {show && (

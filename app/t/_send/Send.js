@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import {
   buildSendTx,
@@ -10,9 +11,12 @@ import {
 } from "./act";
 import {
   clampInputValue,
+  cookieMaxAge,
+  emitTradeChainSelect,
   fmt,
   fmtPrice,
   getChainCoins,
+  getTradeModeCookie,
   getWalletOptions,
   inputQty,
   nextValue,
@@ -24,8 +28,17 @@ import {
   sendBrowserTx,
   shortAddress,
   SwapTxLink,
+  tradeSendChainCookie,
+  tradeSendCoinCookie,
+  tradeSendToWalletCookie,
   toNum,
 } from "../sharedClient";
+
+const walletBalancePatchEvent = "w3:walletBalancePatch";
+
+function getChainCoinCookie(base = "", walletType = "evm", chain = "") {
+  return `${getTradeModeCookie(base, walletType)}_${chain}`;
+}
 
 export default function SendPanel({
   data = [],
@@ -139,18 +152,35 @@ export default function SendPanel({
       : "";
 
   useEffect(() => {
+    const savedChain = getCookie(
+      getTradeModeCookie(tradeSendChainCookie, walletType),
+    );
+    if (savedChain && chainNames.includes(savedChain)) {
+      setChain(savedChain);
+    }
+  }, [chainNames, walletType]);
+
+  useEffect(() => {
     if (chainNames.length && !chainNames.includes(chain)) {
       setChain(chainNames[0]);
     }
   }, [chain, chainNames]);
 
   useEffect(() => {
-    if (coins.length && !coins.includes(coin)) {
-      setCoin(coins[0]);
+    if (coins.length) {
+      const savedCoin = getCookie(
+        getChainCoinCookie(tradeSendCoinCookie, walletType, chain),
+      );
+      const nextCoin = coins.includes(savedCoin)
+        ? savedCoin
+        : coins.includes(coin)
+          ? coin
+          : coins[0];
+      if (nextCoin != coin) setCoin(nextCoin);
     } else if (!coins.length && coin) {
       setCoin("");
     }
-  }, [coin, coins]);
+  }, [chain, coins, walletType]);
 
   useEffect(() => {
     if (selectedWalletEntry?.value) setFromWallet(selectedWalletEntry.value);
@@ -175,7 +205,15 @@ export default function SendPanel({
       return;
     }
 
-    const next = getDefaultToWallet();
+    const savedToWallet = getCookie(
+      getTradeModeCookie(tradeSendToWalletCookie, walletType),
+    );
+    const savedEntry = [...currentToWallets, ...toWallets].find(
+      (entry) =>
+        entry.value == savedToWallet &&
+        !sameAddress(entry.address, fromEntry?.address),
+    );
+    const next = savedEntry || getDefaultToWallet();
     setToWallet(next?.value || "");
   }, [
     currentToWallets,
@@ -183,6 +221,7 @@ export default function SendPanel({
     toEntry?.address,
     toWallet,
     toWallets,
+    walletType,
   ]);
 
   function getDefaultToWallet() {
@@ -325,6 +364,37 @@ export default function SendPanel({
     };
   }, [chain, coin, fallbackPrice, listPrice, priceMKey]);
 
+  useEffect(() => {
+    function handleBalancePatch(e) {
+      const patches = Array.isArray(e?.detail?.balances)
+        ? e.detail.balances
+        : [];
+      const nextEntries = patches
+        .filter(
+          (patch) =>
+            patch?.chain == chain &&
+            patch?.coin == coin &&
+            patch?.address &&
+            patch?.balance,
+        )
+        .map((patch) => [
+          getBalanceKey(patch.chain, patch.coin, patch.address),
+          patch.balance,
+        ]);
+      if (!nextEntries.length) return;
+
+      setFallbackBalanceM((balanceM) => ({
+        ...balanceM,
+        ...Object.fromEntries(nextEntries),
+      }));
+    }
+
+    window.addEventListener(walletBalancePatchEvent, handleBalancePatch);
+    return () => {
+      window.removeEventListener(walletBalancePatchEvent, handleBalancePatch);
+    };
+  }, [chain, coin]);
+
   function getBalanceKey(selectedChain = "", selectedCoin = "", address = "") {
     if (!selectedChain || !selectedCoin || !address) return "";
 
@@ -368,12 +438,41 @@ export default function SendPanel({
 
   function nextChain() {
     const next = nextValue(chainNames, chain);
-    if (next) setChain(next);
+    if (next) selectChain(next);
+  }
+
+  function selectChain(chain) {
+    setChain(chain);
+    saveSendChainCookie(chain);
+    emitTradeChainSelect(chain);
+  }
+
+  function focusSelectedChain() {
+    if (chain) emitTradeChainSelect(chain);
+  }
+
+  function saveSendChainCookie(chain) {
+    if (!chain) return;
+    setCookie(getTradeModeCookie(tradeSendChainCookie, walletType), chain, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function nextCoin() {
     const next = nextValue(coins, coin);
-    if (next) setCoin(next);
+    if (next) selectCoin(next);
+  }
+
+  function selectCoin(coin) {
+    setCoin(coin);
+    saveSendCoinCookie(coin);
+  }
+
+  function saveSendCoinCookie(coin) {
+    if (!chain || !coin) return;
+    setCookie(getChainCoinCookie(tradeSendCoinCookie, walletType, chain), coin, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function cycleWalletSelection(list, value, direction = "next") {
@@ -399,7 +498,7 @@ export default function SendPanel({
 
   function cycleToWallet(direction) {
     const next = cycleWalletSelection(currentToWallets, toWallet, direction);
-    if (next) setToWallet(next);
+    if (next) selectToWallet(next);
   }
 
   function selectFromWallet(value, syncParent = true) {
@@ -409,7 +508,18 @@ export default function SendPanel({
 
   function selectToWallet(value) {
     setToWallet(value);
+    saveSendToWalletCookie(value);
     setShowToWalletMenu(false);
+  }
+
+  function saveSendToWalletCookie(value) {
+    const entry = [...currentToWallets, ...toWallets].find(
+      (entry) => entry.value == value,
+    );
+    if (!entry?.address) return;
+    setCookie(getTradeModeCookie(tradeSendToWalletCookie, walletType), value, {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function switchWallets() {
@@ -422,7 +532,7 @@ export default function SendPanel({
           sameAddress(entry.address, fromEntry.address),
       ) || toWallets[0];
     selectFromWallet(loadedToEntry.value);
-    setToWallet(nextToEntry?.value || "");
+    if (nextToEntry?.value) selectToWallet(nextToEntry.value);
   }
 
   function shortTail(address = "") {
@@ -537,7 +647,13 @@ export default function SendPanel({
       toast.success(`Send submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
-      onTxComplete(res);
+      onTxComplete({
+        ...res,
+        refreshTargets: [
+          { chain, coin, address: fromEntry.address },
+          { chain, coin, address: toEntry.address },
+        ],
+      });
     } catch (e) {
       const message = e?.message || "send failed";
       setSendResult({ ok: false, error: message });
@@ -571,7 +687,12 @@ export default function SendPanel({
           </button>
         </label>
         <span className="selectCycle">
-          <select value={chain} onChange={(e) => setChain(e.target.value)}>
+          <select
+            value={chain}
+            onChange={(e) => selectChain(e.target.value)}
+            onClick={focusSelectedChain}
+            onFocus={focusSelectedChain}
+          >
             {chainNames.map((chainName) => (
               <option key={chainName} value={chainName}>
                 {chainName}
@@ -588,7 +709,7 @@ export default function SendPanel({
           </button>
         </span>
         <span className="selectCycle">
-          <select value={coin} onChange={(e) => setCoin(e.target.value)}>
+          <select value={coin} onChange={(e) => selectCoin(e.target.value)}>
             {coins.map((coinName) => (
               <option key={coinName} value={coinName}>
                 {coinName}

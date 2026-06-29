@@ -37,6 +37,10 @@ const jupiterApiBase =
   process.env.JUPITER_API_BASE ||
   process.env.jupiter_api_base ||
   "https://lite-api.jup.ag/swap/v1";
+const jupiterTokenApiBase =
+  process.env.JUPITER_TOKEN_API_BASE ||
+  process.env.jupiter_token_api_base ||
+  "https://lite-api.jup.ag/tokens/v2";
 const nativeSolanaAddress = "11111111111111111111111111111111";
 const jupiterNativeSolAddress = "So11111111111111111111111111111111111111112";
 const defaultSlippageBps = 50n;
@@ -48,11 +52,54 @@ const acrossChainIds = {
   zkSyncEra: 324,
   Base: 8453,
   Arbitrum: 42161,
+  Avalanche: 43114,
   Solana: 34268394551451,
 };
 const acrossChainById = Object.fromEntries(
   Object.entries(acrossChainIds).map(([chain, id]) => [id, chain]),
 );
+const acrossChainNameM = {
+  "arbitrum one": "Arbitrum",
+  arbitrum: "Arbitrum",
+  avalanche: "Avalanche",
+  "avalanche c-chain": "Avalanche",
+  base: "Base",
+  bnb: "BSC",
+  "bnb smart chain": "BSC",
+  bsc: "BSC",
+  ethereum: "Ethereum",
+  optimism: "Optimism",
+  "op mainnet": "Optimism",
+  solana: "Solana",
+  zksync: "zkSyncEra",
+  "zksync era": "zkSyncEra",
+};
+const relayChainNameM = {
+  "arbitrum one": "Arbitrum",
+  arbitrum: "Arbitrum",
+  avalanche: "Avalanche",
+  "avalanche c-chain": "Avalanche",
+  base: "Base",
+  bnb: "BSC",
+  "bnb smart chain": "BSC",
+  bsc: "BSC",
+  celo: "Celo",
+  ethereum: "Ethereum",
+  gnosis: "Gnosis",
+  kaia: "Kaia",
+  linea: "Linea",
+  mantle: "Mantle",
+  metis: "Metis",
+  optimism: "Optimism",
+  "op mainnet": "Optimism",
+  polygon: "Polygon",
+  scroll: "Scroll",
+  solana: "Solana",
+  sonic: "Sonic",
+  wemix: "WEMIX",
+  zksync: "zkSyncEra",
+  "zksync era": "zkSyncEra",
+};
 const uniswapV3M = {
   Ethereum: {
     quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
@@ -296,6 +343,15 @@ function getJupiterToken(coin = "") {
   return getSolanaPublicKey(coinE.address, "Jupiter token mint").toBase58();
 }
 
+function isSolanaAddress(address = "") {
+  try {
+    getSolanaPublicKey(address, "Solana address");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getUniswapToken(chain = "", coin = "") {
   const coinE = coinM?.[chain]?.[coin];
   if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
@@ -327,9 +383,12 @@ function getRelayHeaders() {
   };
 }
 
-function getAcrossHeaders() {
+function getAcrossHeaders({ required = true } = {}) {
   const apiKey = process.env.ACROSS_API_KEY || process.env.across_api_key;
-  if (!apiKey) throw new Error("Across API key missing: ACROSS_API_KEY");
+  if (!apiKey) {
+    if (required) throw new Error("Across API key missing: ACROSS_API_KEY");
+    return {};
+  }
 
   return { Authorization: `Bearer ${apiKey}` };
 }
@@ -359,30 +418,190 @@ function parseJson(text = "") {
   }
 }
 
-async function relayFetch(endpoint, options = {}) {
-  const res = await fetch(`${relayApiBase}${endpoint}`, {
-    ...options,
-    headers: {
-      ...getRelayHeaders(),
-      ...(options.headers || {}),
-    },
-  });
-  const text = await res.text();
-  const data = parseJson(text);
+function getTimeoutSignal(timeoutMs = 0) {
+  if (!timeoutMs) return {};
 
-  if (!res.ok) {
-    const message =
-      data?.message ||
-      data?.error ||
-      data?.description ||
-      `Relay request failed: ${res.status}`;
-    throw new Error(message);
-  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  return data;
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+  };
 }
 
-async function acrossFetch(endpoint, params = {}) {
+async function relayFetch(endpoint, options = {}) {
+  const {
+    timeoutMs = 0,
+    timeoutMessage = "Relay request timeout",
+    ...fetchOptions
+  } = options;
+  const timeout = getTimeoutSignal(timeoutMs);
+  try {
+    const res = await fetch(`${relayApiBase}${endpoint}`, {
+      ...fetchOptions,
+      headers: {
+        ...getRelayHeaders(),
+        ...(fetchOptions.headers || {}),
+      },
+      ...(timeout.signal ? { signal: timeout.signal } : {}),
+    });
+    const text = await res.text();
+    const data = parseJson(text);
+
+    if (!res.ok) {
+      const message =
+        data?.message ||
+        data?.error ||
+        data?.description ||
+        `Relay request failed: ${res.status}`;
+      throw new Error(message);
+    }
+
+    return data;
+  } catch (e) {
+    if (e?.name == "AbortError") throw new Error(timeoutMessage);
+    throw e;
+  } finally {
+    timeout.clear?.();
+  }
+}
+
+function getRelayLocalChain(entry = {}) {
+  const chainId = Number(entry.id ?? entry.chainId ?? entry.chainID);
+  if (Number.isFinite(chainId) && relayChainById[chainId]) {
+    return relayChainById[chainId];
+  }
+
+  const names = [
+    entry.displayName,
+    entry.name,
+    entry.chainName,
+    entry.currency?.symbol,
+  ];
+  for (const nameE of names) {
+    const name = String(nameE || "").trim().toLowerCase();
+    if (relayChainNameM[name]) return relayChainNameM[name];
+  }
+
+  return "";
+}
+
+function normalizeRelayToken(token = {}, chain = "", chainId = "") {
+  const symbol = String(token.symbol || "").trim();
+  const coinInfoM = coinM?.[chain] || {};
+  const added =
+    !!(symbol && coinInfoM[symbol]) ||
+    Object.values(coinInfoM).some(
+      (coinE) =>
+        token.address &&
+        coinE?.address &&
+        String(coinE.address).toLowerCase() ==
+          String(token.address).toLowerCase(),
+    );
+
+  return {
+    chain,
+    chainId,
+    address: token.address || "",
+    symbol,
+    name: token.name || "",
+    decimals: Number(token.decimals),
+    added,
+  };
+}
+
+function normalizeRelayCurrency(token = {}) {
+  const chainId = Number(token.chainId);
+  const chain = relayChainById[chainId] || "";
+
+  return normalizeRelayToken(token, chain, chainId);
+}
+
+function normalizeRelayChain(entry = {}) {
+  const chainId = Number(entry.id ?? entry.chainId ?? entry.chainID);
+  const chain = getRelayLocalChain(entry);
+  const name = String(
+    entry.displayName || entry.name || entry.chainName || chain || chainId || "",
+  ).trim();
+
+  return {
+    chain,
+    chainId: Number.isFinite(chainId) ? chainId : "",
+    name,
+    added: !!(chain && coinM?.[chain]),
+    disabled: !!entry.disabled,
+    depositEnabled: entry.depositEnabled !== false,
+    explorerUrl: entry.explorerUrl || "",
+    logoUrl: entry.logoUrl || entry.iconUrl || "",
+    publicRpcUrl: entry.httpRpcUrl || "",
+  };
+}
+
+export async function getRelaySupportedBridge() {
+  const data = await relayFetch("/chains", {
+    timeoutMs: 10000,
+    timeoutMessage: "Relay discovery timeout",
+  });
+  const rows = getArrayPayload(data, ["chains", "data", "result"]);
+  const chains = rows
+    .map(normalizeRelayChain)
+    .filter((entry) => (entry.chainId || entry.name) && !entry.disabled);
+  const tokens = rows.flatMap((entry) => {
+    const normalizedChain = normalizeRelayChain(entry);
+    const chain = normalizedChain.chain;
+    const chainId = normalizedChain.chainId;
+    const tokenRows = [
+      entry.currency,
+      ...(Array.isArray(entry.featuredTokens) ? entry.featuredTokens : []),
+      ...(Array.isArray(entry.erc20Currencies) ? entry.erc20Currencies : []),
+      ...(Array.isArray(entry.solverCurrencies) ? entry.solverCurrencies : []),
+    ].filter(Boolean);
+
+    return tokenRows.map((token) => normalizeRelayToken(token, chain, chainId));
+  });
+
+  return { chains, tokens };
+}
+
+export async function getRelayCurrencyDiscovery({
+  chain = "",
+  term = "",
+} = {}) {
+  const chainId = relayChainIds[chain];
+  if (!chainId) throw new Error(`Relay chain missing: ${chain}`);
+
+  const cleanTerm = String(term || "").trim();
+  const body = {
+    chainIds: [chainId],
+    verified: true,
+    limit: 100,
+    useExternalSearch: !!cleanTerm,
+  };
+
+  if (cleanTerm) {
+    const isAddress =
+      chain == "Solana" ? isSolanaAddress(cleanTerm) : ethers.isAddress(cleanTerm);
+    body[isAddress ? "address" : "term"] = cleanTerm;
+  } else {
+    body.defaultList = true;
+  }
+
+  const data = await relayFetch("/currencies/v2", {
+    method: "POST",
+    body: JSON.stringify(body),
+    timeoutMs: 10000,
+    timeoutMessage: "Relay token discovery timeout",
+  });
+  const rows = getArrayPayload(data, ["currencies", "data", "result"]);
+  const tokens = rows
+    .map(normalizeRelayCurrency)
+    .filter((entry) => entry.chain == chain && (entry.symbol || entry.address));
+
+  return { chain, term: cleanTerm, tokens };
+}
+
+async function acrossFetch(endpoint, params = {}, options = {}) {
   const url = new URL(`${acrossApiBase}${endpoint}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") {
@@ -390,20 +609,283 @@ async function acrossFetch(endpoint, params = {}) {
     }
   }
 
-  const res = await fetch(url, { headers: getAcrossHeaders() });
-  const text = await res.text();
-  const data = parseJson(text);
+  const timeout = getTimeoutSignal(options.timeoutMs || 0);
+  try {
+    const res = await fetch(url, {
+      headers: getAcrossHeaders({
+        required: options.requireApiKey !== false,
+      }),
+      ...(timeout.signal ? { signal: timeout.signal } : {}),
+    });
+    const text = await res.text();
+    const data = parseJson(text);
 
-  if (!res.ok) {
-    const message =
-      data?.message ||
-      data?.error ||
-      data?.description ||
-      `Across request failed: ${res.status}`;
-    throw new Error(message);
+    if (!res.ok) {
+      const message =
+        data?.message ||
+        data?.error ||
+        data?.description ||
+        `Across request failed: ${res.status}`;
+      throw new Error(message);
+    }
+
+    return data;
+  } catch (e) {
+    if (e?.name == "AbortError") {
+      throw new Error(options.timeoutMessage || "Across request timeout");
+    }
+    throw e;
+  } finally {
+    timeout.clear?.();
+  }
+}
+
+function getArrayPayload(data, keys = []) {
+  if (Array.isArray(data)) return data;
+
+  for (const key of keys) {
+    if (Array.isArray(data?.[key])) return data[key];
   }
 
-  return data;
+  return [];
+}
+
+function getAcrossLocalChain(entry = {}) {
+  const chainId = Number(entry.chainId ?? entry.chainID ?? entry.id);
+  if (Number.isFinite(chainId) && acrossChainById[chainId]) {
+    return acrossChainById[chainId];
+  }
+
+  const name = String(entry.name || entry.chainName || "").trim().toLowerCase();
+  return acrossChainNameM[name] || "";
+}
+
+function getAcrossChainRows(data = {}) {
+  return getArrayPayload(data, ["chains", "data", "result"]);
+}
+
+function getAcrossTokenRows(data = {}) {
+  const rows = getArrayPayload(data, ["tokens", "data", "result"]);
+  if (rows.length) return rows;
+
+  if (!data || typeof data != "object") return [];
+
+  return Object.entries(data).flatMap(([chainId, tokens]) =>
+    Array.isArray(tokens)
+      ? tokens.map((token) => ({
+          ...token,
+          chainId: token.chainId ?? chainId,
+        }))
+      : [],
+  );
+}
+
+function normalizeAcrossChain(entry = {}) {
+  const chainId = Number(entry.chainId ?? entry.chainID ?? entry.id);
+  const chain = getAcrossLocalChain(entry);
+  const name = String(entry.name || entry.chainName || chain || chainId || "")
+    .trim();
+
+  return {
+    chain,
+    chainId: Number.isFinite(chainId) ? chainId : "",
+    name,
+    added: !!(chain && coinM?.[chain]),
+    explorerUrl: entry.explorerUrl || "",
+    logoUrl: entry.logoUrl || "",
+    publicRpcUrl: entry.publicRpcUrl || "",
+  };
+}
+
+function normalizeAcrossToken(entry = {}, chainByIdM = {}) {
+  const chainId = Number(entry.chainId ?? entry.chainID ?? entry.id);
+  const chain = chainByIdM[chainId] || acrossChainById[chainId] || "";
+  const symbol = String(entry.symbol || entry.tokenSymbol || "").trim();
+  const coinInfoM = coinM?.[chain] || {};
+  const added =
+    !!(symbol && coinInfoM[symbol]) ||
+    Object.values(coinInfoM).some(
+      (coinE) =>
+        entry.address &&
+        coinE?.address &&
+        String(coinE.address).toLowerCase() ==
+          String(entry.address).toLowerCase(),
+    );
+
+  return {
+    chain,
+    chainId: Number.isFinite(chainId) ? chainId : "",
+    address: entry.address || "",
+    symbol,
+    name: entry.name || "",
+    decimals: Number(entry.decimals),
+    priceUsd: Number(entry.priceUsd || 0),
+    added,
+  };
+}
+
+function normalizeJupiterToken(entry = {}) {
+  const address = String(
+    entry.id || entry.address || entry.mint || entry.mintAddress || "",
+  ).trim();
+  const symbol = String(entry.symbol || "").trim();
+  const chain = "Solana";
+  const coinInfoM = coinM?.[chain] || {};
+  const added =
+    !!(symbol && coinInfoM[symbol]) ||
+    Object.values(coinInfoM).some(
+      (coinE) =>
+        address &&
+        coinE?.address &&
+        String(coinE.address).toLowerCase() == address.toLowerCase(),
+    );
+
+  return {
+    chain,
+    chainId: relayChainIds.Solana,
+    address,
+    symbol,
+    name: entry.name || "",
+    decimals: Number(entry.decimals),
+    priceUsd: Number(entry.usdPrice || entry.priceUsd || 0),
+    added,
+    verified: !!entry.isVerified,
+    tags: Array.isArray(entry.tags) ? entry.tags : [],
+  };
+}
+
+export async function getAcrossSupportedBridge() {
+  const chainsData = await acrossFetch("/swap/chains", {}, {
+    requireApiKey: false,
+    timeoutMs: 10000,
+    timeoutMessage: "Across chain discovery timeout",
+  });
+  let tokensData = {};
+  try {
+    tokensData = await acrossFetch("/swap/tokens", {}, {
+      requireApiKey: false,
+      timeoutMs: 8000,
+      timeoutMessage: "Across token discovery timeout",
+    });
+  } catch {
+    tokensData = {};
+  }
+  const chains = getAcrossChainRows(chainsData)
+    .map(normalizeAcrossChain)
+    .filter((entry) => entry.chainId || entry.name);
+  const chainByIdM = Object.fromEntries(
+    chains
+      .filter((entry) => entry.chainId && entry.chain)
+      .map((entry) => [entry.chainId, entry.chain]),
+  );
+  const tokens = getAcrossTokenRows(tokensData)
+    .map((entry) => normalizeAcrossToken(entry, chainByIdM))
+    .filter((entry) => entry.chainId || entry.symbol || entry.address);
+
+  return { chains, tokens };
+}
+
+export async function getUniswapSupportedSwap() {
+  const chains = Object.keys(uniswapV3M).map((chain) => ({
+    chain,
+    chainId: relayChainIds[chain] || "",
+    name: chain,
+    added: !!coinM?.[chain],
+    router: uniswapV3M[chain]?.router || "",
+    quoter: uniswapV3M[chain]?.quoter || "",
+  }));
+  const tokens = Object.keys(uniswapV3M).flatMap((chain) =>
+    Object.entries(coinM?.[chain] || {}).map(([symbol, coinE]) => ({
+      chain,
+      chainId: relayChainIds[chain] || "",
+      address: coinE.native
+        ? uniswapWrappedNativeM[chain] || nativeEvmAddress
+        : coinE.address || "",
+      symbol,
+      name: coinE.name || symbol,
+      decimals: Number(coinE.decimals),
+      added: true,
+      native: !!coinE.native,
+    })),
+  );
+
+  return { chains, tokens };
+}
+
+async function jupiterTokenFetch(endpoint, options = {}) {
+  const timeout = getTimeoutSignal(options.timeoutMs || 0);
+  try {
+    const res = await fetch(`${jupiterTokenApiBase}${endpoint}`, {
+      ...options,
+      headers: {
+        ...getJupiterHeaders(),
+        ...(options.headers || {}),
+      },
+      ...(timeout.signal ? { signal: timeout.signal } : {}),
+    });
+    const text = await res.text();
+    const data = parseJson(text);
+
+    if (!res.ok || data?.error) {
+      const message =
+        data?.message ||
+        data?.error ||
+        data?.errorMessage ||
+        `Jupiter token request failed: ${res.status}`;
+      throw new Error(message);
+    }
+
+    return data;
+  } catch (e) {
+    if (e?.name == "AbortError") {
+      throw new Error(options.timeoutMessage || "Jupiter token request timeout");
+    }
+    throw e;
+  } finally {
+    timeout.clear?.();
+  }
+}
+
+export async function getJupiterTokenDiscovery({
+  chain = "Solana",
+  term = "",
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter is Solana-only");
+
+  const cleanTerm = String(term || "").trim();
+  const endpoint = cleanTerm
+    ? `/search?${new URLSearchParams({ query: cleanTerm })}`
+    : "/toptraded/1h";
+  const data = await jupiterTokenFetch(endpoint, {
+    timeoutMs: 10000,
+    timeoutMessage: "Jupiter token discovery timeout",
+  });
+  const rows = getArrayPayload(data, ["tokens", "data", "result"]);
+  const seen = new Set();
+  const tokens = rows
+    .map(normalizeJupiterToken)
+    .filter((entry) => {
+      const key = String(entry.address || entry.symbol || "").toLowerCase();
+      if (!entry.chain || !key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  return { chain, term: cleanTerm, tokens };
+}
+
+export async function getJupiterSupportedSwap() {
+  const chain = "Solana";
+  const chains = [
+    {
+      chain,
+      chainId: relayChainIds.Solana,
+      name: chain,
+      added: !!coinM?.[chain],
+    },
+  ];
+
+  return { chains, tokens: [] };
 }
 
 async function jupiterFetch(endpoint, options = {}) {

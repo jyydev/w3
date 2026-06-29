@@ -14,6 +14,21 @@ export const tradeShowCookie = "w3_trade_show";
 export const tradeRightPaneCookie = "w3_trade_right_pane";
 export const tradeLeftPaneCookie = "w3_trade_left_pane";
 export const tradeRightPaneSelectCookie = "w3_trade_right_pane_select";
+export const tradeSwapDexCookie = "w3_trade_swap_dex";
+export const tradeSwapFromChainCookie = "w3_trade_swap_from_chain";
+export const tradeSwapFromCoinCookie = "w3_trade_swap_from_coin";
+export const tradeSwapToChainCookie = "w3_trade_swap_to_chain";
+export const tradeSwapToCoinCookie = "w3_trade_swap_to_coin";
+export const tradeLendDefiCookie = "w3_trade_lend_defi";
+export const tradeLendChainCookie = "w3_trade_lend_chain";
+export const tradeLendMarketCookie = "w3_trade_lend_market";
+export const tradeYieldDefiCookie = "w3_trade_yield_defi";
+export const tradeYieldChainCookie = "w3_trade_yield_chain";
+export const tradeYieldMarketCookie = "w3_trade_yield_market";
+export const tradeSendChainCookie = "w3_trade_send_chain";
+export const tradeSendCoinCookie = "w3_trade_send_coin";
+export const tradeSendToWalletCookie = "w3_trade_send_to_wallet";
+export const tradeChainSelectEvent = "w3:tradeChainSelect";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
 const eip6963ProviderDetails = [];
 let eip6963Listening = false;
@@ -52,6 +67,19 @@ export const yieldOptions = (Array.isArray(yields) ? yields : [])
     label: String(entry.label),
   }));
 export const noYield = { value: "", label: "Yield" };
+
+export function getTradeModeCookie(base = "", walletType = "evm") {
+  return `${base}_${walletType == "solana" ? "solana" : "evm"}`;
+}
+
+export function emitTradeChainSelect(chain = "") {
+  if (typeof window == "undefined" || !chain) return;
+  window.dispatchEvent(
+    new CustomEvent(tradeChainSelectEvent, {
+      detail: { chain },
+    }),
+  );
+}
 
 function uniqueProviders(providers = []) {
   const seen = new Set();

@@ -12,7 +12,7 @@ const solana = {
     type: "stablecoin",
   },
   USDT: {
-    address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkYHdF7FbKWt9uev7",
+    address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
     decimals: 6,
     name: "Tether USD",
     type: "stablecoin",

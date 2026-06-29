@@ -1,7 +1,12 @@
 "use server";
 
 import { ethers } from "ethers";
-import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  SystemProgram,
+  TransactionInstruction,
+} from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -123,6 +128,48 @@ const jupiterDepositDiscriminator = Buffer.from([
 const jupiterRedeemDiscriminator = Buffer.from([
   184, 12, 86, 149, 70, 196, 97, 225,
 ]);
+const jupiterLendingAccountDiscriminator = Buffer.from([
+  135, 199, 82, 16, 249, 131, 182, 241,
+]);
+const jupiterTokenSearchUrl = "https://lite-api.jup.ag/tokens/v2/search";
+const jupiterLendTokenQueries = ["jl", "JUICED"];
+const jupiterUnderlyingTokenM = {
+  USDC: {
+    address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    decimals: 6,
+    name: "USD Coin",
+  },
+  USDT: {
+    address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    decimals: 6,
+    name: "Tether USD",
+  },
+  WSOL: {
+    address: "So11111111111111111111111111111111111111112",
+    decimals: 9,
+    name: "Wrapped SOL",
+  },
+  USDS: {
+    address: "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
+    decimals: 6,
+    name: "USDS",
+  },
+  USDG: {
+    address: "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+    decimals: 6,
+    name: "Global Dollar",
+  },
+  EURC: {
+    address: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+    decimals: 6,
+    name: "EURC",
+  },
+  JupUSD: {
+    address: "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+    decimals: 6,
+    name: "Jupiter USD",
+  },
+};
 
 export async function getTradeCoinPrice(args) {
   return getTradeCoinPriceShared(args);
@@ -221,8 +268,35 @@ function getUsableChainRpcs(chain = "") {
     (rpc) =>
       rpc &&
       !String(rpc).includes("undefined") &&
-      !String(rpc).includes("YOUR_KEY"),
+      !String(rpc).includes("YOUR_KEY") &&
+      !String(rpc).match(/\/v2\/?$/),
   );
+}
+
+async function getSolanaMultipleAccountsInfoFast(pubkeys = [], timeoutMs = 9000) {
+  if (!pubkeys.length) return [];
+
+  const rpcList = getUsableChainRpcs("Solana").slice(0, 4);
+  if (!rpcList.length) throw new Error("Solana rpc not configured");
+
+  try {
+    return await Promise.any(
+      rpcList.map((rpc) => {
+        const connection = new Connection(rpc, "confirmed");
+        return withTimeout(
+          connection.getMultipleAccountsInfo(pubkeys, "confirmed"),
+          timeoutMs,
+          `Solana RPC timeout: ${rpc}`,
+        );
+      }),
+    );
+  } catch (e) {
+    const errors = Array.isArray(e?.errors) ? e.errors : [e];
+    const message =
+      errors.find((err) => err?.message)?.message ||
+      "Solana Jupiter markets timeout";
+    throw new Error(message);
+  }
 }
 
 function getCoinByAddress(chain = "", address = "") {
@@ -240,7 +314,9 @@ function isJupiterLendCoin(coin = "", coinE = {}) {
 
   return (
     coinE?.address &&
-    /^jl[A-Z0-9]/.test(coin) &&
+    (/^jl[A-Z0-9]/.test(coin) ||
+      coin == "JUICED" ||
+      text.includes("jupusd")) &&
     (coinE.type == "lending" ||
       coinE.type == "yield" ||
       text.includes("jupiter lend"))
@@ -278,6 +354,32 @@ function getJupiterPrograms(market = "main") {
 
 function findPda(seeds = [], programId) {
   return PublicKey.findProgramAddressSync(seeds, programId)[0];
+}
+
+function getJupiterFTokenMint(assetMint, market = "main") {
+  const programs = getJupiterPrograms(market);
+
+  return findPda(
+    [Buffer.from("f_token_mint"), assetMint.toBuffer()],
+    programs.lending,
+  );
+}
+
+function getJupiterMarketFromMints(underlyingAddress = "", lendAddress = "") {
+  try {
+    const underlyingMint = new PublicKey(underlyingAddress);
+    const cleanLendAddress = String(lendAddress || "");
+
+    return (
+      Object.keys(jupiterLendProgramM).find(
+        (market) =>
+          getJupiterFTokenMint(underlyingMint, market).toBase58() ==
+          cleanLendAddress,
+      ) || ""
+    );
+  } catch {
+    return "";
+  }
 }
 
 function u64Buffer(value) {
@@ -441,10 +543,11 @@ function getJupiterMarket({
   lendCoin = "",
   underlyingAddress = "",
   lendAddress = "",
+  marketName = "",
 } = {}) {
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
   const lendE = coinM?.Solana?.[lendCoin] || {};
-  const market = getJupiterMarketName({ lendCoin, coinE: lendE });
+  const market = marketName || getJupiterMarketName({ lendCoin, coinE: lendE });
   const underlying = underlyingAddress
     ? getSolanaPublicKey(underlyingAddress, "Jupiter underlying")
     : getSolanaTokenAddress(chain, underlyingCoin, "Jupiter underlying");
@@ -456,6 +559,172 @@ function getJupiterMarket({
     market,
     underlying,
     fTokenMint,
+  };
+}
+
+function getSolanaCoinByAddress(address = "") {
+  const cleanAddress = String(address || "").trim();
+  if (!cleanAddress) return null;
+
+  return (
+    Object.entries(coinM?.Solana || {}).find(
+      ([, coinE]) => String(coinE?.address || "").trim() == cleanAddress,
+    ) || null
+  );
+}
+
+async function fetchJupiterTokenSearch(query = "") {
+  const cleanQuery = String(query || "").trim();
+  if (!cleanQuery) return [];
+
+  const res = await withTimeout(
+    fetch(`${jupiterTokenSearchUrl}?query=${encodeURIComponent(cleanQuery)}`, {
+      headers: { accept: "application/json" },
+      next: { revalidate: 300 },
+    }),
+    10000,
+    `Jupiter token search timeout: ${cleanQuery}`,
+  );
+  if (!res.ok) throw new Error(`Jupiter token search failed: ${res.status}`);
+
+  const json = await res.json();
+  return Array.isArray(json) ? json : [];
+}
+
+function getJupiterTokenApy(token = {}) {
+  const apr = Number(token?.apy?.jupEarn || 0);
+  return Number.isFinite(apr) ? apr : 0;
+}
+
+function isJupiterEarnToken(token = {}) {
+  return (
+    token?.id &&
+    token?.symbol &&
+    token?.isVerified &&
+    Array.isArray(token.tags) &&
+    token.tags.includes("jup-lend-earn")
+  );
+}
+
+function getJupiterUnderlyingSymbol(token = {}) {
+  const symbol = String(token?.symbol || "").trim();
+  if (symbol == "JUICED") return "JupUSD";
+  if (/^jl/i.test(symbol)) return symbol.replace(/^jl/i, "");
+
+  const match = String(token?.name || "").match(/lend\s+(?:ethena\s+)?([A-Z0-9]+)/i);
+  return match?.[1] || "";
+}
+
+async function getJupiterUnderlyingMeta(symbol = "") {
+  const cleanSymbol = String(symbol || "").trim();
+  if (!cleanSymbol) return null;
+
+  const fallback = jupiterUnderlyingTokenM[cleanSymbol];
+  if (fallback) return { symbol: cleanSymbol, ...fallback };
+
+  const tokens = await fetchJupiterTokenSearch(cleanSymbol).catch(() => []);
+  const token =
+    tokens.find(
+      (entry) =>
+        entry?.isVerified &&
+        String(entry.symbol || "").toLowerCase() == cleanSymbol.toLowerCase(),
+    ) ||
+    tokens.find(
+      (entry) =>
+        String(entry.symbol || "").toLowerCase() == cleanSymbol.toLowerCase(),
+    );
+  if (!token?.id) return null;
+
+  return {
+    symbol: token.symbol || cleanSymbol,
+    address: token.id,
+    decimals: Number(token.decimals || 0),
+    name: token.name || token.symbol || cleanSymbol,
+  };
+}
+
+async function getJupiterEarnTokens() {
+  const results = await Promise.all(
+    jupiterLendTokenQueries.map((query) =>
+      fetchJupiterTokenSearch(query).catch(() => []),
+    ),
+  );
+  const tokenM = new Map();
+
+  for (const token of results.flat()) {
+    if (!isJupiterEarnToken(token)) continue;
+    tokenM.set(token.id, token);
+  }
+
+  return [...tokenM.values()];
+}
+
+async function getJupiterApiMarkets(chain = "Solana") {
+  const lendTokens = await getJupiterEarnTokens();
+  const markets = [];
+
+  for (const token of lendTokens) {
+    const underlyingSymbol = getJupiterUnderlyingSymbol(token);
+    const underlying = await getJupiterUnderlyingMeta(underlyingSymbol);
+    if (!underlying?.address) continue;
+
+    const [configuredUnderlyingCoin] =
+      getSolanaCoinByAddress(underlying.address) || [];
+    const [configuredLendCoin] = getSolanaCoinByAddress(token.id) || [];
+    const market =
+      getJupiterMarketFromMints(underlying.address, token.id) ||
+      getJupiterMarketName({
+        lendCoin: configuredLendCoin || token.symbol,
+        coinE: { name: token.name },
+      });
+    const lendCoin = configuredLendCoin || token.symbol;
+    const underlyingCoin = configuredUnderlyingCoin || underlying.symbol;
+
+    markets.push({
+      value: `${market}:${underlyingCoin}:${lendCoin}:${token.id}`,
+      chain,
+      market,
+      underlyingCoin,
+      underlyingName: underlying.name || underlyingCoin,
+      underlyingAddress: underlying.address,
+      underlyingDecimals: underlying.decimals,
+      lendCoin,
+      lendName: token.name || lendCoin,
+      lendAddress: token.id,
+      lendDecimals: Number(token.decimals || underlying.decimals || 6),
+      addedUnderlying: Boolean(configuredUnderlyingCoin),
+      addedLend: Boolean(configuredLendCoin),
+      supplyApr: getJupiterTokenApy(token),
+      source: "jupiter",
+    });
+  }
+
+  return markets;
+}
+
+function getJupiterDiscoveredCoin({ underlyingCoin = "", market = "main" } = {}) {
+  const base = `jl${underlyingCoin}`;
+  if (market == "main") return base;
+  return `${base}_${market}`;
+}
+
+function decodeJupiterLendingAccount(data) {
+  if (
+    !Buffer.isBuffer(data) ||
+    data.length < 75 ||
+    !data.subarray(0, 8).equals(jupiterLendingAccountDiscriminator)
+  ) {
+    return null;
+  }
+
+  const underlyingAddress = new PublicKey(data.subarray(8, 40)).toBase58();
+  const lendAddress = new PublicKey(data.subarray(40, 72)).toBase58();
+  const lendDecimals = Number(data[74]);
+
+  return {
+    underlyingAddress,
+    lendAddress,
+    lendDecimals: Number.isInteger(lendDecimals) ? lendDecimals : undefined,
   };
 }
 
@@ -1761,34 +2030,119 @@ export async function executeVenusLend({
   }
 }
 
-export async function getJupiterAllMarkets({ chain = "" } = {}) {
-  if (chain != "Solana") return { ok: true, chain, markets: [] };
+async function getJupiterLocalPdaMarkets(chain = "Solana") {
+  const candidates = Object.entries(coinM?.Solana || {}).filter(
+    ([coin, coinE]) =>
+      coinE?.address &&
+      !coinE.native &&
+      !isJupiterLendCoin(coin, coinE) &&
+      coinE.type != "lending" &&
+      coinE.type != "yield",
+  );
+  const candidateMarkets = [];
 
-  const markets = Object.entries(coinM?.Solana || {})
-    .filter(([coin, coinE]) => isJupiterLendCoin(coin, coinE))
-    .map(([lendCoin, lendE]) => {
-      const underlyingCoin = getJupiterUnderlyingCoin(lendCoin);
-      const underlyingE = coinM?.Solana?.[underlyingCoin];
-      if (!underlyingCoin || !underlyingE?.address) return null;
+  for (const [underlyingCoin, underlyingE] of candidates) {
+    let underlyingMint;
+
+    try {
+      underlyingMint = getSolanaPublicKey(
+        underlyingE.address,
+        "Jupiter underlying",
+      );
+    } catch {
+      continue;
+    }
+
+    for (const market of Object.keys(jupiterLendProgramM)) {
+      const lendMint = getJupiterFTokenMint(underlyingMint, market);
+      const lending = getJupiterLending(underlyingMint, lendMint, market);
+
+      candidateMarkets.push({
+        market,
+        underlyingCoin,
+        underlyingE,
+        underlyingMint,
+        lendMint,
+        lending,
+      });
+    }
+  }
+
+  const accounts = await getSolanaMultipleAccountsInfoFast(
+    candidateMarkets.map((entry) => entry.lending),
+  );
+
+  const markets = candidateMarkets
+    .map((entry, index) => {
+      const decoded = decodeJupiterLendingAccount(accounts[index]?.data);
+      if (!decoded) return null;
+
+      const [configuredLendCoin, configuredLendE] =
+        getSolanaCoinByAddress(decoded.lendAddress) || [];
+      const lendCoin =
+        configuredLendCoin ||
+        getJupiterDiscoveredCoin({
+          underlyingCoin: entry.underlyingCoin,
+          market: entry.market,
+        });
+      const lendName =
+        configuredLendE?.name ||
+        `Jupiter Lend ${entry.underlyingE.name || entry.underlyingCoin}`;
 
       return {
-        value: `${underlyingCoin}:${lendCoin}:${lendE.address}`,
+        value: `${entry.market}:${entry.underlyingCoin}:${lendCoin}:${decoded.lendAddress}`,
         chain,
-        underlyingCoin,
-        underlyingName: underlyingE.name || underlyingCoin,
-        underlyingAddress: underlyingE.address,
-        underlyingDecimals: underlyingE.decimals,
+        market: entry.market,
+        underlyingCoin: entry.underlyingCoin,
+        underlyingName: entry.underlyingE.name || entry.underlyingCoin,
+        underlyingAddress: decoded.underlyingAddress,
+        underlyingDecimals: entry.underlyingE.decimals,
         lendCoin,
-        lendName: lendE.name || lendCoin,
-        lendAddress: lendE.address,
-        lendDecimals: lendE.decimals,
+        lendName,
+        lendAddress: decoded.lendAddress,
+        lendDecimals: decoded.lendDecimals ?? entry.underlyingE.decimals,
         addedUnderlying: true,
-        addedLend: true,
+        addedLend: Boolean(configuredLendCoin),
         supplyApr: 0,
       };
     })
     .filter(Boolean)
     .sort((a, b) => a.underlyingCoin.localeCompare(b.underlyingCoin));
+
+  return markets;
+}
+
+function mergeJupiterMarkets(...groups) {
+  const marketM = new Map();
+
+  for (const entry of groups.flat()) {
+    if (!entry) continue;
+
+    const key = String(entry.lendAddress || entry.value || "").toLowerCase();
+    const prev = marketM.get(key);
+
+    marketM.set(key, {
+      ...prev,
+      ...entry,
+      addedUnderlying: Boolean(prev?.addedUnderlying || entry.addedUnderlying),
+      addedLend: Boolean(prev?.addedLend || entry.addedLend),
+      supplyApr: Number(entry.supplyApr || prev?.supplyApr || 0),
+    });
+  }
+
+  return [...marketM.values()].sort(
+    (a, b) =>
+      a.underlyingCoin.localeCompare(b.underlyingCoin) ||
+      a.lendCoin.localeCompare(b.lendCoin),
+  );
+}
+
+export async function getJupiterAllMarkets({ chain = "" } = {}) {
+  if (chain != "Solana") return { ok: true, chain, markets: [] };
+
+  const apiMarkets = await getJupiterApiMarkets(chain).catch(() => []);
+  const localMarkets = await getJupiterLocalPdaMarkets(chain).catch(() => []);
+  const markets = mergeJupiterMarkets(apiMarkets, localMarkets);
 
   return {
     ok: true,
@@ -1849,6 +2203,7 @@ export async function getJupiterLendPreview({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  marketName = "",
   amount = "",
 } = {}) {
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
@@ -1869,6 +2224,7 @@ export async function getJupiterLendPreview({
     lendCoin,
     underlyingAddress,
     lendAddress,
+    marketName,
   });
 
   return {
@@ -1895,6 +2251,7 @@ export async function buildJupiterLendTxs({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  marketName = "",
   amount = "",
 } = {}) {
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
@@ -1915,6 +2272,7 @@ export async function buildJupiterLendTxs({
     lendCoin,
     underlyingAddress,
     lendAddress,
+    marketName,
   });
   const { instructions } = await getJupiterInstruction({
     walletAddress,
@@ -1954,6 +2312,7 @@ export async function executeJupiterLend({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  marketName = "",
   amount = "",
 } = {}) {
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
@@ -1970,6 +2329,7 @@ export async function executeJupiterLend({
     underlyingDecimals,
     lendAddress,
     lendDecimals,
+    marketName,
     amount,
   });
   const txs = [];

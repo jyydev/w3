@@ -17,9 +17,7 @@ exports.lendings = [
   { value: "jupiter", label: "Jupiter" },
 ];
 
-exports.yields = [
-  { value: "spark", label: "Spark" },
-];
+exports.yields = [{ value: "spark", label: "Spark" }];
 
 exports.sets = {
   useAlchemy: 1,
@@ -37,13 +35,19 @@ exports.alchemyNetworks = {
   Solana: "solana-mainnet",
 };
 
-const solanaAlchemyKey = process.env.rpc_solana_alchemy1 || process.env.rpc_key_alchemy;
+const solanaAlchemyKey =
+  process.env.rpc_key_alchemy_solana || process.env.rpc_key_alchemy;
 
 exports.rpcs = {
   BSC: [
     "https://bsc-rpc.publicnode.com",
     "https://bsc-mainnet.public.blastapi.io",
     "https://bsc.meowrpc.com",
+    "https://bsc-dataseed.bnbchain.org",
+    // "https://bsc-dataseed1.bnbchain.org",
+    // "https://bsc-dataseed2.bnbchain.org",
+    // "https://bsc-dataseed3.bnbchain.org",
+    // "https://bsc-dataseed4.bnbchain.org",
   ],
   Arbitrum: [
     "https://arb1.arbitrum.io/rpc",

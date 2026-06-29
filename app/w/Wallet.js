@@ -49,6 +49,59 @@ function shortAddr(address) {
   return address ? `..${address.slice(-3)}` : "";
 }
 
+const walletBalancePatchEvent = "w3:walletBalancePatch";
+const tradeChainSelectEvent = "w3:tradeChainSelect";
+
+function sameWalletAddress(a = "", b = "") {
+  const addressA = String(a || "").trim();
+  const addressB = String(b || "").trim();
+  if (!addressA || !addressB) return false;
+
+  return addressA == addressB || addressA.toLowerCase() == addressB.toLowerCase();
+}
+
+function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
+  return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+}
+
+function applyBalancePatches(data = [], patchM = {}) {
+  const patches = Object.values(patchM || {}).filter(
+    (patch) => patch?.chain && patch?.coin && patch?.address && patch?.balance,
+  );
+  if (!patches.length) return data;
+
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+
+  return list.map((chainE) => {
+    const chainPatches = patches.filter((patch) => patch.chain == chainE.chain);
+    if (!chainPatches.length) return chainE;
+
+    const patchCoins = chainPatches.map((patch) => patch.coin);
+
+    return {
+      ...chainE,
+      allCoins: [...new Set([...(chainE.allCoins || []), ...patchCoins])],
+      coins: [...new Set([...(chainE.coins || []), ...patchCoins])],
+      rows: (chainE.rows || []).map((row) => {
+        const rowPatches = chainPatches.filter((patch) =>
+          sameWalletAddress(row.address, patch.address),
+        );
+        if (!rowPatches.length) return row;
+
+        const balances = { ...(row.balances || {}) };
+        for (const patch of rowPatches) {
+          balances[patch.coin] = {
+            ...(balances[patch.coin] || {}),
+            ...patch.balance,
+          };
+        }
+
+        return { ...row, balances };
+      }),
+    };
+  });
+}
+
 function shortContract(address) {
   return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
 }
@@ -267,6 +320,7 @@ function Wallet({
   let [localEditorStoreChecked, setLocalEditorStoreChecked] = useState(false);
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
   let [localWalletData, setLocalWalletData] = useState(null);
+  let [balancePatchM, setBalancePatchM] = useState({});
   let [localWalletVersion, setLocalWalletVersion] = useState(0);
   let [localCustomCoinM, setLocalCustomCoinM] = useState({});
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
@@ -335,7 +389,7 @@ function Wallet({
   ].sort((a, b) => a.localeCompare(b));
   const serverChainList = Array.isArray(data) ? data : data ? [data] : [];
   const serverChainNameKey = serverChainList.map((chainE) => chainE.chain).join("|");
-  const activeData = localWalletData || data;
+  const activeData = applyBalancePatches(localWalletData || data, balancePatchM);
   const chainList = Array.isArray(activeData)
     ? activeData
     : activeData
@@ -577,6 +631,31 @@ function Wallet({
   ]);
 
   useEffect(() => {
+    function handleBalancePatch(e) {
+      const patches = Array.isArray(e?.detail?.balances)
+        ? e.detail.balances
+        : [];
+      if (!patches.length) return;
+
+      setBalancePatchM((patchM) => {
+        const next = { ...patchM };
+        for (const patch of patches) {
+          if (!patch?.chain || !patch?.coin || !patch?.address || !patch?.balance) {
+            continue;
+          }
+          next[getBalancePatchKey(patch)] = patch;
+        }
+        return next;
+      });
+    }
+
+    window.addEventListener(walletBalancePatchEvent, handleBalancePatch);
+    return () => {
+      window.removeEventListener(walletBalancePatchEvent, handleBalancePatch);
+    };
+  }, []);
+
+  useEffect(() => {
     setCheckingLocalWallet(
       Boolean(requestedWallet || selectedWallet == "all" || selectedWalletName) &&
         !selectedAddress,
@@ -718,6 +797,21 @@ function Wallet({
 
       return prev && !chainNames.includes(prev) ? "" : prev;
     });
+  }, [chainNameKey]);
+
+  useEffect(() => {
+    function handleTradeChainSelect(e) {
+      const chain = String(e?.detail?.chain || "");
+      const chainNames = chainNameKey ? chainNameKey.split("|") : [];
+      if (!chain || !chainNames.includes(chain)) return;
+
+      setActiveChain(chain);
+    }
+
+    window.addEventListener(tradeChainSelectEvent, handleTradeChainSelect);
+    return () => {
+      window.removeEventListener(tradeChainSelectEvent, handleTradeChainSelect);
+    };
   }, [chainNameKey]);
 
   useEffect(() => {

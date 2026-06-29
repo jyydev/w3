@@ -1234,6 +1234,11 @@ span.chainIcon {
   width: max-content;
   min-width: 0;
 }
+.lendMarketAddedItem {
+  grid-template-columns: max-content max-content auto;
+  column-gap: 3px;
+  width: max-content;
+}
 .lendMarketAllItem > .btn {
   min-width: 16px;
   padding-left: 3px;
@@ -1298,6 +1303,83 @@ span.chainIcon {
 .lendMarketAllSelect:disabled {
   cursor: default;
   opacity: 0.85;
+}
+.swapChainMenu {
+  grid-template-columns: minmax(130px, max-content) minmax(230px, max-content);
+  min-width: 430px;
+  max-width: min(760px, 94vw);
+}
+.swapChainAddedItem {
+  grid-template-columns: minmax(0, max-content) 3ch;
+  column-gap: 4px;
+  max-width: 150px;
+  width: max-content;
+}
+.swapChainAddedItem.unsupported {
+  opacity: 0.72;
+}
+.swapChainAddedItem span:first-child,
+.swapCoinAddedItem span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swapChainAllItem {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 18px;
+  column-gap: 4px;
+  align-items: center;
+  width: max-content;
+}
+.swapChainAllItem > .btn {
+  min-width: 16px;
+  padding-left: 3px;
+  padding-right: 3px;
+}
+.swapChainAllSelect {
+  grid-template-columns: max-content max-content;
+  column-gap: 6px;
+}
+.swapCoinMenu {
+  grid-template-columns: minmax(120px, max-content) minmax(260px, max-content);
+  min-width: 430px;
+  max-width: min(820px, 94vw);
+}
+.swapCoinAddedItem {
+  grid-template-columns: minmax(0, max-content) 3ch;
+  column-gap: 4px;
+  max-width: 150px;
+  width: max-content;
+}
+.swapCoinAddedItem.unsupported {
+  opacity: 0.72;
+}
+.swapCoinAllItem {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 18px;
+  column-gap: 4px;
+  align-items: center;
+  width: max-content;
+}
+.swapCoinAllItem > .btn {
+  min-width: 16px;
+  padding-left: 3px;
+  padding-right: 3px;
+}
+.swapCoinAllSelect {
+  grid-template-columns: max-content max-content;
+  column-gap: 6px;
+}
+.swapCoinSearch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 3px;
+}
+.swapCoinSearch input {
+  width: 120px;
+  height: 22px;
+  padding: 1px 4px;
 }
 .swapDownButton {
   width: 30px;
