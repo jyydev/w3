@@ -5,12 +5,18 @@ import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import {
+  buildHyperliquidAgentApproval,
+  buildHyperliquidLendTxs,
   buildSparkLendTxs,
+  executeHyperliquidLend,
   executeSparkLend,
+  getHyperliquidLendPreview,
   getSparkAllMarkets,
   getSparkLendPreview,
   getSparkMarketBalance,
   getTradeCoinPrice,
+  submitHyperliquidAgentApproval,
+  submitHyperliquidLendSignature,
 } from "./act";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
@@ -25,6 +31,8 @@ import {
   fmtPrice,
   fmtRate,
   getChainCoins,
+  getBrowserEvmChainId,
+  getHyperliquidBrowserAgent,
   getTradeModeCookie,
   inputQty,
   yieldOptions as lendingOptions,
@@ -35,6 +43,8 @@ import {
   readQtyInput,
   sameAddress,
   sendBrowserTx,
+  signHyperliquidBrowserAgentTypedData,
+  signBrowserTypedData,
   SwapTxLink,
   tradeYieldChainCookie,
   tradeYieldDefiCookie,
@@ -44,6 +54,7 @@ import {
 
 function isProtocolCoin(protocol, coin, coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
+  if (protocol == "hyperliquid") return coinE.type == "vault";
   if (protocol == "spark") {
     return (
       coinE.type == "yield" &&
@@ -68,6 +79,7 @@ const sparkSupportedChains = new Set([
 function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return false;
   if (option.value == "spark") return true;
+  if (option.value == "hyperliquid") return true;
 
   return false;
 }
@@ -83,6 +95,8 @@ function getProtocolCookie(base = "", walletType = "evm", defi = "", chain = "")
 }
 
 function getUnderlyingCoin(chainE, lendCoin) {
+  if (chainE?.chain == "Hyperliquid") return "USDC";
+
   const coinInfoM = chainE?.coinInfoM || {};
   const lendE = coinInfoM[lendCoin] || {};
   const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
@@ -117,6 +131,7 @@ function getLendingMarkets(chainE, protocol) {
 
       return {
         value: lendCoin,
+        protocol,
         lendCoin,
         lendName: lendE.name || lendCoin,
         underlyingCoin,
@@ -126,6 +141,8 @@ function getLendingMarkets(chainE, protocol) {
 }
 
 function getMarketLabel(entry = {}) {
+  if (entry.protocol == "hyperliquid") return entry.lendCoin || "vault";
+
   return entry?.underlyingCoin
     ? `${entry.underlyingCoin} (${entry.lendCoin})`
     : "coin";
@@ -138,11 +155,36 @@ function formatApr(apr) {
   return `${fmt(value, value >= 10 ? 1 : 2)}%`;
 }
 
+function getLockUntilMs(value) {
+  const timestamp = Number(value);
+  if (!(timestamp > 0)) return 0;
+
+  return timestamp < 1e12 ? timestamp * 1000 : timestamp;
+}
+
+function formatLockUntil(value) {
+  const ms = getLockUntilMs(value);
+  if (!ms) return "";
+
+  return new Date(ms).toLocaleString();
+}
+
 function sameAddressText(a = "", b = "") {
   return (
     String(a || "").trim().toLowerCase() ==
     String(b || "").trim().toLowerCase()
   );
+}
+
+function getHyperliquidAgentCookie(walletAddress = "", agentAddress = "") {
+  const walletKey = String(walletAddress || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  const agentKey = String(agentAddress || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+  return `w3_hl_agent_${walletKey}_${agentKey}`;
 }
 
 function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
@@ -177,15 +219,21 @@ function AprText({ apr, label = true }) {
   ) : null;
 }
 
-function LendCoinInfoCard({ coin, name }) {
+function LendCoinInfoCard({ coin, name, lockedUntilTimestamp = 0 }) {
   const cleanCoin = String(coin || "").trim();
   const cleanName = String(name || "").trim();
-  if (!cleanName || cleanName == cleanCoin) return null;
+  const lockText = formatLockUntil(lockedUntilTimestamp);
+  if ((!cleanName || cleanName == cleanCoin) && !lockText) return null;
 
   return (
     <span className="infoCard">
       <span className="infoCardTitle">{cleanCoin}</span>
-      <span>{cleanName}</span>
+      {cleanName && cleanName != cleanCoin && <span>{cleanName}</span>}
+      {lockText && (
+        <span>
+          locked until <span className="gray">{lockText}</span>
+        </span>
+      )}
     </span>
   );
 }
@@ -290,6 +338,7 @@ export default function YieldPanel({
   });
   const [addingCoin, setAddingCoin] = useState(false);
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
+  const [nowMs, setNowMs] = useState(0);
   const marketPickerRef = useRef(null);
   const mountedRef = useRef(false);
   const useLocalEditorStore = useLocalStorageEditor();
@@ -298,17 +347,21 @@ export default function YieldPanel({
       chainList.map((chainE) => [chainE.chain, getLendingMarkets(chainE, defi)]),
     );
   }, [chainList, defi]);
+  const isHyperliquid = defi == "hyperliquid";
   const marketChains = useMemo(
     () => {
       return chainList
         .filter(
           (chainE) =>
-            chainMarketsM[chainE.chain]?.length ||
+            (isHyperliquid
+              ? chainE.chain == "Hyperliquid" &&
+                chainMarketsM[chainE.chain]?.length
+              : chainMarketsM[chainE.chain]?.length) ||
             (defi == "spark" && sparkSupportedChains.has(chainE.chain)),
         )
         .map((chainE) => chainE.chain);
     },
-    [chainList, chainMarketsM, defi],
+    [chainList, chainMarketsM, defi, isHyperliquid],
   );
   const activeChain = marketChains.includes(chain) ? chain : marketChains[0] || "";
   const chainE =
@@ -381,11 +434,11 @@ export default function YieldPanel({
   const visibleAddedMarkets = sparkAddedMarkets.length
     ? sparkAddedMarkets
     : addedMarkets;
-  const allMarkets = sparkAllMarkets;
-  const allLoading = sparkAllLoading;
-  const allError = sparkAllError;
-  const hasProtocolAllMarkets = true;
-  const allProtocolLabel = "Spark";
+  const allMarkets = isHyperliquid ? [] : sparkAllMarkets;
+  const allLoading = isHyperliquid ? false : sparkAllLoading;
+  const allError = isHyperliquid ? "" : sparkAllError;
+  const hasProtocolAllMarkets = !isHyperliquid;
+  const allProtocolLabel = isHyperliquid ? "Hyperliquid" : "Spark";
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
@@ -467,6 +520,9 @@ export default function YieldPanel({
     !directBalance.lend;
   const maxUnderlying = toNum(underlyingBalance.balance);
   const maxReceipt = toNum(receiptBalance.balance);
+  const withdrawMaxReceipt = isHyperliquid
+    ? Math.max(0, maxReceipt - 0.000001)
+    : maxReceipt;
   const underlyingPriceKey = priceKey(chainE?.chain || "", underlyingCoin);
   const receiptPriceKey = priceKey(chainE?.chain || "", lendCoin);
   const marketPreviewKey = `${defi}:${chainE?.chain || ""}:${underlyingCoin}:${lendCoin}`;
@@ -480,13 +536,24 @@ export default function YieldPanel({
   const underlyingFallbackPrice = fallbackPriceM[underlyingPriceKey];
   const receiptFallbackPrice = fallbackPriceM[receiptPriceKey];
   const underlyingPrice =
-    underlyingListPrice || toNum(underlyingFallbackPrice) || 0;
+    underlyingListPrice ||
+    toNum(underlyingFallbackPrice) ||
+    (isHyperliquid && underlyingCoin == "USDC" ? 1 : 0);
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
+    (isHyperliquid && lendCoin ? 1 : 0) ||
     (defi == "spark" && underlyingPrice && marketReceiptRate
       ? underlyingPrice / marketReceiptRate
       : 0);
+  const vaultLockedUntil =
+    receiptBalance.lockedUntilTimestamp ||
+    chainE?.coinInfoM?.[lendCoin]?.lockedUntilTimestamp ||
+    0;
+  const vaultLockedUntilMs = getLockUntilMs(vaultLockedUntil);
+  const vaultLocked =
+    isHyperliquid && nowMs > 0 && vaultLockedUntilMs > nowMs;
+  const vaultLockText = vaultLocked ? formatLockUntil(vaultLockedUntilMs) : "";
   const receiptRate =
     defi == "spark" && marketReceiptRate
       ? marketReceiptRate
@@ -497,7 +564,7 @@ export default function YieldPanel({
   const receiptQtyNum = toNum(receiptQty);
   const isRedeem = qtyInputSide == "redeem";
   const lendSliderValue = Math.min(underlyingQty, maxUnderlying);
-  const redeemSliderValue = Math.min(receiptQtyNum, maxReceipt);
+  const redeemSliderValue = Math.min(receiptQtyNum, withdrawMaxReceipt);
   const underlyingEnd = isRedeem
     ? maxUnderlying + underlyingQty
     : Math.max(0, maxUnderlying - underlyingQty);
@@ -525,6 +592,10 @@ export default function YieldPanel({
       : noPriceCoins.length
         ? `price n/a: ${[...new Set(noPriceCoins)].join(", ")}`
         : "";
+  const depositLabel = isHyperliquid ? "deposit" : "lend";
+  const withdrawLabel = isHyperliquid ? "withdraw" : "redeem";
+  const depositButtonLabel = isHyperliquid ? "DEPOSIT" : "LEND";
+  const withdrawButtonLabel = isHyperliquid ? "WITHDRAW" : "REDEEM";
   const marketCookieValues = useMemo(() => {
     const values = hasProtocolAllMarkets
       ? [
@@ -535,6 +606,13 @@ export default function YieldPanel({
 
     return [...new Set(values.filter(Boolean))];
   }, [allMarkets, hasProtocolAllMarkets, markets, visibleAddedMarkets]);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+    const timer = setInterval(() => setNowMs(Date.now()), 60000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const savedDefi = getCookie(getTradeModeCookie(tradeYieldDefiCookie, walletType));
@@ -825,6 +903,7 @@ export default function YieldPanel({
   }, [lendQty, qtyInputSide, receiptQty, receiptRate]);
 
   useEffect(() => {
+    if (chainE?.chain == "Hyperliquid") return;
     if (!chainE?.chain || !underlyingCoin || underlyingListPrice > 0) return;
     if (underlyingFallbackPrice !== undefined) return;
 
@@ -862,6 +941,7 @@ export default function YieldPanel({
   ]);
 
   useEffect(() => {
+    if (chainE?.chain == "Hyperliquid") return;
     if (!chainE?.chain || !lendCoin || receiptListPrice > 0) return;
     if (receiptFallbackPrice !== undefined) return;
 
@@ -911,7 +991,7 @@ export default function YieldPanel({
   }
 
   function updateRedeemQty(value) {
-    const qty = normalizeQtyInput(clampInputValue(value, maxReceipt));
+    const qty = normalizeQtyInput(clampInputValue(value, withdrawMaxReceipt));
     setQtyInputSide("redeem");
     setReceiptQty(qty);
     setLendQty(getUnderlyingQty(qty));
@@ -1136,21 +1216,26 @@ export default function YieldPanel({
   }
 
   function setMaxRedeem() {
-    updateRedeemQty(inputQty(maxReceipt));
+    updateRedeemQty(inputQty(withdrawMaxReceipt));
   }
 
   async function runLend(action) {
     if (!lendCoin || !underlyingCoin) {
-      toast.error(`${lendingE.label}: no lending market selected`);
+      toast.error(
+        isHyperliquid
+          ? "Hyperliquid: no vault selected"
+          : `${lendingE.label}: no lending market selected`,
+      );
       return;
     }
     const isSpark = defi == "spark";
+    const isHyperliquidAction = defi == "hyperliquid";
 
-    if (!isSpark) {
+    if (!isSpark && !isHyperliquidAction) {
       toast(`${lendingE.label}: lending not wired yet`);
       return;
     }
-    const protocol = "Spark";
+    const protocol = isHyperliquidAction ? "Hyperliquid" : "Spark";
     if (!selectedWalletEntry?.address) {
       toast.error("wallet missing");
       return;
@@ -1165,8 +1250,15 @@ export default function YieldPanel({
     }
 
     const redeem = action == "redeem";
+    const actionLabel = isHyperliquidAction
+      ? redeem
+        ? "withdraw"
+        : "deposit"
+      : action;
     const qty = redeem ? readQtyInput(receiptQty) : readQtyInput(lendQty);
-    const autoApprovalAmount = !redeem && autoApproval ? qty : "";
+    const autoApprovalAmount = !redeem && !isHyperliquidAction && autoApproval
+      ? qty
+      : "";
     const getApprovalAmount = (approvalNeeded) => {
       if (!approvalNeeded) return "";
       return (
@@ -1178,16 +1270,34 @@ export default function YieldPanel({
       );
     };
     if (!toNum(qty)) {
-      toast.error(`${action} qty is 0`);
+      toast.error(`${actionLabel} qty is 0`);
+      return;
+    }
+    if (isHyperliquidAction && !redeem && toNum(qty) < 5) {
+      toast.error("Hyperliquid vault deposits must be at least $5");
+      return;
+    }
+    if (isHyperliquidAction && redeem && vaultLocked) {
+      toast.error(`Hyperliquid vault locked until ${vaultLockText}`);
       return;
     }
 
     const useBrowserWallet = !!selectedWalletEntry?.isBrowserWallet;
-    const buildTxs = buildSparkLendTxs;
-    const executeLend = executeSparkLend;
-    const previewLend = getSparkLendPreview;
+    const buildTxs = isHyperliquidAction
+      ? buildHyperliquidLendTxs
+      : buildSparkLendTxs;
+    const executeLend = isHyperliquidAction
+      ? executeHyperliquidLend
+      : executeSparkLend;
+    const previewLend = isHyperliquidAction
+      ? getHyperliquidLendPreview
+      : getSparkLendPreview;
     const directMarketArgs =
-      usesDirectMarket
+      isHyperliquidAction
+        ? {
+            lendAddress: chainE?.coinInfoM?.[lendCoin]?.address,
+          }
+      : usesDirectMarket
         ? {
             underlyingAddress: marketE.underlyingAddress,
             underlyingDecimals: marketE.underlyingDecimals,
@@ -1196,15 +1306,101 @@ export default function YieldPanel({
             psm3Address: marketE.psm3Address,
           }
         : {};
-    const toastId = toast.loading(`${protocol}: preparing ${action}...`);
+    const toastId = toast.loading(`${protocol}: preparing ${actionLabel}...`);
     setLendPending(true);
     setLendPendingAction(action);
     setLendResult(null);
 
     try {
       let res;
-      if (useBrowserWallet) {
-        toast.loading(`${protocol}: building ${action} wallet prompt...`, {
+      if (useBrowserWallet && isHyperliquidAction) {
+        toast.loading(`${protocol}: checking agent approval...`, {
+          id: toastId,
+        });
+        const browserAgent = getHyperliquidBrowserAgent(
+          selectedWalletEntry.address,
+        );
+        const browserChainId = await getBrowserEvmChainId(
+          selectedWalletEntry.browserWallet,
+        );
+        const agentApproval = await buildHyperliquidAgentApproval({
+          walletAddress: selectedWalletEntry.address,
+          agentAddress: browserAgent.address,
+          signatureChainId: browserChainId,
+        });
+        const agentCookie = getHyperliquidAgentCookie(
+          selectedWalletEntry.address,
+          agentApproval.agentAddress,
+        );
+        const approveAgent = async () => {
+          toast.loading(`${protocol}: approve agent...`, { id: toastId });
+          const signature = await signBrowserTypedData({
+            sign: agentApproval.sign,
+            wallet: selectedWalletEntry.browserWallet,
+            address: selectedWalletEntry.address,
+          });
+          await submitHyperliquidAgentApproval({
+            walletAddress: selectedWalletEntry.address,
+            approval: agentApproval.approval,
+            sign: agentApproval.sign,
+            signature,
+          });
+          setCookie(agentCookie, "1", { maxAge: cookieMaxAge });
+        };
+        const submitWithAgent = async () => {
+          const built = await buildHyperliquidLendTxs({
+            walletAddress: selectedWalletEntry.address,
+            chain: chainE.chain,
+            action,
+            underlyingCoin,
+            lendCoin,
+            amount: qty,
+            ...directMarketArgs,
+          });
+          const tx = built.txs?.[0];
+          if (!tx?.sign) throw new Error("Hyperliquid signed action missing");
+          const signature = await signHyperliquidBrowserAgentTypedData({
+            walletAddress: selectedWalletEntry.address,
+            sign: tx.sign,
+          });
+          const submitted = await submitHyperliquidLendSignature({
+            walletAddress: selectedWalletEntry.address,
+            signerAddress: browserAgent.address,
+            tx,
+            signature,
+          });
+
+          return {
+            ...built,
+            agentAddress: browserAgent.address,
+            txs: [submitted],
+          };
+        };
+
+        if (getCookie(agentCookie) != "1") {
+          await approveAgent();
+        }
+
+        toast.loading(`${protocol}: submitting ${actionLabel}...`, {
+          id: toastId,
+        });
+        try {
+          res = await submitWithAgent();
+        } catch (e) {
+          const message = String(e?.message || "");
+          if (!/agent|api wallet|approve|does not exist/i.test(message)) {
+            throw e;
+          }
+
+          setCookie(agentCookie, "", { maxAge: 0 });
+          await approveAgent();
+          toast.loading(`${protocol}: submitting ${actionLabel}...`, {
+            id: toastId,
+          });
+          res = await submitWithAgent();
+        }
+      } else if (useBrowserWallet) {
+        toast.loading(`${protocol}: building ${actionLabel} wallet prompt...`, {
           id: toastId,
         });
         const built = await buildTxs({
@@ -1220,18 +1416,37 @@ export default function YieldPanel({
 
         for (const tx of built.txs || []) {
           toast.loading(`${protocol}: confirm ${tx.type}...`, { id: toastId });
-          txs.push(
-            await sendBrowserTx({
-              tx,
+          if (tx.sign) {
+            const signature = await signBrowserTypedData({
+              sign: tx.sign,
               wallet: selectedWalletEntry.browserWallet,
               address: selectedWalletEntry.address,
-            }),
-          );
+              chainId: tx.sign.chainId,
+            });
+            toast.loading(`${protocol}: submitting ${tx.type}...`, {
+              id: toastId,
+            });
+            txs.push(
+              await submitHyperliquidLendSignature({
+                walletAddress: selectedWalletEntry.address,
+                tx,
+                signature,
+              }),
+            );
+          } else {
+            txs.push(
+              await sendBrowserTx({
+                tx,
+                wallet: selectedWalletEntry.browserWallet,
+                address: selectedWalletEntry.address,
+              }),
+            );
+          }
         }
         res = { ...built, txs };
       } else {
         const ok = window.confirm(
-          `Execute ${protocol} ${action}?\n\nwallet: ${
+          `Execute ${protocol} ${actionLabel}?\n\nwallet: ${
             selectedWalletEntry.name || selectedWalletEntry.label
           }\nchain: ${chainE.chain}\namount: ${qty} ${
             redeem ? lendCoin : underlyingCoin
@@ -1243,7 +1458,7 @@ export default function YieldPanel({
         }
 
         let approvalAmount = "";
-        if (!redeem) {
+        if (!redeem && !isHyperliquidAction) {
           toast.loading(`${protocol}: checking allowance...`, { id: toastId });
           const preview = await previewLend({
             walletAddress: selectedWalletEntry.address,
@@ -1264,7 +1479,7 @@ export default function YieldPanel({
           }
         }
 
-        toast.loading(`${protocol}: submitting ${action}...`, { id: toastId });
+        toast.loading(`${protocol}: submitting ${actionLabel}...`, { id: toastId });
         res = await executeLend({
           walletName: selectedWalletEntry.name,
           walletAddress: selectedWalletEntry.address,
@@ -1279,7 +1494,7 @@ export default function YieldPanel({
       }
 
       setLendResult(res);
-      toast.success(`${protocol} ${action} submitted ${res.txs?.length || 0} tx`, {
+      toast.success(`${protocol} ${actionLabel} submitted`, {
         id: toastId,
       });
       onTxComplete({
@@ -1565,6 +1780,10 @@ export default function YieldPanel({
                             <LendCoinInfoCard
                               coin={entry.lendCoin}
                               name={entry.lendName}
+                              lockedUntilTimestamp={
+                                chainE?.coinInfoM?.[entry.lendCoin]
+                                  ?.lockedUntilTimestamp
+                              }
                             />
                           </span>
                         </button>
@@ -1660,6 +1879,10 @@ export default function YieldPanel({
                             <LendCoinInfoCard
                               coin={entry.lendCoin}
                               name={entry.lendName}
+                              lockedUntilTimestamp={
+                                chainE?.coinInfoM?.[entry.lendCoin]
+                                  ?.lockedUntilTimestamp
+                              }
                             />
                           </span>
                           <button
@@ -1755,7 +1978,7 @@ export default function YieldPanel({
             )}
           </div>
           <div className="swapAmountLine">
-            <span className="gray">lend</span>
+            <span className="gray">{depositLabel}</span>
             <input
               type="number"
               min="0"
@@ -1793,7 +2016,9 @@ export default function YieldPanel({
               onClick={() => runLend("lend")}
               disabled={lendPending}
             >
-              {lendPendingAction == "lend" ? "LENDING" : "LEND"}
+              {lendPendingAction == "lend"
+                ? `${depositButtonLabel}ING`
+                : depositButtonLabel}
             </button>
           </div>
         </div>
@@ -1805,7 +2030,7 @@ export default function YieldPanel({
               <option value="default">default</option>
             </select>
           </label>
-          {!selectedWalletEntry?.isBrowserWallet && (
+          {!isHyperliquid && !selectedWalletEntry?.isBrowserWallet && (
             <label className="swapAutoApproval">
               <input
                 type="checkbox"
@@ -1841,6 +2066,9 @@ export default function YieldPanel({
               {receiptUsd > 0 && (
                 <span className="gray"> ${fmt(receiptUsd, 2)}</span>
               )}
+              {vaultLocked && (
+                <span className="red"> locked until {vaultLockText}</span>
+              )}
             </span>
           </div>
           <div className="swapAmountLine">
@@ -1858,11 +2086,11 @@ export default function YieldPanel({
             )}
           </div>
           <div className="swapAmountLine">
-            <span className="gray">redeem</span>
+            <span className="gray">{withdrawLabel}</span>
             <input
               type="number"
               min="0"
-              max={maxReceipt || 0}
+              max={withdrawMaxReceipt || 0}
               step="any"
               value={receiptQty}
               onChange={(e) => updateRedeemQty(e.target.value)}
@@ -1876,17 +2104,17 @@ export default function YieldPanel({
               className="swapMiddleRange"
               type="range"
               min="0"
-              max={maxReceipt || 0}
+              max={withdrawMaxReceipt || 0}
               step="any"
               value={redeemSliderValue}
               onChange={(e) => updateRedeemQty(inputQty(e.target.value))}
-              disabled={!maxReceipt}
+              disabled={!withdrawMaxReceipt || vaultLocked}
             />
             <button
               type="button"
               className="btn small bgGray"
               onClick={setMaxRedeem}
-              disabled={!maxReceipt}
+              disabled={!withdrawMaxReceipt || vaultLocked}
             >
               max
             </button>
@@ -1894,9 +2122,13 @@ export default function YieldPanel({
               type="button"
               className="btn swapActionButton bgCyan"
               onClick={() => runLend("redeem")}
-              disabled={lendPending}
+              disabled={lendPending || vaultLocked}
             >
-              {lendPendingAction == "redeem" ? "REDEEMING" : "REDEEM"}
+              {lendPendingAction == "redeem"
+                ? isHyperliquid
+                  ? "WITHDRAWING"
+                  : "REDEEMING"
+                : withdrawButtonLabel}
             </button>
           </div>
         </div>

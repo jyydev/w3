@@ -157,6 +157,7 @@ function getLocalSelectedWalletEntries({
 
 function TradePanels({
   data = [],
+  walletData = [],
   customCoinM = {},
   disabledCoinM = {},
   offCoinM = {},
@@ -192,11 +193,26 @@ function TradePanels({
     () => (Array.isArray(data) ? data : data ? [data] : []),
     [data],
   );
+  const walletBaseData = useMemo(
+    () => (Array.isArray(walletData) ? walletData : walletData ? [walletData] : []),
+    [walletData],
+  );
   const baseChainNames = useMemo(
     () => baseData.map((chainE) => chainE.chain).filter(Boolean),
     [baseData],
   );
-  const baseChainNameKey = baseChainNames.join("|");
+  const balanceChainNames = useMemo(
+    () =>
+      [
+        ...new Set(
+          [...baseData, ...walletBaseData]
+            .map((chainE) => chainE.chain)
+            .filter(Boolean),
+        ),
+      ],
+    [baseData, walletBaseData],
+  );
+  const balanceChainNameKey = balanceChainNames.join("|");
   const effectiveCustomCoinM = useMemo(() => {
     const merged = { ...(customCoinM || {}) };
     for (const [chain, coins] of Object.entries(localCustomCoinM || {})) {
@@ -207,24 +223,37 @@ function TradePanels({
   }, [customCoinM, localCustomCoinM]);
   const effectiveData = useMemo(() => {
     const sourceData = localWalletData || baseData;
-    const mergedData = sourceData.map((chainE) => {
-      const localCoins = effectiveCustomCoinM[chainE.chain] || {};
-      const localCoinNames = Object.keys(localCoins);
-      if (!localCoinNames.length) return chainE;
+    const tradeChainSet = new Set(baseChainNames);
+    const mergedData = sourceData
+      .filter((chainE) => tradeChainSet.has(chainE.chain))
+      .map((chainE) => {
+        const localCoins = effectiveCustomCoinM[chainE.chain] || {};
+        const localCoinNames = Object.keys(localCoins);
+        if (!localCoinNames.length) return chainE;
 
-      return {
-        ...chainE,
-        allCoins: [...new Set([...(chainE.allCoins || []), ...localCoinNames])],
-        coins: [...new Set([...(chainE.coins || []), ...localCoinNames])],
-        coinInfoM: {
-          ...(chainE.coinInfoM || {}),
-          ...localCoins,
-        },
-      };
-    });
+        return {
+          ...chainE,
+          allCoins: [...new Set([...(chainE.allCoins || []), ...localCoinNames])],
+          coins: [...new Set([...(chainE.coins || []), ...localCoinNames])],
+          coinInfoM: {
+            ...(chainE.coinInfoM || {}),
+            ...localCoins,
+          },
+        };
+      });
 
     return applyBalancePatches(mergedData, balancePatchM);
-  }, [balancePatchM, baseData, effectiveCustomCoinM, localWalletData]);
+  }, [balancePatchM, baseChainNames, baseData, effectiveCustomCoinM, localWalletData]);
+  const effectiveYieldData = useMemo(() => {
+    const sourceData = localWalletData || walletBaseData;
+    const hyperliquidE = sourceData.find((chainE) => chainE.chain == "Hyperliquid");
+    if (!hyperliquidE) return effectiveData;
+
+    const hasHyperliquid = effectiveData.some(
+      (chainE) => chainE.chain == "Hyperliquid",
+    );
+    return hasHyperliquid ? effectiveData : [...effectiveData, hyperliquidE];
+  }, [effectiveData, localWalletData, walletBaseData]);
   const effectiveWalletEntriesM = useMemo(
     () => ({
       evm: mergeWalletEntries(
@@ -398,11 +427,11 @@ function TradePanels({
         solana: readLocalWalletEntries("solana", "", { includeReserved: true }),
       });
       setLocalFavAddrs(parseFavAddrs(getCookie(favAddrCookie)));
-      setLocalCustomCoinM(getAllLocalCustomCoinM(baseChainNames));
+      setLocalCustomCoinM(getAllLocalCustomCoinM(balanceChainNames));
       setLocalOffAddrs(readLocalLineFileValues("cookie/offAddr.txt"));
       setLocalOffCoinM(
         Object.fromEntries(
-          baseChainNames
+          balanceChainNames
             .map((chain) => [
               chain,
               readLocalLineFileValues(`cookie/offCoins/${chain}.txt`),
@@ -422,7 +451,7 @@ function TradePanels({
       );
       window.removeEventListener("storage", loadLocalWalletEntries);
     };
-  }, [baseChainNameKey]);
+  }, [balanceChainNameKey]);
 
   useEffect(() => {
     setLocalWalletData(null);
@@ -436,10 +465,10 @@ function TradePanels({
     getLocalWalletBalanceData({
       walletType,
       walletEntries: localSelectedWalletEntries,
-      chains: baseChainNames,
+      chains: balanceChainNames,
       customCoinM: effectiveCustomCoinM,
       disabledCoinM: Object.fromEntries(
-        baseChainNames.map((chain) => [
+        balanceChainNames.map((chain) => [
           chain,
           [
             ...(disabledCoinM?.[chain] || []),
@@ -469,7 +498,7 @@ function TradePanels({
   }, [
     walletType,
     localSelectedWalletEntries,
-    baseChainNameKey,
+    balanceChainNameKey,
     JSON.stringify(effectiveCustomCoinM),
     JSON.stringify(disabledCoinM),
     JSON.stringify(offCoinM),
@@ -612,7 +641,7 @@ function TradePanels({
     }
 
     const targets = [...targetM.values()];
-    if (!targets.length) {
+    if (!targets.length || targets.some((target) => target.chain == "Hyperliquid")) {
       router.refresh();
       return;
     }
@@ -681,7 +710,7 @@ function TradePanels({
       />
     ) : panelType == "Yield" ? (
       <YieldPanel
-        data={effectiveData}
+        data={effectiveYieldData}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
         tradeType={panelType}

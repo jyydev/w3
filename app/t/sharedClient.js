@@ -691,6 +691,8 @@ function getSignedTransaction(result) {
 }
 
 function getTxUrl(chain = "", hash = "") {
+  if (chain == "Hyperliquid") return "";
+
   const scanner = scanners?.[chain];
   if (!scanner || !hash) return "";
 
@@ -721,6 +723,14 @@ async function getBrowserSigner({ wallet = "", address = "", chainId }) {
   }
 
   return signer;
+}
+
+export async function getBrowserEvmChainId(wallet = "") {
+  const eipProvider = await getBrowserEvmProvider(wallet);
+  if (!eipProvider?.request) throw new Error("browser EVM wallet not found");
+  const chainId = await eipProvider.request({ method: "eth_chainId" });
+
+  return Number(BigInt(chainId));
 }
 
 function positiveTxBigInt(value) {
@@ -765,6 +775,101 @@ export async function sendBrowserTx({ tx, wallet = "", address = "" }) {
     hash: sent.hash,
     blockNumber: receipt?.blockNumber ?? null,
   };
+}
+
+export async function signBrowserTypedData({
+  sign,
+  wallet = "",
+  address = "",
+  chainId,
+}) {
+  const requestedChainId = chainId ?? sign?.chainId ?? sign?.domain?.chainId;
+  const skipChainSwitch = !!sign?.skipChainSwitch;
+  const isHyperliquidSigningChain = Number(requestedChainId) == 1337;
+  const signer = await getBrowserSigner({
+    wallet,
+    address,
+    chainId: skipChainSwitch || isHyperliquidSigningChain
+      ? null
+      : requestedChainId,
+  });
+  if (sign?.signatureKind && sign.signatureKind != "eip712") {
+    throw new Error(`signature unsupported: ${sign.signatureKind}`);
+  }
+
+  if (isHyperliquidSigningChain) {
+    try {
+      return await signer.signTypedData(sign.domain, sign.types, sign.value);
+    } catch (e) {
+      const eipProvider = await getBrowserEvmProvider(wallet);
+      const providerName = getProviderName(eipProvider) || "This browser wallet";
+      throw new Error(
+        `${providerName} cannot sign direct Hyperliquid vault actions from this site. Approve the local Hyperliquid agent first.`,
+      );
+    }
+  }
+
+  return signer.signTypedData(sign.domain, sign.types, sign.value);
+}
+
+function getHyperliquidBrowserAgentStorageKey(walletAddress = "") {
+  if (!ethers.isAddress(walletAddress)) {
+    throw new Error("Hyperliquid wallet address required");
+  }
+
+  return `w3_hl_browser_agent_${ethers.getAddress(walletAddress).toLowerCase()}`;
+}
+
+function getStoredHyperliquidBrowserAgent(walletAddress = "") {
+  if (typeof window == "undefined") {
+    throw new Error("browser storage unavailable");
+  }
+
+  const key = getHyperliquidBrowserAgentStorageKey(walletAddress);
+  let stored = {};
+  try {
+    stored = JSON.parse(window.localStorage.getItem(key) || "{}");
+  } catch {
+    window.localStorage.removeItem(key);
+  }
+  if (stored?.privateKey) {
+    try {
+      const wallet = new ethers.Wallet(stored.privateKey);
+
+      return { key, wallet };
+    } catch {
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  const wallet = ethers.Wallet.createRandom();
+  window.localStorage.setItem(
+    key,
+    JSON.stringify({
+      address: wallet.address,
+      privateKey: wallet.privateKey,
+      createdAt: Date.now(),
+    }),
+  );
+
+  return { key, wallet };
+}
+
+export function getHyperliquidBrowserAgent(walletAddress = "") {
+  const { wallet } = getStoredHyperliquidBrowserAgent(walletAddress);
+
+  return {
+    address: wallet.address,
+  };
+}
+
+export async function signHyperliquidBrowserAgentTypedData({
+  walletAddress = "",
+  sign,
+}) {
+  const { wallet } = getStoredHyperliquidBrowserAgent(walletAddress);
+
+  return wallet.signTypedData(sign.domain, sign.types, sign.value);
 }
 
 async function getBrowserSolanaSigner({ wallet = "", address = "" }) {
@@ -970,6 +1075,14 @@ export function SwapTxLink({ tx }) {
             <a href={txUrl} target="_blank" rel="noreferrer">
               open
             </a>
+          </span>
+        )}
+        {tx.response && (
+          <span>
+            response:{" "}
+            <span className="gray swapHashFull">
+              {JSON.stringify(tx.response)}
+            </span>
           </span>
         )}
       </span>

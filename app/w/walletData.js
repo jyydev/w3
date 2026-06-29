@@ -2116,6 +2116,22 @@ export async function getHyperliquidWalletBalances({
   );
   const disabled = new Set(disabledCoins);
 
+  for (const [addressKey, [coin, entry]] of Object.entries(vaultAddressMetaM)) {
+    if (disabled.has(coin) || addressCoinM[addressKey]) continue;
+
+    usedCoins.add(coin);
+    addressCoinM[addressKey] = coin;
+    allCoins.push(coin);
+    coinInfoM[coin] = {
+      ...entry,
+      address: ethers.getAddress(entry.address),
+      decimals: Number.isInteger(entry.decimals) ? entry.decimals : 6,
+      name: entry.name || coin,
+      type: "vault",
+      source: entry.source || "hyperliquid",
+    };
+  }
+
   results.forEach((result, index) => {
     const row = validRows[index];
     if (result.status != "fulfilled") {
@@ -2151,6 +2167,12 @@ export async function getHyperliquidWalletBalances({
 
       const coin = addressCoinM[addressKey];
       if (disabled.has(coin)) continue;
+      if (coinInfoM[coin]) {
+        coinInfoM[coin] = {
+          ...coinInfoM[coin],
+          lockedUntilTimestamp: vault.lockedUntilTimestamp,
+        };
+      }
 
       row.balances[coin] = {
         coin,
