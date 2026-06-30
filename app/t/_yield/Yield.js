@@ -7,10 +7,16 @@ import { scanners } from "@/sets";
 import {
   buildHyperliquidAgentApproval,
   buildHyperliquidLendTxs,
+  buildHyperliquidSpotDepositTxs,
+  buildHyperliquidSpotWithdrawTxs,
   executeHyperliquidLend,
+  executeHyperliquidSpotDeposit,
+  executeHyperliquidSpotWithdraw,
   getHyperliquidLendPreview,
+  getHyperliquidSpotBridgeDiscovery,
   submitHyperliquidAgentApproval,
   submitHyperliquidLendSignature,
+  submitHyperliquidSpotWithdrawSignature,
 } from "./svHyperliquid";
 import {
   buildSparkLendTxs,
@@ -94,6 +100,18 @@ const sparkSupportedChains = new Set([
   "Base",
   "Optimism",
 ]);
+const hyperliquidBridgeCoinM = {
+  Arbitrum: new Set(["USDC"]),
+};
+const emptyHyperliquidBridgeE = {
+  deposit: { chains: [], tokens: [] },
+  withdraw: { chains: [], tokens: [] },
+  loading: false,
+  loaded: false,
+  error: "",
+};
+let hyperliquidBridgeCache = null;
+let hyperliquidBridgePromise = null;
 
 function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return false;
@@ -336,6 +354,170 @@ function hasLoadedBalance(balance = {}) {
   return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
 }
 
+function isHyperliquidDepositCoin(chain = "", coin = "", coinE = {}) {
+  const supportedCoins = hyperliquidBridgeCoinM[chain];
+  if (!supportedCoins?.has(coin)) return false;
+
+  const text = `${coin} ${coinE?.name || ""}`.toUpperCase();
+
+  return (
+    coinE?.type == "stable" &&
+    text.includes("USDC")
+  );
+}
+
+function getHyperliquidDepositCoins(chainE) {
+  const priority = ["USDC", "USDC.E", "USDT", "USDT.E", "USDE"];
+  const coinInfoM = chainE?.coinInfoM || {};
+  if (!hyperliquidBridgeCoinM[chainE?.chain]) return [];
+
+  return getChainCoins(chainE)
+    .filter((coin) => isHyperliquidDepositCoin(chainE.chain, coin, coinInfoM[coin]))
+    .sort((a, b) => {
+      const ai = priority.indexOf(a);
+      const bi = priority.indexOf(b);
+      if (ai >= 0 || bi >= 0) {
+        return (ai >= 0 ? ai : 999) - (bi >= 0 ? bi : 999);
+      }
+
+      return a.localeCompare(b);
+    });
+}
+
+function uniqueText(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function getHyperliquidBridgeTokens(discoveryE = {}, side = "deposit") {
+  return Array.isArray(discoveryE?.[side]?.tokens)
+    ? discoveryE[side].tokens
+    : [];
+}
+
+function getFallbackHyperliquidCoins(chainList = []) {
+  return uniqueText(
+    chainList.flatMap((chainE) => getHyperliquidDepositCoins(chainE)),
+  );
+}
+
+function getFallbackHyperliquidChainsForCoin(chainList = [], coin = "") {
+  return uniqueText(
+    chainList
+      .filter((chainE) => getHyperliquidDepositCoins(chainE).includes(coin))
+      .map((chainE) => chainE.chain),
+  );
+}
+
+function getHyperliquidAllCoins({
+  discoveryE = {},
+  side = "deposit",
+  fallbackCoins = [],
+} = {}) {
+  const coins = getHyperliquidBridgeTokens(discoveryE, side)
+    .map((entry) => entry.coin);
+
+  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
+}
+
+function getHyperliquidAddedCoins({
+  chainList = [],
+  discoveryE = {},
+  side = "deposit",
+  fallbackCoins = [],
+} = {}) {
+  const discoveryCoins = new Set(
+    getHyperliquidBridgeTokens(discoveryE, side).map((entry) => entry.coin),
+  );
+  const coins = chainList.flatMap((chainE) =>
+    getChainCoins(chainE).filter(
+      (coin) => !discoveryCoins.size || discoveryCoins.has(coin),
+    ),
+  );
+
+  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
+}
+
+function getHyperliquidAllChainsForCoin({
+  discoveryE = {},
+  side = "deposit",
+  coin = "",
+  fallbackChains = [],
+} = {}) {
+  const chains = getHyperliquidBridgeTokens(discoveryE, side)
+    .filter((entry) => entry.coin == coin)
+    .map((entry) => entry.chain);
+
+  return uniqueText(chains).length ? uniqueText(chains) : fallbackChains;
+}
+
+function getHyperliquidAddedChainsForCoin({ chainList = [], coin = "" } = {}) {
+  return uniqueText(
+    chainList
+      .filter((chainE) => chainE?.coinInfoM?.[coin])
+      .map((chainE) => chainE.chain),
+  );
+}
+
+function getHyperliquidChainTokenEntries({
+  discoveryE = {},
+  side = "deposit",
+  coin = "",
+} = {}) {
+  const chainM = new Map();
+  for (const entry of getHyperliquidBridgeTokens(discoveryE, side)) {
+    if (entry.coin != coin) continue;
+    if (!chainM.has(entry.chain)) {
+      chainM.set(entry.chain, { ...entry, routes: [] });
+    }
+    chainM.get(entry.chain).routes.push(...(entry.routes || []));
+  }
+
+  return [...chainM.values()];
+}
+
+function getHyperliquidRouteToken({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+  coin = "",
+} = {}) {
+  return getHyperliquidBridgeTokens(discoveryE, side).find(
+    (entry) => entry.chain == chain && entry.coin == coin,
+  );
+}
+
+function getHyperliquidRouteText(tokenE = {}) {
+  if (!tokenE) return "";
+  const parts = [];
+  const routeE =
+    tokenE.actionSupported
+      ? tokenE.routes?.find(
+          (entry) => entry.label == tokenE.chain || entry.route == "arbitrum",
+        ) || tokenE.routes?.[0]
+      : tokenE.routes?.[0];
+  const route = routeE?.label || "";
+  if (route && route != tokenE.chain) parts.push(route);
+  if (tokenE.fee) parts.push(`fee ${tokenE.fee}`);
+  if (tokenE.eta) parts.push(`eta ${tokenE.eta}`);
+  if (tokenE.actionSupported === false) parts.push("discovery only");
+
+  return parts.join(" · ");
+}
+
+function getHyperliquidPickerWidth(values = [], selected = "", max = 18) {
+  const length = Math.max(
+    5,
+    String(selected || "").length,
+    ...values.map((value) => String(value || "").length),
+  );
+
+  return `${Math.min(length + 2, max)}ch`;
+}
+
+function isUsdLikeYieldCoin(coin = "") {
+  return /USD/i.test(String(coin || ""));
+}
+
 function getExplorerAddressUrl(chain = "", address = "") {
   const scanner = scanners?.[chain];
   if (!scanner || !address) return "";
@@ -404,6 +586,11 @@ export default function YieldPanel({
   const [defi, setDefi] = useState(initialDefi);
   const [chain, setChain] = useState(initialChain);
   const [market, setMarket] = useState(initialMarket);
+  const [hyperliquidMode, setHyperliquidMode] = useState("vault");
+  const [hyperliquidDepositChain, setHyperliquidDepositChain] = useState("");
+  const [hyperliquidDepositCoin, setHyperliquidDepositCoin] = useState("");
+  const [hyperliquidWithdrawChain, setHyperliquidWithdrawChain] = useState("");
+  const [hyperliquidWithdrawCoin, setHyperliquidWithdrawCoin] = useState("");
   const [lendQty, setLendQty] = useState("0");
   const [receiptQty, setReceiptQty] = useState("0");
   const [underlyingEndDraft, setUnderlyingEndDraft] = useState("");
@@ -424,6 +611,19 @@ export default function YieldPanel({
   const [sparkAllLoadingM, setSparkAllLoadingM] = useState({});
   const [sparkAllErrorM, setSparkAllErrorM] = useState({});
   const [sparkAllRetryTick, setSparkAllRetryTick] = useState(0);
+  const [hyperliquidBridgeE, setHyperliquidBridgeE] = useState(
+    hyperliquidBridgeCache || emptyHyperliquidBridgeE,
+  );
+  const [hyperliquidBridgeRetryTick, setHyperliquidBridgeRetryTick] =
+    useState(0);
+  const [showHyperliquidDepositCoinMenu, setShowHyperliquidDepositCoinMenu] =
+    useState(false);
+  const [showHyperliquidDepositChainMenu, setShowHyperliquidDepositChainMenu] =
+    useState(false);
+  const [showHyperliquidWithdrawCoinMenu, setShowHyperliquidWithdrawCoinMenu] =
+    useState(false);
+  const [showHyperliquidWithdrawChainMenu, setShowHyperliquidWithdrawChainMenu] =
+    useState(false);
   const [directBalanceM, setDirectBalanceM] = useState({});
   const [directBalanceLoadingM, setDirectBalanceLoadingM] = useState({});
   const [customCoinPreview, setCustomCoinPreview] = useState(null);
@@ -437,6 +637,10 @@ export default function YieldPanel({
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
   const [nowMs, setNowMs] = useState(0);
   const marketPickerRef = useRef(null);
+  const hyperliquidDepositCoinPickerRef = useRef(null);
+  const hyperliquidDepositChainPickerRef = useRef(null);
+  const hyperliquidWithdrawCoinPickerRef = useRef(null);
+  const hyperliquidWithdrawChainPickerRef = useRef(null);
   const mountedRef = useRef(false);
   const useLocalEditorStore = useLocalStorageEditor();
   const chainMarketsM = useMemo(() => {
@@ -455,6 +659,172 @@ export default function YieldPanel({
     chainList.find((entry) => entry.chain == activeChain) ||
     chainList.find((entry) => marketChains.includes(entry.chain)) ||
     chainList[0];
+  const fallbackHyperliquidDepositCoins = useMemo(
+    () => getFallbackHyperliquidCoins(chainList),
+    [chainList],
+  );
+  const hyperliquidDepositCoins = useMemo(
+    () =>
+      getHyperliquidAllCoins({
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        fallbackCoins: fallbackHyperliquidDepositCoins,
+      }),
+    [fallbackHyperliquidDepositCoins, hyperliquidBridgeE],
+  );
+  const hyperliquidDepositAddedCoins = useMemo(
+    () =>
+      getHyperliquidAddedCoins({
+        chainList,
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        fallbackCoins: fallbackHyperliquidDepositCoins,
+      }),
+    [chainList, fallbackHyperliquidDepositCoins, hyperliquidBridgeE],
+  );
+  const activeHyperliquidDepositCoin =
+    hyperliquidDepositCoins.includes(hyperliquidDepositCoin)
+      ? hyperliquidDepositCoin
+      : hyperliquidDepositAddedCoins[0] || hyperliquidDepositCoins[0] || "";
+  const fallbackHyperliquidDepositChains = useMemo(
+    () =>
+      getFallbackHyperliquidChainsForCoin(
+        chainList,
+        activeHyperliquidDepositCoin,
+      ),
+    [activeHyperliquidDepositCoin, chainList],
+  );
+  const hyperliquidDepositChains = useMemo(
+    () =>
+      getHyperliquidAllChainsForCoin({
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        coin: activeHyperliquidDepositCoin,
+        fallbackChains: fallbackHyperliquidDepositChains,
+      }),
+    [
+      activeHyperliquidDepositCoin,
+      fallbackHyperliquidDepositChains,
+      hyperliquidBridgeE,
+    ],
+  );
+  const hyperliquidDepositAddedChains = useMemo(
+    () =>
+      getHyperliquidAddedChainsForCoin({
+        chainList,
+        coin: activeHyperliquidDepositCoin,
+      }),
+    [activeHyperliquidDepositCoin, chainList],
+  );
+  const activeHyperliquidDepositChain =
+    hyperliquidDepositChains.includes(hyperliquidDepositChain)
+      ? hyperliquidDepositChain
+      : hyperliquidDepositAddedChains[0] || hyperliquidDepositChains[0] || "";
+  const hyperliquidDepositChainE = chainList.find(
+    (entry) => entry.chain == activeHyperliquidDepositChain,
+  );
+  const fallbackHyperliquidWithdrawCoins = useMemo(
+    () => getFallbackHyperliquidCoins(chainList),
+    [chainList],
+  );
+  const hyperliquidWithdrawCoins = useMemo(
+    () =>
+      getHyperliquidAllCoins({
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        fallbackCoins: fallbackHyperliquidWithdrawCoins,
+      }),
+    [fallbackHyperliquidWithdrawCoins, hyperliquidBridgeE],
+  );
+  const hyperliquidWithdrawAddedCoins = useMemo(
+    () =>
+      getHyperliquidAddedCoins({
+        chainList,
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        fallbackCoins: fallbackHyperliquidWithdrawCoins,
+      }),
+    [chainList, fallbackHyperliquidWithdrawCoins, hyperliquidBridgeE],
+  );
+  const activeHyperliquidWithdrawCoin =
+    hyperliquidWithdrawCoins.includes(hyperliquidWithdrawCoin)
+      ? hyperliquidWithdrawCoin
+      : hyperliquidWithdrawAddedCoins[0] || hyperliquidWithdrawCoins[0] || "";
+  const fallbackHyperliquidWithdrawChains = useMemo(
+    () =>
+      getFallbackHyperliquidChainsForCoin(
+        chainList,
+        activeHyperliquidWithdrawCoin,
+      ),
+    [activeHyperliquidWithdrawCoin, chainList],
+  );
+  const hyperliquidWithdrawChains = useMemo(
+    () =>
+      getHyperliquidAllChainsForCoin({
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        coin: activeHyperliquidWithdrawCoin,
+        fallbackChains: fallbackHyperliquidWithdrawChains,
+      }),
+    [
+      activeHyperliquidWithdrawCoin,
+      fallbackHyperliquidWithdrawChains,
+      hyperliquidBridgeE,
+    ],
+  );
+  const hyperliquidWithdrawAddedChains = useMemo(
+    () =>
+      getHyperliquidAddedChainsForCoin({
+        chainList,
+        coin: activeHyperliquidWithdrawCoin,
+      }),
+    [activeHyperliquidWithdrawCoin, chainList],
+  );
+  const activeHyperliquidWithdrawChain =
+    hyperliquidWithdrawChains.includes(hyperliquidWithdrawChain)
+      ? hyperliquidWithdrawChain
+      : hyperliquidWithdrawAddedChains[0] || hyperliquidWithdrawChains[0] || "";
+  const hyperliquidWithdrawChainE = chainList.find(
+    (entry) => entry.chain == activeHyperliquidWithdrawChain,
+  );
+  const hyperliquidDepositAllChainEntries = useMemo(
+    () =>
+      getHyperliquidChainTokenEntries({
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        coin: activeHyperliquidDepositCoin,
+      }),
+    [activeHyperliquidDepositCoin, hyperliquidBridgeE],
+  );
+  const hyperliquidWithdrawAllChainEntries = useMemo(
+    () =>
+      getHyperliquidChainTokenEntries({
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        coin: activeHyperliquidWithdrawCoin,
+      }),
+    [activeHyperliquidWithdrawCoin, hyperliquidBridgeE],
+  );
+  const hyperliquidDepositRouteToken = getHyperliquidRouteToken({
+    discoveryE: hyperliquidBridgeE,
+    side: "deposit",
+    chain: activeHyperliquidDepositChain,
+    coin: activeHyperliquidDepositCoin,
+  });
+  const hyperliquidWithdrawRouteToken = getHyperliquidRouteToken({
+    discoveryE: hyperliquidBridgeE,
+    side: "withdraw",
+    chain: activeHyperliquidWithdrawChain,
+    coin: activeHyperliquidWithdrawCoin,
+  });
+  const hyperliquidDepositRouteText = getHyperliquidRouteText(
+    hyperliquidDepositRouteToken,
+  );
+  const hyperliquidWithdrawRouteText = getHyperliquidRouteText(
+    hyperliquidWithdrawRouteToken,
+  );
+  const isHyperliquidDepositMode =
+    isHyperliquid && hyperliquidMode == "deposit";
   const availableYieldOptions = useMemo(
     () =>
       lendingOptions.filter((option) =>
@@ -621,23 +991,55 @@ export default function YieldPanel({
     !hasLocalReceiptBalance && directBalance.lend
       ? directBalance.lend
       : localReceiptBalance;
+  const hyperliquidDepositBalance = getSelectedBalance(
+    hyperliquidDepositChainE,
+    activeHyperliquidDepositCoin,
+    selectedWalletEntry,
+  );
+  const displayUnderlyingCoin = isHyperliquidDepositMode
+    ? activeHyperliquidDepositCoin
+    : underlyingCoin;
+  const displayReceiptCoin = isHyperliquidDepositMode
+    ? underlyingCoin
+    : lendCoin;
+  const displayReceiptName = isHyperliquidDepositMode
+    ? "Hyperliquid spot"
+    : lendName;
+  const displayUnderlyingBalance = isHyperliquidDepositMode
+    ? hyperliquidDepositBalance
+    : underlyingBalance;
+  const displayReceiptBalance = isHyperliquidDepositMode
+    ? underlyingBalance
+    : receiptBalance;
   const showUnderlyingBalanceLoading =
+    !isHyperliquidDepositMode &&
     directBalanceLoading &&
     needsDirectBalance &&
     !hasLocalUnderlyingBalance &&
     !directBalance.underlying;
   const showReceiptBalanceLoading =
+    !isHyperliquidDepositMode &&
     directBalanceLoading &&
     needsDirectBalance &&
     !hasLocalReceiptBalance &&
     !directBalance.lend;
-  const maxUnderlying = toNum(underlyingBalance.balance);
-  const maxReceipt = toNum(receiptBalance.balance);
-  const withdrawMaxReceipt = isHyperliquid
+  const maxUnderlying = toNum(displayUnderlyingBalance.balance);
+  const maxReceipt = toNum(displayReceiptBalance.balance);
+  const withdrawMaxReceipt = isHyperliquid && !isHyperliquidDepositMode
     ? Math.max(0, maxReceipt - 0.000001)
     : maxReceipt;
-  const underlyingPriceKey = priceKey(chainE?.chain || "", underlyingCoin);
-  const receiptPriceKey = priceKey(chainE?.chain || "", lendCoin);
+  const baseUnderlyingPriceKey = priceKey(chainE?.chain || "", underlyingCoin);
+  const baseReceiptPriceKey = priceKey(chainE?.chain || "", lendCoin);
+  const hyperliquidDepositPriceKey = priceKey(
+    activeHyperliquidDepositChain,
+    activeHyperliquidDepositCoin,
+  );
+  const underlyingPriceKey = isHyperliquidDepositMode
+    ? hyperliquidDepositPriceKey
+    : baseUnderlyingPriceKey;
+  const receiptPriceKey = isHyperliquidDepositMode
+    ? baseUnderlyingPriceKey
+    : baseReceiptPriceKey;
   const marketPreviewKey = `${defi}:${chainE?.chain || ""}:${underlyingCoin}:${lendCoin}`;
   const marketPreview = marketPreviewM[marketPreviewKey];
   const marketPreviewLoaded = marketPreview !== undefined;
@@ -646,18 +1048,19 @@ export default function YieldPanel({
     defi == "spark" || defi == "venusFlux"
       ? toNum(marketPreview?.receiptPerUnderlying)
       : 0;
-  const underlyingListPrice = toNum(underlyingBalance.price);
-  const receiptListPrice = toNum(receiptBalance.price);
+  const underlyingListPrice = toNum(displayUnderlyingBalance.price);
+  const receiptListPrice = toNum(displayReceiptBalance.price);
   const underlyingFallbackPrice = fallbackPriceM[underlyingPriceKey];
   const receiptFallbackPrice = fallbackPriceM[receiptPriceKey];
   const underlyingPrice =
     underlyingListPrice ||
     toNum(underlyingFallbackPrice) ||
-    (isHyperliquid && underlyingCoin == "USDC" ? 1 : 0);
+    (isHyperliquid && displayUnderlyingCoin == "USDC" ? 1 : 0) ||
+    (isHyperliquidDepositMode && isUsdLikeYieldCoin(displayUnderlyingCoin) ? 1 : 0);
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
-    (isHyperliquid && lendCoin ? 1 : 0) ||
+    (isHyperliquid && displayReceiptCoin ? 1 : 0) ||
     ((defi == "spark" || defi == "venusFlux") &&
     underlyingPrice &&
     marketReceiptRate
@@ -669,7 +1072,7 @@ export default function YieldPanel({
     0;
   const vaultLockedUntilMs = getLockUntilMs(vaultLockedUntil);
   const vaultLocked =
-    isHyperliquid && nowMs > 0 && vaultLockedUntilMs > nowMs;
+    isHyperliquid && !isHyperliquidDepositMode && nowMs > 0 && vaultLockedUntilMs > nowMs;
   const vaultLockText = vaultLocked ? formatLockUntil(vaultLockedUntilMs) : "";
   const receiptRate =
     (defi == "spark" || defi == "venusFlux") && marketReceiptRate
@@ -699,8 +1102,8 @@ export default function YieldPanel({
   const priceLoading =
     !!priceLoadingM[underlyingPriceKey] || !!priceLoadingM[receiptPriceKey];
   const noPriceCoins = [
-    underlyingCoin && underlyingPrice <= 0 ? underlyingCoin : "",
-    lendCoin && receiptPrice <= 0 ? lendCoin : "",
+    displayUnderlyingCoin && underlyingPrice <= 0 ? displayUnderlyingCoin : "",
+    displayReceiptCoin && receiptPrice <= 0 ? displayReceiptCoin : "",
   ].filter(Boolean);
   const priceStatus = marketLoading
     ? "querying market..."
@@ -748,6 +1151,45 @@ export default function YieldPanel({
       setDefi("");
     }
   }, [availableYieldOptions, defi]);
+
+  useEffect(() => {
+    if (!isHyperliquid) return;
+
+    if (
+      activeHyperliquidDepositChain &&
+      activeHyperliquidDepositChain != hyperliquidDepositChain
+    ) {
+      setHyperliquidDepositChain(activeHyperliquidDepositChain);
+    }
+    if (
+      activeHyperliquidDepositCoin &&
+      activeHyperliquidDepositCoin != hyperliquidDepositCoin
+    ) {
+      setHyperliquidDepositCoin(activeHyperliquidDepositCoin);
+    }
+    if (
+      activeHyperliquidWithdrawChain &&
+      activeHyperliquidWithdrawChain != hyperliquidWithdrawChain
+    ) {
+      setHyperliquidWithdrawChain(activeHyperliquidWithdrawChain);
+    }
+    if (
+      activeHyperliquidWithdrawCoin &&
+      activeHyperliquidWithdrawCoin != hyperliquidWithdrawCoin
+    ) {
+      setHyperliquidWithdrawCoin(activeHyperliquidWithdrawCoin);
+    }
+  }, [
+    activeHyperliquidDepositChain,
+    activeHyperliquidDepositCoin,
+    activeHyperliquidWithdrawChain,
+    activeHyperliquidWithdrawCoin,
+    hyperliquidDepositChain,
+    hyperliquidDepositCoin,
+    hyperliquidWithdrawChain,
+    hyperliquidWithdrawCoin,
+    isHyperliquid,
+  ]);
 
   useEffect(() => {
     if (marketChains.length) {
@@ -803,8 +1245,21 @@ export default function YieldPanel({
 
   useEffect(() => {
     function closeMarketMenu(e) {
-      if (!marketPickerRef.current?.contains(e.target)) {
+      const target = e.target;
+      if (!marketPickerRef.current?.contains(target)) {
         setShowMarketMenu(false);
+      }
+      if (!hyperliquidDepositCoinPickerRef.current?.contains(target)) {
+        setShowHyperliquidDepositCoinMenu(false);
+      }
+      if (!hyperliquidDepositChainPickerRef.current?.contains(target)) {
+        setShowHyperliquidDepositChainMenu(false);
+      }
+      if (!hyperliquidWithdrawCoinPickerRef.current?.contains(target)) {
+        setShowHyperliquidWithdrawCoinMenu(false);
+      }
+      if (!hyperliquidWithdrawChainPickerRef.current?.contains(target)) {
+        setShowHyperliquidWithdrawChainMenu(false);
       }
     }
 
@@ -814,6 +1269,55 @@ export default function YieldPanel({
       document.removeEventListener("mousedown", closeMarketMenu);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isHyperliquidDepositMode) return;
+    if (hyperliquidBridgeCache && !hyperliquidBridgeRetryTick) {
+      setHyperliquidBridgeE(hyperliquidBridgeCache);
+      return;
+    }
+
+    let cancelled = false;
+    if (!hyperliquidBridgePromise || hyperliquidBridgeRetryTick) {
+      if (hyperliquidBridgeRetryTick) hyperliquidBridgeCache = null;
+      hyperliquidBridgePromise = getHyperliquidSpotBridgeDiscovery()
+        .then((res) => ({
+          ...(res || {}),
+          loading: false,
+          loaded: true,
+          error: res?.ok ? "" : res?.msg || "Hyperliquid routes failed",
+        }))
+        .catch((e) => ({
+          ...emptyHyperliquidBridgeE,
+          loading: false,
+          loaded: true,
+          error: e?.message || "Hyperliquid routes failed",
+        }))
+        .then((res) => {
+          hyperliquidBridgeCache = res;
+          return res;
+        })
+        .finally(() => {
+          hyperliquidBridgePromise = null;
+        });
+    }
+
+    setHyperliquidBridgeE((entry) => ({
+      ...entry,
+      loading: true,
+      error: "",
+    }));
+    hyperliquidBridgePromise.then((res) => {
+      if (!cancelled) {
+        setHyperliquidBridgeE(res);
+        setHyperliquidBridgeRetryTick(0);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hyperliquidBridgeRetryTick, isHyperliquidDepositMode]);
 
   useEffect(() => {
     if ((defi != "spark" && defi != "venusFlux") || !sparkAllKey) return;
@@ -1024,7 +1528,16 @@ export default function YieldPanel({
     setQtyInputSide("lend");
     setLendQty(qty);
     setReceiptQty("0");
-  }, [chainE?.chain, lendCoin, selectedWalletEntry?.value]);
+  }, [
+    activeHyperliquidDepositChain,
+    activeHyperliquidDepositCoin,
+    activeHyperliquidWithdrawChain,
+    activeHyperliquidWithdrawCoin,
+    chainE?.chain,
+    hyperliquidMode,
+    lendCoin,
+    selectedWalletEntry?.value,
+  ]);
 
   useEffect(() => {
     if (qtyInputSide == "redeem") {
@@ -1186,6 +1699,97 @@ export default function YieldPanel({
     if (next) selectChain(next);
   }
 
+  function nextHyperliquidMode() {
+    selectHyperliquidMode(nextValue(["vault", "deposit"], hyperliquidMode));
+  }
+
+  function selectHyperliquidMode(value) {
+    setHyperliquidMode(value == "deposit" ? "deposit" : "vault");
+    setShowMarketMenu(false);
+    setLendQty("0");
+    setReceiptQty("0");
+    setUnderlyingEndDraft("");
+    setReceiptEndDraft("");
+  }
+
+  function nextHyperliquidDepositChain() {
+    const next = nextValue(
+      hyperliquidDepositChains,
+      activeHyperliquidDepositChain,
+    );
+    if (next) selectHyperliquidDepositChain(next);
+  }
+
+  function selectHyperliquidDepositChain(chainName) {
+    setHyperliquidDepositChain(chainName);
+    setShowHyperliquidDepositChainMenu(false);
+    emitTradeChainSelect(chainName);
+  }
+
+  function nextHyperliquidDepositCoin() {
+    const next = nextValue(
+      hyperliquidDepositCoins,
+      activeHyperliquidDepositCoin,
+    );
+    if (next) selectHyperliquidDepositCoin(next);
+  }
+
+  function selectHyperliquidDepositCoin(coin) {
+    setHyperliquidDepositCoin(coin);
+    setShowHyperliquidDepositCoinMenu(false);
+    const chains = getHyperliquidAllChainsForCoin({
+      discoveryE: hyperliquidBridgeE,
+      side: "deposit",
+      coin,
+      fallbackChains: getFallbackHyperliquidChainsForCoin(chainList, coin),
+    });
+    const addedChains = getHyperliquidAddedChainsForCoin({ chainList, coin });
+    const nextChain =
+      chains.includes(hyperliquidDepositChain)
+        ? hyperliquidDepositChain
+        : addedChains[0] || chains[0] || "";
+    if (nextChain) setHyperliquidDepositChain(nextChain);
+  }
+
+  function nextHyperliquidWithdrawChain() {
+    const next = nextValue(
+      hyperliquidWithdrawChains,
+      activeHyperliquidWithdrawChain,
+    );
+    if (next) selectHyperliquidWithdrawChain(next);
+  }
+
+  function selectHyperliquidWithdrawChain(chainName) {
+    setHyperliquidWithdrawChain(chainName);
+    setShowHyperliquidWithdrawChainMenu(false);
+    emitTradeChainSelect(chainName);
+  }
+
+  function nextHyperliquidWithdrawCoin() {
+    const next = nextValue(
+      hyperliquidWithdrawCoins,
+      activeHyperliquidWithdrawCoin,
+    );
+    if (next) selectHyperliquidWithdrawCoin(next);
+  }
+
+  function selectHyperliquidWithdrawCoin(coin) {
+    setHyperliquidWithdrawCoin(coin);
+    setShowHyperliquidWithdrawCoinMenu(false);
+    const chains = getHyperliquidAllChainsForCoin({
+      discoveryE: hyperliquidBridgeE,
+      side: "withdraw",
+      coin,
+      fallbackChains: getFallbackHyperliquidChainsForCoin(chainList, coin),
+    });
+    const addedChains = getHyperliquidAddedChainsForCoin({ chainList, coin });
+    const nextChain =
+      chains.includes(hyperliquidWithdrawChain)
+        ? hyperliquidWithdrawChain
+        : addedChains[0] || chains[0] || "";
+    if (nextChain) setHyperliquidWithdrawChain(nextChain);
+  }
+
   function selectChain(chain) {
     setChain(chain);
     saveYieldChainCookie(chain);
@@ -1261,6 +1865,338 @@ export default function YieldPanel({
 
   function retryAllMarkets(e) {
     retrySparkAllMarkets(e);
+  }
+
+  function retryHyperliquidBridge(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    hyperliquidBridgeCache = null;
+    hyperliquidBridgePromise = null;
+    setHyperliquidBridgeE(emptyHyperliquidBridgeE);
+    setHyperliquidBridgeRetryTick((tick) => tick + 1);
+  }
+
+  function renderHyperliquidCoinMenu({
+    side = "deposit",
+    selectedCoin = "",
+    addedCoins = [],
+    allCoins = [],
+    onSelect = () => {},
+  }) {
+    return (
+      <span className="sendWalletMenu swapCoinMenu">
+        <span className="sendWalletMenuCol">
+          <span className="sendWalletMenuTitle">added</span>
+          {addedCoins.length ? (
+            addedCoins.map((coin) => {
+              const supported =
+                !hyperliquidBridgeE.loaded || allCoins.includes(coin);
+              return (
+                <button
+                  key={`hl_${side}_added_coin_${coin}`}
+                  type="button"
+                  className={
+                    [
+                      "sendWalletMenuItem",
+                      "swapCoinAddedItem",
+                      coin == selectedCoin ? "on" : "",
+                      supported ? "" : "unsupported",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  }
+                  onClick={() =>
+                    supported
+                      ? onSelect(coin)
+                      : toast(`${coin} is not supported by Hyperliquid`)
+                  }
+                >
+                  <span>{coin}</span>
+                  {!supported && <span className="gray">off</span>}
+                </button>
+              );
+            })
+          ) : (
+            <span className="gray">-</span>
+          )}
+        </span>
+        <span className="sendWalletMenuCol">
+          <span className="sendWalletMenuTitle">all</span>
+          {hyperliquidBridgeE.loading && (
+            <span className="gray">loading Hyperliquid...</span>
+          )}
+          {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
+            <span className="sendWalletMenuItem swapCoinAllItem">
+              <span className="red">{hyperliquidBridgeE.error}</span>
+              <button
+                type="button"
+                className="btn small bgGray"
+                onClick={retryHyperliquidBridge}
+              >
+                retry
+              </button>
+            </span>
+          )}
+          {!hyperliquidBridgeE.loading &&
+            !hyperliquidBridgeE.error &&
+            !allCoins.length && (
+              <span className="sendWalletMenuItem swapCoinAllItem">
+                <span className="gray">-</span>
+                <button
+                  type="button"
+                  className="btn small bgGray"
+                  onClick={retryHyperliquidBridge}
+                >
+                  retry
+                </button>
+              </span>
+            )}
+          {!hyperliquidBridgeE.loading &&
+            !hyperliquidBridgeE.error &&
+            allCoins.map((coin) => {
+              const added = addedCoins.includes(coin);
+              return (
+                <span
+                  key={`hl_${side}_all_coin_${coin}`}
+                  className={
+                    coin == selectedCoin
+                      ? "sendWalletMenuItem swapCoinAllItem on"
+                      : "sendWalletMenuItem swapCoinAllItem"
+                  }
+                >
+                  <button
+                    type="button"
+                    className="lendMarketAllSelect swapCoinAllSelect"
+                    onClick={() => onSelect(coin)}
+                  >
+                    <span>{coin}</span>
+                  </button>
+                  <span className="gray">{added ? "✓" : "all"}</span>
+                </span>
+              );
+            })}
+        </span>
+      </span>
+    );
+  }
+
+  function renderHyperliquidChainMenu({
+    side = "deposit",
+    selectedChain = "",
+    coin = "",
+    addedChains = [],
+    allChains = [],
+    allChainEntries = [],
+    onSelect = () => {},
+  }) {
+    const entryM = Object.fromEntries(
+      allChainEntries.map((entry) => [entry.chain, entry]),
+    );
+
+    return (
+      <span className="sendWalletMenu swapChainMenu">
+        <span className="sendWalletMenuCol">
+          <span className="sendWalletMenuTitle">added</span>
+          {addedChains.length ? (
+            addedChains.map((chain) => {
+              const supported =
+                !hyperliquidBridgeE.loaded || allChains.includes(chain);
+              return (
+                <button
+                  key={`hl_${side}_added_chain_${chain}`}
+                  type="button"
+                  className={
+                    [
+                      "sendWalletMenuItem",
+                      "swapChainAddedItem",
+                      chain == selectedChain ? "on" : "",
+                      supported ? "" : "unsupported",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  }
+                  onClick={() =>
+                    supported
+                      ? onSelect(chain)
+                      : toast(`${chain} does not support ${coin}`)
+                  }
+                >
+                  <span>{chain}</span>
+                  {!supported && <span className="gray">off</span>}
+                </button>
+              );
+            })
+          ) : (
+            <span className="gray">-</span>
+          )}
+        </span>
+        <span className="sendWalletMenuCol">
+          <span className="sendWalletMenuTitle">all</span>
+          {hyperliquidBridgeE.loading && (
+            <span className="gray">loading Hyperliquid...</span>
+          )}
+          {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
+            <span className="sendWalletMenuItem swapChainAllItem">
+              <span className="red">{hyperliquidBridgeE.error}</span>
+              <button
+                type="button"
+                className="btn small bgGray"
+                onClick={retryHyperliquidBridge}
+              >
+                retry
+              </button>
+            </span>
+          )}
+          {!hyperliquidBridgeE.loading &&
+            !hyperliquidBridgeE.error &&
+            !allChains.length && (
+              <span className="sendWalletMenuItem swapChainAllItem">
+                <span className="gray">-</span>
+                <button
+                  type="button"
+                  className="btn small bgGray"
+                  onClick={retryHyperliquidBridge}
+                >
+                  retry
+                </button>
+              </span>
+            )}
+          {!hyperliquidBridgeE.loading &&
+            !hyperliquidBridgeE.error &&
+            allChains.map((chain) => {
+              const entry = entryM[chain] || {};
+              const added = addedChains.includes(chain);
+              const routeText = getHyperliquidRouteText(entry);
+              return (
+                <span
+                  key={`hl_${side}_all_chain_${chain}`}
+                  className={
+                    chain == selectedChain
+                      ? "sendWalletMenuItem swapChainAllItem on"
+                      : "sendWalletMenuItem swapChainAllItem"
+                  }
+                >
+                  <button
+                    type="button"
+                    className="lendMarketAllSelect swapChainAllSelect"
+                    onClick={() => onSelect(chain)}
+                  >
+                    <span>{chain}</span>
+                    {routeText && <span className="gray">{routeText}</span>}
+                  </button>
+                  <span className="gray">{added ? "✓" : "all"}</span>
+                </span>
+              );
+            })}
+        </span>
+      </span>
+    );
+  }
+
+  function renderHyperliquidCoinSelect({
+    side = "deposit",
+    selectedCoin = "",
+    addedCoins = [],
+    allCoins = [],
+    showMenu = false,
+    setShowMenu = () => {},
+    pickerRef,
+    onSelect = () => {},
+    onNext = () => {},
+  }) {
+    return (
+      <span className="selectCycle walletCycle swapCoinCycle">
+        <span className="sendWalletPicker" ref={pickerRef}>
+          <button
+            type="button"
+            className="sendWalletPickerButton"
+            style={{
+              width: getHyperliquidPickerWidth(
+                [...addedCoins, ...allCoins],
+                selectedCoin,
+              ),
+            }}
+            disabled={!allCoins.length}
+            onClick={() => setShowMenu((show) => !show)}
+          >
+            {selectedCoin || "no coin"}
+          </button>
+          {showMenu &&
+            renderHyperliquidCoinMenu({
+              side,
+              selectedCoin,
+              addedCoins,
+              allCoins,
+              onSelect,
+            })}
+        </span>
+        <button
+          type="button"
+          className="btn small bgGray"
+          onClick={onNext}
+          disabled={addedCoins.length < 2 && allCoins.length < 2}
+        >
+          {">"}
+        </button>
+      </span>
+    );
+  }
+
+  function renderHyperliquidChainSelect({
+    side = "deposit",
+    selectedChain = "",
+    coin = "",
+    addedChains = [],
+    allChains = [],
+    allChainEntries = [],
+    showMenu = false,
+    setShowMenu = () => {},
+    pickerRef,
+    onSelect = () => {},
+    onNext = () => {},
+  }) {
+    return (
+      <span className="selectCycle walletCycle swapChainCycle">
+        <span className="sendWalletPicker" ref={pickerRef}>
+          <button
+            type="button"
+            className="sendWalletPickerButton"
+            style={{
+              width: getHyperliquidPickerWidth(
+                [...addedChains, ...allChains],
+                selectedChain,
+              ),
+            }}
+            disabled={!allChains.length}
+            onClick={() => {
+              if (selectedChain) emitTradeChainSelect(selectedChain);
+              setShowMenu((show) => !show);
+            }}
+            onFocus={() => selectedChain && emitTradeChainSelect(selectedChain)}
+          >
+            {selectedChain || "no chain"}
+          </button>
+          {showMenu &&
+            renderHyperliquidChainMenu({
+              side,
+              selectedChain,
+              coin,
+              addedChains,
+              allChains,
+              allChainEntries,
+              onSelect,
+            })}
+        </span>
+        <button
+          type="button"
+          className="btn small bgGray"
+          onClick={onNext}
+          disabled={addedChains.length < 2 && allChains.length < 2}
+        >
+          {">"}
+        </button>
+      </span>
+    );
   }
 
   function clearCustomCoinPreview() {
@@ -1363,6 +2299,173 @@ export default function YieldPanel({
 
   function setMaxRedeem() {
     updateRedeemQty(inputQty(withdrawMaxReceipt));
+  }
+
+  async function runHyperliquidSpotTransfer(action = "deposit") {
+    const deposit = action == "deposit";
+    const actionLabel = deposit ? "deposit" : "withdraw";
+    const qty = deposit ? readQtyInput(lendQty) : readQtyInput(receiptQty);
+    const bridgeChain = deposit
+      ? activeHyperliquidDepositChain
+      : activeHyperliquidWithdrawChain;
+    const bridgeCoin = deposit
+      ? activeHyperliquidDepositCoin
+      : activeHyperliquidWithdrawCoin;
+
+    if (!selectedWalletEntry?.address) {
+      toast.error("wallet missing");
+      return;
+    }
+    if (selectedWalletEntry?.isBrowserWallet && selectedWalletEntry.type != "evm") {
+      toast.error("Hyperliquid needs an EVM browser wallet");
+      return;
+    }
+    if (!selectedWalletEntry?.isBrowserWallet && !selectedWalletEntry?.hasPrivateKey) {
+      toast.error("no private key");
+      return;
+    }
+    if (!bridgeChain || !bridgeCoin) {
+      toast.error("Hyperliquid bridge coin missing");
+      return;
+    }
+    const routeToken = deposit
+      ? hyperliquidDepositRouteToken
+      : hyperliquidWithdrawRouteToken;
+    if (routeToken && !routeToken.actionSupported) {
+      const routeText = routeToken.routes?.[0]?.label || routeToken.chain;
+      toast.error(
+        `Hyperliquid ${actionLabel} route not wired yet: ${routeText} ${routeToken.coin}`,
+      );
+      return;
+    }
+    if (!toNum(qty)) {
+      toast.error(`${actionLabel} qty is 0`);
+      return;
+    }
+    if (deposit && toNum(qty) < 5) {
+      toast.error("Hyperliquid deposits must be at least $5");
+      return;
+    }
+
+    const useBrowserWallet = !!selectedWalletEntry?.isBrowserWallet;
+    if (!useBrowserWallet) {
+      const ok = window.confirm(
+        `Execute Hyperliquid spot ${actionLabel}?\n\nwallet: ${
+          selectedWalletEntry.name || selectedWalletEntry.label
+        }\nchain: ${bridgeChain}\namount: ${qty} ${bridgeCoin}`,
+      );
+      if (!ok) return;
+    }
+
+    const toastId = toast.loading(`Hyperliquid: preparing ${actionLabel}...`);
+    setLendPending(true);
+    setLendPendingAction(deposit ? "lend" : "redeem");
+    setLendResult(null);
+
+    try {
+      let res;
+
+      if (useBrowserWallet && deposit) {
+        const built = await buildHyperliquidSpotDepositTxs({
+          walletAddress: selectedWalletEntry.address,
+          chain: bridgeChain,
+          coin: bridgeCoin,
+          amount: qty,
+        });
+        const txs = [];
+
+        for (const tx of built.txs || []) {
+          toast.loading(`Hyperliquid: confirm ${tx.chain} deposit...`, {
+            id: toastId,
+          });
+          txs.push(
+            await sendBrowserTx({
+              tx,
+              wallet: selectedWalletEntry.browserWallet,
+              address: selectedWalletEntry.address,
+            }),
+          );
+        }
+        res = { ...built, txs };
+      } else if (useBrowserWallet) {
+        const browserChainId = await getBrowserEvmChainId(
+          selectedWalletEntry.browserWallet,
+        );
+        const built = await buildHyperliquidSpotWithdrawTxs({
+          walletAddress: selectedWalletEntry.address,
+          chain: bridgeChain,
+          coin: bridgeCoin,
+          amount: qty,
+          signatureChainId: browserChainId,
+        });
+        const tx = built.txs?.[0];
+        if (!tx?.sign) throw new Error("Hyperliquid withdraw action missing");
+
+        toast.loading("Hyperliquid: sign withdraw...", { id: toastId });
+        const signature = await signBrowserTypedData({
+          sign: tx.sign,
+          wallet: selectedWalletEntry.browserWallet,
+          address: selectedWalletEntry.address,
+          chainId: tx.sign.chainId,
+        });
+        toast.loading("Hyperliquid: submitting withdraw...", {
+          id: toastId,
+        });
+        const submitted = await submitHyperliquidSpotWithdrawSignature({
+          walletAddress: selectedWalletEntry.address,
+          tx,
+          signature,
+        });
+        res = { ...built, txs: [submitted] };
+      } else if (deposit) {
+        toast.loading("Hyperliquid: submitting deposit...", { id: toastId });
+        res = await executeHyperliquidSpotDeposit({
+          walletName: selectedWalletEntry.name,
+          walletAddress: selectedWalletEntry.address,
+          chain: bridgeChain,
+          coin: bridgeCoin,
+          amount: qty,
+        });
+      } else {
+        toast.loading("Hyperliquid: submitting withdraw...", {
+          id: toastId,
+        });
+        res = await executeHyperliquidSpotWithdraw({
+          walletName: selectedWalletEntry.name,
+          walletAddress: selectedWalletEntry.address,
+          chain: bridgeChain,
+          coin: bridgeCoin,
+          amount: qty,
+        });
+      }
+
+      setLendResult(res);
+      toast.success(`Hyperliquid ${actionLabel} submitted`, {
+        id: toastId,
+      });
+      onTxComplete({
+        ...res,
+        refreshTargets: [
+          {
+            chain: bridgeChain,
+            coin: bridgeCoin,
+            address: selectedWalletEntry.address,
+          },
+          {
+            chain: "Hyperliquid",
+            coin: "USDC",
+            address: selectedWalletEntry.address,
+          },
+        ],
+      });
+    } catch (e) {
+      const message = e?.message || `Hyperliquid ${actionLabel} failed`;
+      setLendResult({ ok: false, error: message });
+      toast.error(message, { id: toastId });
+    } finally {
+      setLendPending(false);
+      setLendPendingAction("");
+    }
   }
 
   async function runLend(action) {
@@ -1871,7 +2974,26 @@ export default function YieldPanel({
             {">"}
           </button>
         </label>
-        {!isHyperliquid && (
+        {isHyperliquid ? (
+          <>
+            <span className="selectCycle">
+              <select
+                value={hyperliquidMode}
+                onChange={(e) => selectHyperliquidMode(e.target.value)}
+              >
+                <option value="vault">vault</option>
+                <option value="deposit">deposit</option>
+              </select>
+              <button
+                type="button"
+                className="btn small bgGray"
+                onClick={nextHyperliquidMode}
+              >
+                {">"}
+              </button>
+            </span>
+          </>
+        ) : (
           <span className="selectCycle">
             <select
               value={marketChains.length ? chainE?.chain || "" : ""}
@@ -1897,7 +3019,7 @@ export default function YieldPanel({
             </button>
           </span>
         )}
-        {hasProtocolAllMarkets ? (
+        {!isHyperliquidDepositMode && hasProtocolAllMarkets ? (
           <span className="selectCycle walletCycle lendMarketCycle">
             <button
               type="button"
@@ -2076,7 +3198,7 @@ export default function YieldPanel({
               <AprText apr={marketSupplyApr} />
             </span>
           </span>
-        ) : (
+        ) : !isHyperliquidDepositMode ? (
           <span className="selectCycle">
             <select
               value={marketE?.value || ""}
@@ -2099,13 +3221,57 @@ export default function YieldPanel({
               {">"}
             </button>
           </span>
-        )}
+        ) : null}
       </div>
 
       <div className="swapRows">
         <div className="swapBox">
           <div className="swapAssetLine">
-            <span>{underlyingCoin || "-"}</span>
+            {isHyperliquidDepositMode ? (
+              <>
+                {renderHyperliquidCoinSelect({
+                  side: "deposit",
+                  selectedCoin: activeHyperliquidDepositCoin,
+                  addedCoins: hyperliquidDepositAddedCoins,
+                  allCoins: hyperliquidDepositCoins,
+                  showMenu: showHyperliquidDepositCoinMenu,
+                  setShowMenu: setShowHyperliquidDepositCoinMenu,
+                  pickerRef: hyperliquidDepositCoinPickerRef,
+                  onSelect: selectHyperliquidDepositCoin,
+                  onNext: nextHyperliquidDepositCoin,
+                })}
+                {renderHyperliquidChainSelect({
+                  side: "deposit",
+                  selectedChain: activeHyperliquidDepositChain,
+                  coin: activeHyperliquidDepositCoin,
+                  addedChains: hyperliquidDepositAddedChains,
+                  allChains: hyperliquidDepositChains,
+                  allChainEntries: hyperliquidDepositAllChainEntries,
+                  showMenu: showHyperliquidDepositChainMenu,
+                  setShowMenu: setShowHyperliquidDepositChainMenu,
+                  pickerRef: hyperliquidDepositChainPickerRef,
+                  onSelect: selectHyperliquidDepositChain,
+                  onNext: nextHyperliquidDepositChain,
+                })}
+                {hyperliquidDepositRouteText && (
+                  <span className="gray">{hyperliquidDepositRouteText}</span>
+                )}
+                {hyperliquidBridgeE.loading && (
+                  <span className="gray">loading routes...</span>
+                )}
+                {hyperliquidBridgeE.error && (
+                  <button
+                    type="button"
+                    className="btn small bgGray"
+                    onClick={retryHyperliquidBridge}
+                  >
+                    retry routes
+                  </button>
+                )}
+              </>
+            ) : (
+              <span>{displayUnderlyingCoin || "-"}</span>
+            )}
             <span className="swapCoinPrice">
               <span className="gray">{fmtPrice(underlyingPrice)}</span>
             </span>
@@ -2116,8 +3282,10 @@ export default function YieldPanel({
               className="tradeTextButton swapAssetBalance"
               onClick={() => updateLendQty(inputQty(maxUnderlying))}
             >
-              <span className="gray">{underlyingCoin}: </span>
-              {showUnderlyingBalanceLoading ? "..." : fmt(underlyingBalance.balance)}
+              <span className="gray">{displayUnderlyingCoin}: </span>
+              {showUnderlyingBalanceLoading
+                ? "..."
+                : fmt(displayUnderlyingBalance.balance)}
               {underlyingUsd > 0 && (
                 <span className="gray"> ${fmt(underlyingUsd, 2)}</span>
               )}
@@ -2173,8 +3341,17 @@ export default function YieldPanel({
             <button
               type="button"
               className="btn swapActionButton bgCyan"
-              onClick={() => runLend("lend")}
-              disabled={lendPending}
+              onClick={() =>
+                isHyperliquidDepositMode
+                  ? runHyperliquidSpotTransfer("deposit")
+                  : runLend("lend")
+              }
+              disabled={
+                lendPending ||
+                (isHyperliquidDepositMode &&
+                  (!activeHyperliquidDepositCoin ||
+                    hyperliquidDepositRouteToken?.actionSupported === false))
+              }
             >
               {lendPendingAction == "lend"
                 ? `${depositButtonLabel}ING`
@@ -2202,8 +3379,8 @@ export default function YieldPanel({
           )}
           <span className="swapRateLine">
             <span className="gray">rate:</span>{" "}
-            {underlyingCoin && lendCoin
-              ? `1 ${underlyingCoin} = ${fmtRate(receiptRate)} ${lendCoin}`
+            {displayUnderlyingCoin && displayReceiptCoin
+              ? `1 ${displayUnderlyingCoin} = ${fmtRate(receiptRate)} ${displayReceiptCoin}`
               : "-"}
             {priceStatus && <span className="gray"> {priceStatus}</span>}
           </span>
@@ -2211,9 +3388,50 @@ export default function YieldPanel({
 
         <div className="swapBox">
           <div className="swapAssetLine">
-            <span>{lendCoin || "-"}</span>
-            {lendName && lendName != lendCoin && (
-              <span className="gray">({lendName})</span>
+            {isHyperliquidDepositMode ? (
+              <>
+                {renderHyperliquidCoinSelect({
+                  side: "withdraw",
+                  selectedCoin: activeHyperliquidWithdrawCoin,
+                  addedCoins: hyperliquidWithdrawAddedCoins,
+                  allCoins: hyperliquidWithdrawCoins,
+                  showMenu: showHyperliquidWithdrawCoinMenu,
+                  setShowMenu: setShowHyperliquidWithdrawCoinMenu,
+                  pickerRef: hyperliquidWithdrawCoinPickerRef,
+                  onSelect: selectHyperliquidWithdrawCoin,
+                  onNext: nextHyperliquidWithdrawCoin,
+                })}
+                {renderHyperliquidChainSelect({
+                  side: "withdraw",
+                  selectedChain: activeHyperliquidWithdrawChain,
+                  coin: activeHyperliquidWithdrawCoin,
+                  addedChains: hyperliquidWithdrawAddedChains,
+                  allChains: hyperliquidWithdrawChains,
+                  allChainEntries: hyperliquidWithdrawAllChainEntries,
+                  showMenu: showHyperliquidWithdrawChainMenu,
+                  setShowMenu: setShowHyperliquidWithdrawChainMenu,
+                  pickerRef: hyperliquidWithdrawChainPickerRef,
+                  onSelect: selectHyperliquidWithdrawChain,
+                  onNext: nextHyperliquidWithdrawChain,
+                })}
+                {hyperliquidWithdrawRouteText && (
+                  <span className="gray">{hyperliquidWithdrawRouteText}</span>
+                )}
+                {hyperliquidBridgeE.error && (
+                  <button
+                    type="button"
+                    className="btn small bgGray"
+                    onClick={retryHyperliquidBridge}
+                  >
+                    retry routes
+                  </button>
+                )}
+              </>
+            ) : (
+              <span>{displayReceiptCoin || "-"}</span>
+            )}
+            {displayReceiptName && displayReceiptName != displayReceiptCoin && (
+              <span className="gray">({displayReceiptName})</span>
             )}
             <span className="swapCoinPrice">
               <span className="gray">{fmtPrice(receiptPrice)}</span>
@@ -2221,8 +3439,10 @@ export default function YieldPanel({
           </div>
           <div className="swapBalanceLine">
             <span className="swapAssetBalance">
-              <span className="gray">{lendCoin}: </span>
-              {showReceiptBalanceLoading ? "..." : fmt(receiptBalance.balance)}
+              <span className="gray">{displayReceiptCoin}: </span>
+              {showReceiptBalanceLoading
+                ? "..."
+                : fmt(displayReceiptBalance.balance)}
               {receiptUsd > 0 && (
                 <span className="gray"> ${fmt(receiptUsd, 2)}</span>
               )}
@@ -2281,8 +3501,18 @@ export default function YieldPanel({
             <button
               type="button"
               className="btn swapActionButton bgCyan"
-              onClick={() => runLend("redeem")}
-              disabled={lendPending || vaultLocked}
+              onClick={() =>
+                isHyperliquidDepositMode
+                  ? runHyperliquidSpotTransfer("withdraw")
+                  : runLend("redeem")
+              }
+              disabled={
+                lendPending ||
+                vaultLocked ||
+                (isHyperliquidDepositMode &&
+                  (!activeHyperliquidWithdrawCoin ||
+                    hyperliquidWithdrawRouteToken?.actionSupported === false))
+              }
             >
               {lendPendingAction == "redeem"
                 ? isHyperliquid

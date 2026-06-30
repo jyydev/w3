@@ -1,10 +1,15 @@
 "use server";
 
 import { ethers } from "ethers";
+import coinM from "@/fn/coinM";
 import {
   assertWalletMatches,
+  erc20Interface,
+  executeRawEvmTx,
   getPrivateKey,
+  getUnsignedTx,
   getWallet,
+  relayChainIds,
 } from "../sharedServer";
 import { fetchWithTimeout } from "./shared";
 
@@ -14,8 +19,191 @@ const hyperliquidApiBase =
   "https://api.hyperliquid.xyz";
 const hyperliquidFetchTimeoutMs = 12000;
 const hyperliquidMainnetApiBase = "https://api.hyperliquid.xyz";
+const hyperliquidUnitApiBase = "https://api.hyperunit.xyz";
 const hyperliquidSignatureChainId = 0x66eee;
 const hyperliquidSignatureChainIdHex = "0x66eee";
+const hyperliquidBridgeM = {
+  Arbitrum: {
+    coin: "USDC",
+    bridge: "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7",
+    minAmount: 5,
+  },
+};
+const hyperliquidUnitRouteAssetM = {
+  usdc: [
+    { label: "Arbitrum (CCTP)", value: "arbitrum_cctp" },
+    { label: "Arbitrum", value: "arbitrum" },
+    { label: "Arbitrum (Swap USDT for USDC)", value: "lifi" },
+    { label: "HyperEVM", value: "evm" },
+  ],
+  usdh: [{ label: "Arbitrum", value: "arbitrum_across" }],
+  usdt: [{ label: "Arbitrum (Swap USDT for USDC)", value: "lifi" }],
+  btc: [{ label: "Bitcoin", value: "bitcoin" }],
+  eth: [{ label: "Ethereum", value: "ethereum" }],
+  sol: [{ label: "Solana", value: "solana" }],
+  "2z": [{ label: "Solana", value: "solana" }],
+  avax: [{ label: "Avalanche", value: "avalanche" }],
+  bonk: [{ label: "Solana", value: "solana" }],
+  fart: [{ label: "Solana", value: "solana" }],
+  mon: [{ label: "Monad", value: "monad" }],
+  pump: [{ label: "Solana", value: "solana" }],
+  spxs: [{ label: "Solana", value: "solana" }],
+  virtual: [{ label: "Base", value: "base" }],
+  xpl: [{ label: "Plasma", value: "plasma" }],
+  zec: [{ label: "Zcash", value: "zcash" }],
+};
+const hyperliquidUnitCoinM = {
+  "2z": "2Z",
+  avax: "AVAX",
+  bonk: "BONK",
+  btc: "BTC",
+  eth: "ETH",
+  fart: "FART",
+  mon: "MON",
+  pump: "PUMP",
+  sol: "SOL",
+  spxs: "SPXS",
+  usdc: "USDC",
+  usdh: "USDH",
+  usdt: "USDT",
+  virtual: "VIRTUAL",
+  xpl: "XPL",
+  zec: "ZEC",
+};
+const hyperliquidUnitRouteChainM = {
+  arbitrum: "Arbitrum",
+  arbitrum_across: "Arbitrum",
+  arbitrum_cctp: "Arbitrum",
+  avalanche: "Avalanche",
+  base: "Base",
+  bitcoin: "Bitcoin",
+  ethereum: "Ethereum",
+  evm: "HyperEVM",
+  lifi: "Arbitrum",
+  monad: "Monad",
+  plasma: "Plasma",
+  solana: "Solana",
+  zcash: "Zcash",
+};
+const hyperliquidUnitWithdrawHiddenRoutes = new Set([
+  "arbitrum_across",
+  "base_across",
+  "lifi",
+]);
+
+function getHyperliquidUnitFeeGroup(route = "", asset = "") {
+  if (route == "base" && asset != "eth") return "base-erc20";
+  if (route == "ethereum" && asset != "eth") return "ethereum-erc20";
+  if (
+    route == "solana" &&
+    !["sol"].includes(String(asset || "").toLowerCase())
+  ) {
+    return "spl";
+  }
+
+  return route;
+}
+
+function getHyperliquidUnitFeeValue(fees = {}, route = "", asset = "", action = "deposit") {
+  const group = getHyperliquidUnitFeeGroup(route, asset);
+  const entry = fees?.[group] || {};
+  const actionKey = action == "withdraw" ? "withdrawal" : "deposit";
+  const camelActionKey = action == "withdraw" ? "withdrawal" : "deposit";
+  const feeKeys = [
+    `${group}-${actionKey}-fee-in-units`,
+    `${group}-${actionKey}FeeInUnits`,
+    `${actionKey}-fee-in-units`,
+  ];
+  const etaKeys = [
+    `${group}-${actionKey}-eta`,
+    `${group}-${camelActionKey}Eta`,
+    `${actionKey}-eta`,
+  ];
+
+  return {
+    fee:
+      feeKeys
+        .map((key) => entry?.[key])
+        .find((value) => value !== undefined && value !== null) || "",
+    eta:
+      etaKeys
+        .map((key) => entry?.[key])
+        .find((value) => value !== undefined && value !== null) || "",
+  };
+}
+
+function getHyperliquidUnitActionSupported(chain = "", coin = "") {
+  const bridgeE = hyperliquidBridgeM[chain];
+  return !!bridgeE && bridgeE.coin == coin;
+}
+
+function buildHyperliquidUnitDiscovery({ action = "deposit", fees = {} } = {}) {
+  const chainM = new Map();
+  const tokenM = new Map();
+
+  for (const [asset, routes] of Object.entries(hyperliquidUnitRouteAssetM)) {
+    const coin = hyperliquidUnitCoinM[asset] || asset.toUpperCase();
+    for (const route of routes) {
+      if (
+        action == "withdraw" &&
+        hyperliquidUnitWithdrawHiddenRoutes.has(route.value)
+      ) {
+        continue;
+      }
+      const chain = hyperliquidUnitRouteChainM[route.value] || route.label;
+      const localCoinE = coinM?.[chain]?.[coin];
+      const actionSupported = getHyperliquidUnitActionSupported(chain, coin);
+      const feeE = getHyperliquidUnitFeeValue(fees, route.value, asset, action);
+      const chainKey = chain;
+      const tokenKey = `${chain}:${coin}`;
+
+      if (!chainM.has(chainKey)) {
+        chainM.set(chainKey, {
+          chain,
+          label: chain,
+          routes: [],
+          added: !!coinM?.[chain],
+        });
+      }
+      chainM.get(chainKey).routes.push({
+        label: route.label,
+        route: route.value,
+      });
+
+      if (!tokenM.has(tokenKey)) {
+        tokenM.set(tokenKey, {
+          chain,
+          coin,
+          name: localCoinE?.name || coin,
+          asset,
+          routes: [],
+          added: !!localCoinE,
+          actionSupported,
+          fee: feeE.fee,
+          eta: feeE.eta,
+        });
+      }
+      const tokenE = tokenM.get(tokenKey);
+      tokenE.routes.push({
+        label: route.label,
+        route: route.value,
+      });
+      tokenE.actionSupported = tokenE.actionSupported || actionSupported;
+      tokenE.added = tokenE.added || !!localCoinE;
+      tokenE.fee = tokenE.fee || feeE.fee;
+      tokenE.eta = tokenE.eta || feeE.eta;
+    }
+  }
+
+  return {
+    chains: [...chainM.values()].sort((a, b) =>
+      a.chain.localeCompare(b.chain),
+    ),
+    tokens: [...tokenM.values()].sort(
+      (a, b) => a.chain.localeCompare(b.chain) || a.coin.localeCompare(b.coin),
+    ),
+  };
+}
 
 function bytesToHex(bytes = []) {
   return ethers.hexlify(Uint8Array.from(bytes));
@@ -214,6 +402,89 @@ function parseHyperliquidUsdAmount(amount = "") {
   return Number(usd);
 }
 
+function normalizeUsdAmount(amount = "") {
+  const text = String(amount || "0").trim();
+  if (!/^\d*(\.\d*)?$/.test(text) || !text.replace(".", "")) {
+    throw new Error("amount invalid");
+  }
+  if (!text || Number(text) <= 0) throw new Error("amount must be greater than 0");
+  const [intPart = "0", decimalPart = ""] = text.split(".");
+  const cleanInt = String(BigInt(intPart || "0"));
+  const cleanDecimal = decimalPart.slice(0, 6).replace(/0+$/, "");
+  const cleanText = cleanDecimal ? `${cleanInt}.${cleanDecimal}` : cleanInt;
+  const amountIn = ethers.parseUnits(cleanText, 6);
+  if (amountIn <= 0n) throw new Error("amount must be greater than 0");
+
+  return {
+    amountIn,
+    amountText: cleanText,
+  };
+}
+
+function getHyperliquidBridgeConfig({ chain = "", coin = "" } = {}) {
+  const bridgeE = hyperliquidBridgeM[chain];
+  if (!bridgeE) throw new Error(`Hyperliquid spot bridge unsupported: ${chain}`);
+  if (coin != bridgeE.coin) {
+    throw new Error(`Hyperliquid spot bridge supports ${chain} ${bridgeE.coin}`);
+  }
+
+  const coinE = coinM?.[chain]?.[coin];
+  if (!coinE?.address || !ethers.isAddress(coinE.address)) {
+    throw new Error(`coin address missing: ${chain} ${coin}`);
+  }
+
+  return {
+    ...bridgeE,
+    token: ethers.getAddress(coinE.address),
+    decimals: Number.isInteger(coinE.decimals) ? coinE.decimals : 6,
+  };
+}
+
+function getHyperliquidWithdrawAction({
+  walletAddress = "",
+  amount = "",
+  signatureChainId = hyperliquidSignatureChainIdHex,
+} = {}) {
+  if (!ethers.isAddress(walletAddress)) {
+    throw new Error("Hyperliquid wallet address required");
+  }
+
+  const { amountText } = normalizeUsdAmount(amount);
+  const signatureChain = normalizeHyperliquidSignatureChainId(signatureChainId);
+  const destination = ethers.getAddress(walletAddress).toLowerCase();
+  const nonce = Date.now();
+  const action = {
+    type: "withdraw3",
+    hyperliquidChain: isHyperliquidMainnet() ? "Mainnet" : "Testnet",
+    signatureChainId: signatureChain.chainIdHex,
+    amount: amountText,
+    time: nonce,
+    destination,
+  };
+  const sign = getHyperliquidUserSignedTypedData({
+    primaryType: "HyperliquidTransaction:Withdraw",
+    signatureChainId: signatureChain.chainId,
+    payloadTypes: [
+      { name: "hyperliquidChain", type: "string" },
+      { name: "destination", type: "string" },
+      { name: "amount", type: "string" },
+      { name: "time", type: "uint64" },
+    ],
+    value: {
+      destination,
+      amount: amountText,
+      time: nonce,
+    },
+  });
+
+  return {
+    action,
+    amountText,
+    nonce,
+    sign,
+  };
+}
+
 function getHyperliquidVaultAction({
   action = "lend",
   lendAddress = "",
@@ -260,6 +531,34 @@ async function postHyperliquidExchange({
   }
 
   return data;
+}
+
+export async function getHyperliquidSpotBridgeDiscovery() {
+  let fees = {};
+  let feeError = "";
+
+  try {
+    const res = await fetchWithTimeout(
+      `${hyperliquidUnitApiBase.replace(/\/+$/, "")}/estimate-fees`,
+      { cache: "no-store" },
+      hyperliquidFetchTimeoutMs,
+    );
+    fees = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      feeError = `${res.status} ${res.statusText}`;
+      fees = {};
+    }
+  } catch (e) {
+    feeError = e?.message || "Hyperliquid route fees unavailable";
+  }
+
+  return {
+    ok: true,
+    deposit: buildHyperliquidUnitDiscovery({ action: "deposit", fees }),
+    withdraw: buildHyperliquidUnitDiscovery({ action: "withdraw", fees }),
+    feesLoaded: !feeError,
+    feeError,
+  };
 }
 
 export async function getHyperliquidLendPreview({
@@ -333,6 +632,203 @@ export async function buildHyperliquidLendTxs({
         },
       },
     ],
+  };
+}
+
+export async function buildHyperliquidSpotDepositTxs({
+  walletAddress = "",
+  chain = "",
+  coin = "",
+  amount = "",
+} = {}) {
+  if (!ethers.isAddress(walletAddress)) {
+    throw new Error("Hyperliquid wallet address required");
+  }
+
+  const bridgeE = getHyperliquidBridgeConfig({ chain, coin });
+  const { amountIn, amountText } = normalizeUsdAmount(amount);
+  if (Number(amountText) < bridgeE.minAmount) {
+    throw new Error(`Hyperliquid deposits must be at least $${bridgeE.minAmount}`);
+  }
+
+  const chainId = relayChainIds[chain];
+  if (!chainId) throw new Error(`chain unsupported: ${chain}`);
+
+  return {
+    ok: true,
+    defi: "Hyperliquid",
+    chain,
+    coin,
+    action: "deposit",
+    amountIn: amountIn.toString(),
+    amount: amountText,
+    bridge: bridgeE.bridge,
+    txs: [
+      getUnsignedTx({
+        chain,
+        chainId,
+        type: "deposit",
+        txData: {
+          to: bridgeE.token,
+          data: erc20Interface.encodeFunctionData("transfer", [
+            ethers.getAddress(bridgeE.bridge),
+            amountIn,
+          ]),
+          value: "0",
+        },
+      }),
+    ],
+  };
+}
+
+export async function executeHyperliquidSpotDeposit({
+  walletName = "",
+  walletAddress = "",
+  chain = "",
+  coin = "",
+  amount = "",
+} = {}) {
+  const built = await buildHyperliquidSpotDepositTxs({
+    walletAddress,
+    chain,
+    coin,
+    amount,
+  });
+  const privateKey = getPrivateKey(walletName);
+  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+
+  const sent = await executeRawEvmTx({
+    privateKey,
+    expectedAddress: walletAddress,
+    chainId: built.txs[0].chainId,
+    txData: built.txs[0],
+    type: "deposit",
+  });
+
+  return {
+    ...built,
+    txs: [sent],
+  };
+}
+
+export async function buildHyperliquidSpotWithdrawTxs({
+  walletAddress = "",
+  chain = "",
+  coin = "",
+  amount = "",
+  signatureChainId = hyperliquidSignatureChainIdHex,
+} = {}) {
+  getHyperliquidBridgeConfig({ chain, coin });
+  const withdraw = getHyperliquidWithdrawAction({
+    walletAddress,
+    amount,
+    signatureChainId,
+  });
+
+  return {
+    ok: true,
+    defi: "Hyperliquid",
+    chain: "Hyperliquid",
+    coin: "USDC",
+    destinationChain: chain,
+    destinationCoin: coin,
+    action: "withdraw",
+    amount: withdraw.amountText,
+    txs: [
+      {
+        chain: "Hyperliquid",
+        type: "withdraw",
+        hash: ethers.TypedDataEncoder.hash(
+          withdraw.sign.domain,
+          withdraw.sign.types,
+          withdraw.sign.value,
+        ),
+        action: withdraw.action,
+        nonce: withdraw.nonce,
+        sign: {
+          signatureKind: "eip712",
+          chainId: withdraw.sign.domain.chainId,
+          domain: withdraw.sign.domain,
+          types: withdraw.sign.types,
+          value: withdraw.sign.value,
+          skipChainSwitch: true,
+        },
+      },
+    ],
+  };
+}
+
+export async function submitHyperliquidSpotWithdrawSignature({
+  walletAddress = "",
+  tx = {},
+  signature = "",
+} = {}) {
+  if (!ethers.isAddress(walletAddress)) {
+    throw new Error("Hyperliquid wallet address required");
+  }
+  if (!tx?.action || !tx?.nonce || !tx?.sign) {
+    throw new Error("Hyperliquid withdraw action missing");
+  }
+
+  const signer = ethers.verifyTypedData(
+    tx.sign.domain,
+    tx.sign.types,
+    tx.sign.value,
+    signature,
+  );
+  if (ethers.getAddress(signer) != ethers.getAddress(walletAddress)) {
+    throw new Error(`connected wallet is ${signer}`);
+  }
+
+  const response = await postHyperliquidExchange({
+    action: tx.action,
+    nonce: tx.nonce,
+    signature: splitSignature(signature),
+    vaultAddress: null,
+    expiresAfter: null,
+  });
+
+  return {
+    chain: "Hyperliquid",
+    type: tx.type || "withdraw",
+    hash: tx.hash,
+    response,
+  };
+}
+
+export async function executeHyperliquidSpotWithdraw({
+  walletName = "",
+  walletAddress = "",
+  chain = "",
+  coin = "",
+  amount = "",
+} = {}) {
+  const privateKey = getPrivateKey(walletName);
+  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+
+  const wallet = getWallet(privateKey);
+  assertWalletMatches(wallet, walletAddress);
+  const built = await buildHyperliquidSpotWithdrawTxs({
+    walletAddress,
+    chain,
+    coin,
+    amount,
+  });
+  const tx = built.txs[0];
+  const signature = await wallet.signTypedData(
+    tx.sign.domain,
+    tx.sign.types,
+    tx.sign.value,
+  );
+  const submitted = await submitHyperliquidSpotWithdrawSignature({
+    walletAddress,
+    tx,
+    signature,
+  });
+
+  return {
+    ...built,
+    txs: [submitted],
   };
 }
 
