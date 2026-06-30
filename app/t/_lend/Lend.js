@@ -19,6 +19,13 @@ import {
   getJupiterMarketBalance,
 } from "./svJupiter";
 import {
+  buildMorphoLendTxs,
+  executeMorphoLend,
+  getMorphoAllMarkets,
+  getMorphoLendPreview,
+  getMorphoMarketBalance,
+} from "./svMorpho";
+import {
   buildVenusLendTxs,
   executeVenusLend,
   getVenusAllMarkets,
@@ -53,6 +60,7 @@ import {
   sendBrowserSolanaTx,
   sendBrowserTx,
   SwapTxLink,
+  tradeAutoApprovalCookie,
   tradeLendChainCookie,
   tradeLendDefiCookie,
   tradeLendMarketCookie,
@@ -63,7 +71,7 @@ function isProtocolCoin(protocol, coin, coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
   if (protocol == "jupiter") {
     return (
-      (coinE.type == "lending" || coinE.type == "yield") &&
+      (coinE.type == "lend" || coinE.type == "yield") &&
       (/^jl[A-Z0-9]/.test(coin) ||
         coin == "JUICED" ||
         text.includes("jupusd")) &&
@@ -72,12 +80,18 @@ function isProtocolCoin(protocol, coin, coinE = {}) {
         coin == "JUICED")
     );
   }
-  if (coinE.type != "lending") return false;
+  if (coinE.type != "lend") return false;
   if (protocol == "aave") return text.includes("aave") || /^a[A-Z]/.test(coin);
   if (protocol == "venus") {
     return (
       /^v[A-Z]/.test(coin) ||
       (text.includes("venus") && !/^f[A-Z]/.test(coin))
+    );
+  }
+  if (protocol == "morpho") {
+    return (
+      coinE.type == "lend" &&
+      (text.includes("morpho") || text.includes("metamorpho"))
     );
   }
 
@@ -93,13 +107,48 @@ function getJupiterUnderlyingCoin(chainE, lendCoin) {
   return getUnderlyingCoin(chainE, lendCoin);
 }
 
-function getUnderlyingCoin(chainE, lendCoin) {
+function getAaveUnderlyingCoin(lendCoin = "") {
+  const coin = String(lendCoin || "");
+  const chainPrefixes = [
+    "Scroll",
+    "Wemix",
+    "Sonic",
+    "Kaia",
+    "Base",
+    "Bnb",
+    "Eth",
+    "Arb",
+    "Opt",
+    "Bas",
+    "Ava",
+    "Pol",
+    "Gno",
+    "Lin",
+    "Met",
+    "Zk",
+  ];
+
+  for (const prefix of chainPrefixes) {
+    if (coin.startsWith(`a${prefix}`) && coin.length > prefix.length + 1) {
+      return coin.slice(prefix.length + 1);
+    }
+  }
+  if (/^a[A-Z0-9.]{2,}$/.test(coin)) return coin.slice(1);
+
+  return "";
+}
+
+function getUnderlyingCoin(chainE, lendCoin, protocol = "") {
   const coinInfoM = chainE?.coinInfoM || {};
   const lendE = coinInfoM[lendCoin] || {};
   const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
+  const protocolUnderlying =
+    protocol == "aave" ? getAaveUnderlyingCoin(lendCoin) : "";
+  if (protocolUnderlying) return protocolUnderlying;
+
   const candidates = getChainCoins(chainE)
     .filter((coin) => coin != lendCoin)
-    .filter((coin) => coinInfoM[coin]?.type != "lending")
+    .filter((coin) => coinInfoM[coin]?.type != "lend")
     .sort((a, b) => b.length - a.length);
 
   return (
@@ -107,7 +156,6 @@ function getUnderlyingCoin(chainE, lendCoin) {
     candidates.find((coin) =>
       ["USDT", "USDC", "USDS", "EURC", "DAI", "USD1"].includes(coin),
     ) ||
-    candidates[0] ||
     ""
   );
 }
@@ -122,7 +170,7 @@ function getLendingMarkets(chainE, protocol) {
       const underlyingCoin =
         protocol == "jupiter"
           ? getJupiterUnderlyingCoin(chainE, lendCoin)
-          : getUnderlyingCoin(chainE, lendCoin);
+          : getUnderlyingCoin(chainE, lendCoin, protocol);
 
       return {
         value: lendCoin,
@@ -257,6 +305,13 @@ const aaveConfiguredChainSet = new Set([
   "ZkSync",
   "zkSyncEra",
 ]);
+const morphoConfiguredChainSet = new Set([
+  "Ethereum",
+  "Arbitrum",
+  "Base",
+  "Optimism",
+  "Polygon",
+]);
 
 function isLendingProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return option.value == "jupiter";
@@ -304,6 +359,12 @@ function getLendMarketChains(chainList = [], chainMarketsM = {}, defi = "") {
         );
       }
       if (defi == "jupiter") return chainE.chain == "Solana";
+      if (defi == "morpho") {
+        return (
+          morphoConfiguredChainSet.has(chainE.chain) ||
+          chainMarketsM[chainE.chain]?.length
+        );
+      }
 
       return chainMarketsM[chainE.chain]?.length;
     })
@@ -331,6 +392,10 @@ function getExplorerAddressUrl(chain = "", address = "") {
   if (!scanner || !address) return "";
 
   return `${String(scanner).replace(/\/+$/, "")}/address/${address}`;
+}
+
+function getInitialAutoApproval(initialCookieM = {}) {
+  return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
 }
 
 export default function LendPanel({
@@ -406,7 +471,9 @@ export default function LendPanel({
   const [lendPending, setLendPending] = useState(false);
   const [lendPendingAction, setLendPendingAction] = useState("");
   const [lendResult, setLendResult] = useState(null);
-  const [autoApproval, setAutoApproval] = useState(false);
+  const [autoApproval, setAutoApproval] = useState(
+    getInitialAutoApproval(initialCookieM),
+  );
   const [showMarketMenu, setShowMarketMenu] = useState(false);
   const [aaveAllMarketM, setAaveAllMarketM] = useState({});
   const [aaveAllLoadingM, setAaveAllLoadingM] = useState({});
@@ -420,6 +487,10 @@ export default function LendPanel({
   const [jupiterAllLoadingM, setJupiterAllLoadingM] = useState({});
   const [jupiterAllErrorM, setJupiterAllErrorM] = useState({});
   const [jupiterAllRetryTick, setJupiterAllRetryTick] = useState(0);
+  const [morphoAllMarketM, setMorphoAllMarketM] = useState({});
+  const [morphoAllLoadingM, setMorphoAllLoadingM] = useState({});
+  const [morphoAllErrorM, setMorphoAllErrorM] = useState({});
+  const [morphoAllRetryTick, setMorphoAllRetryTick] = useState(0);
   const [directBalanceM, setDirectBalanceM] = useState({});
   const [directBalanceLoadingM, setDirectBalanceLoadingM] = useState({});
   const [customCoinPreview, setCustomCoinPreview] = useState(null);
@@ -488,6 +559,7 @@ export default function LendPanel({
       const addedLend =
         entry.addedLend ||
         !!addedValue ||
+        !!addedCoinAddressM[addressKey] ||
         !!locallyAddedAddressM[`${aaveAllKey}:${addressKey}`];
 
       return {
@@ -514,6 +586,7 @@ export default function LendPanel({
       const addedLend =
         entry.addedLend ||
         !!addedValue ||
+        !!addedCoinAddressM[addressKey] ||
         !!locallyAddedAddressM[`${venusAllKey}:${addressKey}`];
 
       return {
@@ -541,6 +614,7 @@ export default function LendPanel({
       const addedLend =
         entry.addedLend ||
         !!addedValue ||
+        !!addedCoinAddressM[addressKey] ||
         !!locallyAddedAddressM[`${jupiterAllKey}:${addressKey}`];
 
       return {
@@ -553,6 +627,33 @@ export default function LendPanel({
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
   const jupiterAllLoading = !!jupiterAllLoadingM[jupiterAllKey];
   const jupiterAllError = jupiterAllErrorM[jupiterAllKey] || "";
+  const morphoAllKey = chainE?.chain || "";
+  const rawMorphoAllMarkets = morphoAllMarketM[morphoAllKey] || [];
+  const morphoAllMarkets = rawMorphoAllMarkets
+    .map((entry) => {
+      const addressKey = String(entry.lendAddress || "").toLowerCase();
+      const underlyingAddressKey = String(entry.underlyingAddress || "").toLowerCase();
+      const addedValue = addedMarketAddressM[addressKey] || "";
+      const addedUnderlying =
+        entry.addedUnderlying ||
+        !!addedCoinAddressM[underlyingAddressKey] ||
+        !!locallyAddedAddressM[`${morphoAllKey}:${underlyingAddressKey}`];
+      const addedLend =
+        entry.addedLend ||
+        !!addedValue ||
+        !!addedCoinAddressM[addressKey] ||
+        !!locallyAddedAddressM[`${morphoAllKey}:${addressKey}`];
+
+      return {
+        ...entry,
+        addedUnderlying,
+        addedLend,
+        addedValue,
+      };
+    })
+    .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
+  const morphoAllLoading = !!morphoAllLoadingM[morphoAllKey];
+  const morphoAllError = morphoAllErrorM[morphoAllKey] || "";
   const allMarkets =
     defi == "aave"
       ? aaveAllMarkets
@@ -560,7 +661,9 @@ export default function LendPanel({
         ? venusAllMarkets
         : defi == "jupiter"
           ? jupiterAllMarkets
-          : [];
+          : defi == "morpho"
+            ? morphoAllMarkets
+            : [];
   const rawAllMarkets =
     defi == "aave"
       ? rawAaveAllMarkets
@@ -568,9 +671,21 @@ export default function LendPanel({
         ? rawVenusAllMarkets
         : defi == "jupiter"
           ? rawJupiterAllMarkets
-          : [];
+          : defi == "morpho"
+            ? rawMorphoAllMarkets
+            : [];
   const visibleAddedMarkets = useMemo(() => {
     if (!rawAllMarkets.length) return addedMarkets;
+    const protocolAllKey =
+      defi == "aave"
+        ? aaveAllKey
+        : defi == "venus"
+          ? venusAllKey
+          : defi == "jupiter"
+            ? jupiterAllKey
+            : defi == "morpho"
+              ? morphoAllKey
+              : chainE?.chain || "";
 
     const rawMarketByLendAddress = Object.fromEntries(
       rawAllMarkets
@@ -578,7 +693,7 @@ export default function LendPanel({
         .map((entry) => [String(entry.lendAddress).toLowerCase(), entry]),
     );
 
-    return addedMarkets.map((entry) => {
+    const mergedAddedMarkets = addedMarkets.map((entry) => {
       const lendAddress =
         entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
       const raw = rawMarketByLendAddress[String(lendAddress).toLowerCase()];
@@ -588,13 +703,13 @@ export default function LendPanel({
         ...entry,
         ...raw,
         value: entry.value,
-        underlyingCoin: entry.underlyingCoin,
+        underlyingCoin: raw.underlyingCoin || entry.underlyingCoin,
         lendCoin: entry.lendCoin,
         lendName: entry.lendName || raw.lendName,
-        underlyingAddress: entry.underlyingAddress || raw.underlyingAddress,
-        underlyingDecimals: Number.isInteger(entry.underlyingDecimals)
-          ? entry.underlyingDecimals
-          : raw.underlyingDecimals,
+        underlyingAddress: raw.underlyingAddress || entry.underlyingAddress,
+        underlyingDecimals: Number.isInteger(raw.underlyingDecimals)
+          ? raw.underlyingDecimals
+          : entry.underlyingDecimals,
         lendAddress: entry.lendAddress || raw.lendAddress,
         lendDecimals: Number.isInteger(entry.lendDecimals)
           ? entry.lendDecimals
@@ -603,7 +718,52 @@ export default function LendPanel({
         addedLend: true,
       };
     });
-  }, [addedMarkets, chainE?.coinInfoM, rawAllMarkets]);
+    const seen = new Set(
+      mergedAddedMarkets.map((entry) =>
+        String(entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || entry.value || "").toLowerCase(),
+      ),
+    );
+
+    for (const entry of rawAllMarkets) {
+      const lendAddress = String(entry.lendAddress || "").toLowerCase();
+      const underlyingAddress = String(entry.underlyingAddress || "").toLowerCase();
+      const addedValue = addedMarketAddressM[lendAddress] || entry.addedValue || "";
+      const addedUnderlying =
+        entry.addedUnderlying ||
+        !!addedCoinAddressM[underlyingAddress] ||
+        !!locallyAddedAddressM[`${protocolAllKey}:${underlyingAddress}`];
+      const addedLend =
+        entry.addedLend ||
+        !!addedValue ||
+        !!addedCoinAddressM[lendAddress] ||
+        !!locallyAddedAddressM[`${protocolAllKey}:${lendAddress}`];
+
+      if (!addedLend || !lendAddress || seen.has(lendAddress)) continue;
+      seen.add(lendAddress);
+      mergedAddedMarkets.push({
+        ...entry,
+        value: addedValue || entry.addedValue || entry.value,
+        addedValue: addedValue || entry.addedValue || entry.value,
+        addedUnderlying,
+        addedLend: true,
+      });
+    }
+
+    return mergedAddedMarkets;
+  }, [
+    aaveAllKey,
+    addedCoinAddressM,
+    addedMarketAddressM,
+    addedMarkets,
+    chainE?.chain,
+    chainE?.coinInfoM,
+    defi,
+    jupiterAllKey,
+    locallyAddedAddressM,
+    morphoAllKey,
+    rawAllMarkets,
+    venusAllKey,
+  ]);
   const allLoading =
     defi == "aave"
       ? aaveAllLoading
@@ -611,7 +771,9 @@ export default function LendPanel({
         ? venusAllLoading
         : defi == "jupiter"
           ? jupiterAllLoading
-          : false;
+          : defi == "morpho"
+            ? morphoAllLoading
+            : false;
   const allError =
     defi == "aave"
       ? aaveAllError
@@ -619,11 +781,19 @@ export default function LendPanel({
         ? venusAllError
         : defi == "jupiter"
           ? jupiterAllError
-          : "";
+          : defi == "morpho"
+            ? morphoAllError
+            : "";
   const hasProtocolAllMarkets =
-    defi == "aave" || defi == "venus" || defi == "jupiter";
+    defi == "aave" || defi == "venus" || defi == "jupiter" || defi == "morpho";
   const allProtocolLabel =
-    defi == "venus" ? "Venus" : defi == "jupiter" ? "Jupiter" : "Aave";
+    defi == "venus"
+      ? "Venus"
+      : defi == "jupiter"
+        ? "Jupiter"
+        : defi == "morpho"
+          ? "Morpho"
+          : "Aave";
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
@@ -699,7 +869,7 @@ export default function LendPanel({
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    defi == "venus" || defi == "jupiter"
+    defi == "venus" || defi == "jupiter" || defi == "morpho"
       ? toNum(marketPreview?.receiptPerUnderlying)
       : 0;
   const underlyingListPrice = toNum(underlyingBalance.price);
@@ -711,7 +881,7 @@ export default function LendPanel({
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
-    ((defi == "venus" || defi == "jupiter") &&
+    ((defi == "venus" || defi == "jupiter" || defi == "morpho") &&
     underlyingPrice &&
     marketReceiptRate
       ? underlyingPrice / marketReceiptRate
@@ -719,7 +889,7 @@ export default function LendPanel({
   const receiptRate =
     defi == "aave"
       ? 1
-      : (defi == "venus" || defi == "jupiter") && marketReceiptRate
+      : (defi == "venus" || defi == "jupiter" || defi == "morpho") && marketReceiptRate
         ? marketReceiptRate
       : underlyingPrice && receiptPrice
         ? underlyingPrice / receiptPrice
@@ -984,6 +1154,56 @@ export default function LendPanel({
   ]);
 
   useEffect(() => {
+    if (defi != "morpho" || !morphoAllKey) return;
+    if (
+      morphoAllMarketM[morphoAllKey] !== undefined ||
+      morphoAllLoadingM[morphoAllKey]
+    ) {
+      return;
+    }
+
+    setMorphoAllLoadingM((loadingM) => ({
+      ...loadingM,
+      [morphoAllKey]: true,
+    }));
+    setMorphoAllErrorM((errorM) => ({ ...errorM, [morphoAllKey]: "" }));
+    withClientTimeout(
+      getMorphoAllMarkets({ chain: morphoAllKey }),
+      25000,
+      `${morphoAllKey} Morpho loading timeout`,
+    )
+      .then((res) => {
+        if (!mountedRef.current) return;
+        setMorphoAllMarketM((marketM) => ({
+          ...marketM,
+          [morphoAllKey]: Array.isArray(res?.markets) ? res.markets : [],
+        }));
+      })
+      .catch((e) => {
+        if (!mountedRef.current) return;
+        setMorphoAllMarketM((marketM) => ({
+          ...marketM,
+          [morphoAllKey]: [],
+        }));
+        setMorphoAllErrorM((errorM) => ({
+          ...errorM,
+          [morphoAllKey]: e?.message || "Morpho markets failed",
+        }));
+      })
+      .finally(() => {
+        if (!mountedRef.current) return;
+        setMorphoAllLoadingM((loadingM) => ({
+          ...loadingM,
+          [morphoAllKey]: false,
+        }));
+      });
+  }, [
+    defi,
+    morphoAllKey,
+    morphoAllRetryTick,
+  ]);
+
+  useEffect(() => {
     if (
       !usesDirectMarket ||
       !needsDirectBalance ||
@@ -1005,7 +1225,9 @@ export default function LendPanel({
         ? getVenusMarketBalance
         : defi == "jupiter"
           ? getJupiterMarketBalance
-          : getAaveMarketBalance;
+          : defi == "morpho"
+            ? getMorphoMarketBalance
+            : getAaveMarketBalance;
     withClientTimeout(
       getMarketBalance({
         walletAddress: selectedWalletEntry.address,
@@ -1062,7 +1284,7 @@ export default function LendPanel({
 
   useEffect(() => {
     if (
-      (defi != "venus" && defi != "jupiter") ||
+      (defi != "venus" && defi != "jupiter" && defi != "morpho") ||
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
@@ -1078,7 +1300,11 @@ export default function LendPanel({
       [marketPreviewKey]: true,
     }));
     const getLendPreview =
-      defi == "jupiter" ? getJupiterLendPreview : getVenusLendPreview;
+      defi == "jupiter"
+        ? getJupiterLendPreview
+        : defi == "morpho"
+          ? getMorphoLendPreview
+          : getVenusLendPreview;
     getLendPreview({
       walletAddress: selectedWalletEntry.address,
       chain: chainE.chain,
@@ -1273,6 +1499,13 @@ export default function LendPanel({
     updateRedeemQty(inputQty(maxReceipt - toNum(endQty)));
   }
 
+  function updateAutoApproval(checked) {
+    setAutoApproval(checked);
+    setCookie(tradeAutoApprovalCookie, checked ? "1" : "0", {
+      maxAge: cookieMaxAge,
+    });
+  }
+
   function nextDefi() {
     const next = nextValue(
       availableLendingOptions.map((option) => option.value),
@@ -1407,6 +1640,22 @@ export default function LendPanel({
     setJupiterAllRetryTick((tick) => tick + 1);
   }
 
+  function retryMorphoAllMarkets(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMorphoAllMarketM((marketM) => {
+      const next = { ...marketM };
+      delete next[morphoAllKey];
+      return next;
+    });
+    setMorphoAllErrorM((errorM) => ({ ...errorM, [morphoAllKey]: "" }));
+    setMorphoAllLoadingM((loadingM) => ({
+      ...loadingM,
+      [morphoAllKey]: false,
+    }));
+    setMorphoAllRetryTick((tick) => tick + 1);
+  }
+
   function retryAllMarkets(e) {
     if (defi == "venus") {
       retryVenusAllMarkets(e);
@@ -1414,6 +1663,10 @@ export default function LendPanel({
     }
     if (defi == "jupiter") {
       retryJupiterAllMarkets(e);
+      return;
+    }
+    if (defi == "morpho") {
+      retryMorphoAllMarkets(e);
       return;
     }
 
@@ -1454,7 +1707,17 @@ export default function LendPanel({
         return;
       }
 
-      setCustomCoinPreviewData(res);
+      setCustomCoinPreviewData(
+        tokenKind == "lend"
+          ? {
+              ...res,
+              entry: {
+                ...(res.entry || {}),
+                type: "lend",
+              },
+            }
+          : res,
+      );
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -1530,12 +1793,19 @@ export default function LendPanel({
     const isAave = defi == "aave";
     const isVenus = defi == "venus";
     const isJupiter = defi == "jupiter";
+    const isMorpho = defi == "morpho";
 
-    if (!isAave && !isVenus && !isJupiter) {
+    if (!isAave && !isVenus && !isJupiter && !isMorpho) {
       toast(`${lendingE.label}: lending not wired yet`);
       return;
     }
-    const protocol = isVenus ? "Venus" : isJupiter ? "Jupiter" : "Aave";
+    const protocol = isVenus
+      ? "Venus"
+      : isJupiter
+        ? "Jupiter"
+        : isMorpho
+          ? "Morpho"
+          : "Aave";
     if (!selectedWalletEntry?.address) {
       toast.error("wallet missing");
       return;
@@ -1575,19 +1845,25 @@ export default function LendPanel({
       ? buildVenusLendTxs
       : isJupiter
         ? buildJupiterLendTxs
-        : buildAaveLendTxs;
+        : isMorpho
+          ? buildMorphoLendTxs
+          : buildAaveLendTxs;
     const executeLend = isVenus
       ? executeVenusLend
       : isJupiter
         ? executeJupiterLend
-        : executeAaveLend;
+        : isMorpho
+          ? executeMorphoLend
+          : executeAaveLend;
     const previewLend = isVenus
       ? getVenusLendPreview
       : isJupiter
         ? getJupiterLendPreview
-        : getAaveLendPreview;
+        : isMorpho
+          ? getMorphoLendPreview
+          : getAaveLendPreview;
     const directMarketArgs =
-      (isAave || isVenus || isJupiter) && usesDirectMarket
+      (isAave || isVenus || isJupiter || isMorpho) && usesDirectMarket
         ? {
             underlyingAddress: marketE.underlyingAddress,
             underlyingDecimals: marketE.underlyingDecimals,
@@ -1685,23 +1961,44 @@ export default function LendPanel({
       }
 
       setLendResult(res);
+      if (usesDirectMarket && directBalanceKey) {
+        setDirectBalanceM((balanceM) => {
+          const next = { ...balanceM };
+          delete next[directBalanceKey];
+          return next;
+        });
+        setDirectBalanceLoadingM((loadingM) => ({
+          ...loadingM,
+          [directBalanceKey]: false,
+        }));
+      }
+      const getRefreshTarget = (coin) => {
+        const coinE = chainE?.coinInfoM?.[coin];
+        if (!coinE) return null;
+        const decimals = Number(coinE.decimals);
+        const refreshCoinE = {
+          address: coinE.address || "",
+          native: !!coinE.native,
+        };
+        if (Number.isInteger(decimals)) refreshCoinE.decimals = decimals;
+
+        return {
+          chain: chainE.chain,
+          coin,
+          address: selectedWalletEntry.address,
+          coinE: refreshCoinE,
+        };
+      };
+      const refreshTargets = [
+        getRefreshTarget(underlyingCoin),
+        getRefreshTarget(lendCoin),
+      ].filter(Boolean);
       toast.success(`${protocol} ${action} submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
       onTxComplete({
         ...res,
-        refreshTargets: [
-          {
-            chain: chainE.chain,
-            coin: underlyingCoin,
-            address: selectedWalletEntry.address,
-          },
-          {
-            chain: chainE.chain,
-            coin: lendCoin,
-            address: selectedWalletEntry.address,
-          },
-        ],
+        refreshTargets,
       });
     } catch (e) {
       const message = e?.message || `${protocol} ${action} failed`;
@@ -2211,7 +2508,7 @@ export default function LendPanel({
           <label className="swapGasSelect">
             <span className="gray">gas:</span>
             <select value="default" disabled>
-              <option value="default">default</option>
+              <option value="default">auto</option>
             </select>
           </label>
           {!selectedWalletEntry?.isBrowserWallet && defi != "jupiter" && (
@@ -2219,7 +2516,7 @@ export default function LendPanel({
               <input
                 type="checkbox"
                 checked={autoApproval}
-                onChange={(e) => setAutoApproval(e.target.checked)}
+                onChange={(e) => updateAutoApproval(e.target.checked)}
               />
               <span className="gray">auto approve</span>
             </label>

@@ -848,7 +848,7 @@ export default function SendPanel({
             <label className="swapGasSelect">
               <span className="gray">gas:</span>
               <select value="default" disabled>
-                <option value="default">default</option>
+                <option value="default">auto</option>
               </select>
             </label>
             <input

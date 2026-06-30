@@ -16,25 +16,25 @@ const zkSyncEra = {
     address: "0x1d17cbcf0d6d143135ae902365d2e5e2a16538d4",
     decimals: 6,
     name: "USD Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   "USDC.E": {
     address: "0x3355df6d4c9c3035724fd0e3914de96a5a83aaf4",
     decimals: 6,
     name: "Bridged USDC",
-    type: "stablecoin",
+    type: "stable",
   },
   USDT: {
     address: "0x493257fd37edb34451f62edf8d2a0c418852ba4c",
     decimals: 6,
     name: "Tether USD",
-    type: "stablecoin",
+    type: "stable",
   },
   DAI: {
     address: "0x4bef76b6b7f2823c6c1f4fcfeacd85c24548ad7e",
     decimals: 18,
     name: "Dai Stablecoin",
-    type: "stablecoin",
+    type: "stable",
   },
   WBTC: {
     address: "0xbbeb516fb02a01611cbbe0453fe3c580d7281011",
@@ -46,13 +46,13 @@ const zkSyncEra = {
     address: "0xE977F9B2a5ccf0457870a67231F23BE4DaecfbDb",
     decimals: 6,
     name: "Aave ZkSync USDC",
-    type: "lending"
+    type: "lend"
   },
   vUSDC_Core: {
     address: "0x84064c058F2EFea4AB648bB6Bd7e40f83fFDe39a",
     decimals: 8,
     name: "Venus USDC (Core)",
-    type: "lending"
+    type: "lend"
   },
 
 };

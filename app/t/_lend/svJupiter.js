@@ -96,7 +96,7 @@ function isJupiterLendCoin(coin = "", coinE = {}) {
     (/^jl[A-Z0-9]/.test(coin) ||
       coin == "JUICED" ||
       text.includes("jupusd")) &&
-    (coinE.type == "lending" ||
+    (coinE.type == "lend" ||
       coinE.type == "yield" ||
       text.includes("jupiter lend"))
   );
@@ -636,7 +636,7 @@ async function getJupiterLocalPdaMarkets(chain = "Solana") {
       coinE?.address &&
       !coinE.native &&
       !isJupiterLendCoin(coin, coinE) &&
-      coinE.type != "lending" &&
+      coinE.type != "lend" &&
       coinE.type != "yield",
   );
   const candidateMarkets = [];

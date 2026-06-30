@@ -567,10 +567,9 @@ span.chainIcon {
   font-weight: bold;
   line-height: 1;
 }
-.coinIcon-stablecoin {
+.coinIcon-stable {
   background: #119c68;
 }
-.coinIcon-lending,
 .coinIcon-lend {
   background: #111827;
   border: 1px solid #38bdf8;

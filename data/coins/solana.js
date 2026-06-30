@@ -9,13 +9,13 @@ const solana = {
     address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     decimals: 6,
     name: "USD Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   USDT: {
     address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
     decimals: 6,
     name: "Tether USD",
-    type: "stablecoin",
+    type: "stable",
   },
   syrupUSDC: {
     address: "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
@@ -57,7 +57,7 @@ const solana = {
     address: "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
     decimals: 6,
     name: "World Liberty Financial USD",
-    type: "stablecoin"
+    type: "stable"
   },
 
 };

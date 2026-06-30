@@ -5,6 +5,7 @@ exports.ckPrefix = "w3_";
 
 exports.dexs = [
   { value: "relay", label: "Relay.link", bridge: true },
+  { value: "jumper", label: "Jumper", bridge: true },
   { value: "jupiter", label: "Jupiter", bridge: false },
   { value: "across", label: "Across.to", bridge: true },
   { value: "uniswap", label: "Uniswap", bridge: false },
@@ -14,6 +15,7 @@ exports.dexs = [
 exports.lendings = [
   { value: "aave", label: "Aave" },
   { value: "venus", label: "Venus" },
+  { value: "morpho", label: "Morpho" },
   { value: "jupiter", label: "Jupiter" },
 ];
 

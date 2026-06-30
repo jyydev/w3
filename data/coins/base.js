@@ -10,31 +10,31 @@ const base = {
     address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
     decimals: 6,
     name: "USD Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   USDbC: {
     address: "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
     decimals: 6,
     name: "USD Base Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   USDT: {
     address: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
     decimals: 6,
     name: "Bridged Tether USD",
-    type: "stablecoin",
+    type: "stable",
   },
   DAI: {
     address: "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",
     decimals: 18,
     name: "Dai Stablecoin",
-    type: "stablecoin",
+    type: "stable",
   },
   EURC: {
     address: "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
     decimals: 6,
     name: "EURC",
-    type: "stablecoin",
+    type: "stable",
   },
   cbBTC: {
     address: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
@@ -64,7 +64,7 @@ const base = {
     address: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB",
     decimals: 6,
     name: "Aave Base USDC",
-    type: "lending"
+    type: "lend"
   },
 
 };

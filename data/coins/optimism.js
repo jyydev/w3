@@ -16,25 +16,25 @@ const optimism = {
     address: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
     decimals: 6,
     name: "USD Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   "USDC.E": {
     address: "0x7f5c764cbc14f9669b88837ca1490cca17c31607",
     decimals: 6,
     name: "Bridged USDC",
-    type: "stablecoin",
+    type: "stable",
   },
   USDT: {
     address: "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58",
     decimals: 6,
     name: "Tether USD",
-    type: "stablecoin",
+    type: "stable",
   },
   DAI: {
     address: "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1",
     decimals: 18,
     name: "Dai Stablecoin",
-    type: "stablecoin",
+    type: "stable",
   },
   WBTC: {
     address: "0x68f180fcce6836688e9084f035309e29bf0a2095",
@@ -70,7 +70,7 @@ const optimism = {
     address: "0x38d693cE1dF5AaDF7bC62595A37D667aD57922e5",
     decimals: 6,
     name: "Aave Optimism USDCn",
-    type: "lending",
+    type: "lend",
   },
 };
 

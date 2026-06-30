@@ -61,9 +61,17 @@ export async function getTradeCoinPrice({ chain = "", coin = "" } = {}) {
   };
 }
 
-function formatCoinBalance({ raw = 0n, chain = "", coin = "", address = "" }) {
-  const decimals = getCoinDecimals(chain, coin);
-  const balance = ethers.formatUnits(raw, decimals);
+function formatCoinBalance({
+  raw = 0n,
+  chain = "",
+  coin = "",
+  address = "",
+  decimals = null,
+}) {
+  const coinDecimals = Number.isInteger(decimals)
+    ? decimals
+    : getCoinDecimals(chain, coin);
+  const balance = ethers.formatUnits(raw, coinDecimals);
 
   return {
     ok: true,
@@ -72,16 +80,31 @@ function formatCoinBalance({ raw = 0n, chain = "", coin = "", address = "" }) {
     address,
     raw: raw.toString(),
     balance,
-    decimals,
+    decimals: coinDecimals,
   };
+}
+
+function getDynamicCoinE(coinE = null) {
+  if (!coinE || typeof coinE != "object") return null;
+
+  const decimals = Number(coinE.decimals);
+  const entry = {
+    decimals: Number.isInteger(decimals) ? decimals : 18,
+  };
+
+  if (coinE.native) entry.native = true;
+  if (coinE.address) entry.address = String(coinE.address);
+
+  return entry.native || entry.address ? entry : null;
 }
 
 export async function getTradeCoinBalance({
   chain = "",
   coin = "",
   address = "",
+  coinE: dynamicCoinE = null,
 } = {}) {
-  const coinE = coinM?.[chain]?.[coin];
+  const coinE = coinM?.[chain]?.[coin] || getDynamicCoinE(dynamicCoinE);
   if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
   if (!address) throw new Error("recipient address missing");
 
@@ -126,7 +149,13 @@ export async function getTradeCoinBalance({
     }
   }
 
-  const balanceE = formatCoinBalance({ raw, chain, coin, address });
+  const balanceE = formatCoinBalance({
+    raw,
+    chain,
+    coin,
+    address,
+    decimals: coinE.decimals,
+  });
   const price = await getCoinUsdPrice({ chain, coin }).catch(() => 0);
 
   return {

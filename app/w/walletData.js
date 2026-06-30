@@ -934,7 +934,7 @@ function getAlchemyDiscoveredCoinE({ chain, coin, token }) {
     name,
     type:
       stableCoins.has(String(coin || "").toUpperCase()) || isUsdLikeCoin(coin, { name })
-        ? "stablecoin"
+        ? "stable"
         : "token",
     source: "alchemy",
   };

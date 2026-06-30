@@ -88,7 +88,7 @@ function getSavedVenusMarkets(chain = "") {
   return Object.entries(coinM?.[chain] || {}).filter(([coin, coinE]) => {
     const text = `${coin} ${coinE?.name || ""}`.toLowerCase();
     return (
-      coinE?.type == "lending" &&
+      coinE?.type == "lend" &&
       ethers.isAddress(coinE?.address || "") &&
       (/^v[A-Z]/.test(coin) || (text.includes("venus") && !/^f[A-Z]/.test(coin)))
     );

@@ -4,19 +4,19 @@ const arbitrum = {
     address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     decimals: 6,
     name: "USD Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   USDT: {
     address: "0xFd086bC7CD5C481DCC9C85ebe478A1C0b69FCbb9",
     decimals: 6,
     name: "Tether USD",
-    type: "stablecoin",
+    type: "stable",
   },
   USDS: {
     address: "0x6491c05A82219b8D1479057361ff1654749b876b",
     decimals: 18,
     name: "USDS Stablecoin",
-    type: "stablecoin",
+    type: "stable",
   },
   sUSDS: {
     address: "0xdDb46999F8891663a8F2828d25298f70416d7610",
@@ -34,19 +34,19 @@ const arbitrum = {
     address: "0x724dc807b04555b71ed48a6896b6F41593b8C637",
     decimals: 6,
     name: "Aave Arbitrum USDCn",
-    type: "lending",
+    type: "lend",
   },
   vUSDC_Core: {
     address: "0x7D8609f8da70fF9027E9bc5229Af4F6727662707",
     decimals: 8,
     name: "Venus USDC (Core)",
-    type: "lending",
+    type: "lend",
   },
   "USDC.E": {
     address: "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8",
     decimals: 6,
     name: "Bridged USDC",
-    type: "stablecoin",
+    type: "stable",
   },
   ARB: {
     address: "0x912CE59144191C1204E64559FE8253a0e49E6548",
@@ -70,7 +70,7 @@ const arbitrum = {
     address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
     decimals: 18,
     name: "Dai Stablecoin",
-    type: "stablecoin",
+    type: "stable",
   },
 };
 

@@ -662,6 +662,14 @@ function Panels({
         coin: String(target?.coin || "").trim(),
         address: String(target?.address || "").trim(),
       };
+      if (target?.coinE && typeof target.coinE == "object") {
+        const decimals = Number(target.coinE.decimals);
+        clean.coinE = {
+          address: target.coinE.address ? String(target.coinE.address) : "",
+          native: !!target.coinE.native,
+        };
+        if (Number.isInteger(decimals)) clean.coinE.decimals = decimals;
+      }
       const key = getBalancePatchKey(clean);
       if (clean.chain && clean.coin && clean.address && !targetM.has(key)) {
         targetM.set(key, clean);

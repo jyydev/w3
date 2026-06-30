@@ -10,13 +10,13 @@ const wemix = {
     address: "0x44bb111010dfffb3695f9a1b66aa879976199e7b",
     decimals: 6,
     name: "WEMIX3.0 Bridged USDC",
-    type: "stablecoin",
+    type: "stable",
   },
   "WEMIX$": {
     address: "0x8e81fcc2d4a3baa0ee9044e0d7e36f59c9bba9c1",
     decimals: 18,
     name: "WEMIX Dollar",
-    type: "stablecoin",
+    type: "stable",
   },
   LINK: {
     address: "0x80f1fcdc96b55e459bf52b998abbe2c364935d69",

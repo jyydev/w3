@@ -234,7 +234,7 @@ async function detectContractType(provider, address) {
     hasValidAddressCall(token, "UNDERLYING_ASSET_ADDRESS"),
     tryCall(token, "exchangeRateStored"),
   ]);
-  if (underlying || aaveUnderlying || exchangeRate !== null) return "lending";
+  if (underlying || aaveUnderlying || exchangeRate !== null) return "lend";
 
   return "";
 }
@@ -275,7 +275,7 @@ function detectTextType({ name, symbol }) {
       "atoken",
     ])
   ) {
-    return "lending";
+    return "lend";
   }
   if (
     includesAny(text, [
@@ -291,7 +291,7 @@ function detectTextType({ name, symbol }) {
     return "yield";
   }
   if (isStableSymbol(symbol) || includesAny(name, ["stablecoin", "stable coin"])) {
-    return "stablecoin";
+    return "stable";
   }
   if (isWrappedSymbol(symbol) || includesAny(name, ["wrapped", "binance-peg"])) {
     return "wrapped";

@@ -4,19 +4,19 @@ const ethereum = {
     address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
     decimals: 6,
     name: "Tether USD",
-    type: "stablecoin",
+    type: "stable",
   },
   USDC: {
     address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     decimals: 6,
     name: "USD Coin",
-    type: "stablecoin",
+    type: "stable",
   },
   USDe: {
     address: "0x4c9EDD5852cd905f086C759E8383e09bff1E68B3",
     decimals: 18,
     name: "USDe",
-    type: "stablecoin",
+    type: "stable",
   },
   sUSDe: {
     address: "0x9D39A5DE30e57443BfF2A8307A4256c8797A3497",
@@ -34,13 +34,13 @@ const ethereum = {
     address: "0x23878914EFE38d27C4D67Ab83ed1b93A74D4086a",
     decimals: 6,
     name: "Aave Ethereum USDT",
-    type: "lending",
+    type: "lend",
   },
   DAI: {
     address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
     decimals: 18,
     name: "Dai Stablecoin",
-    type: "stablecoin",
+    type: "stable",
   },
   WBTC: {
     address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
@@ -70,15 +70,14 @@ const ethereum = {
     address: "0xf42bca228D9bd3e2F8EE65Fec3d21De1063882d4",
     decimals: 18,
     name: "sky.money USDS Risk Capital",
-    type: "yield",
+    type: "lend",
   },
   spUSDC: {
     address: "0x28B3a8fb53B741A8Fd78c0fb9A6B2393d896a43d",
     decimals: 6,
     name: "Spark Savings USDC",
-    type: "yield"
+    type: "yield",
   },
-
 };
 
 export default ethereum;

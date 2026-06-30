@@ -19,6 +19,7 @@ export const tradeSwapFromChainCookie = "w3_trade_swap_from_chain";
 export const tradeSwapFromCoinCookie = "w3_trade_swap_from_coin";
 export const tradeSwapToChainCookie = "w3_trade_swap_to_chain";
 export const tradeSwapToCoinCookie = "w3_trade_swap_to_coin";
+export const tradeAutoApprovalCookie = "w3_trade_auto_approval";
 export const tradeLendDefiCookie = "w3_trade_lend_defi";
 export const tradeLendChainCookie = "w3_trade_lend_chain";
 export const tradeLendMarketCookie = "w3_trade_lend_market";
@@ -525,6 +526,7 @@ export function normalizeQtyInput(value) {
 
   if (text === "") return "0";
   if (text.endsWith(".")) return text;
+  if (text.includes(".") && /0$/.test(text)) return text;
 
   return String(globalThis.fp(text));
 }

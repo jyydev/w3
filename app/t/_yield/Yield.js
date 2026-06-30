@@ -55,6 +55,7 @@ import {
   signHyperliquidBrowserAgentTypedData,
   signBrowserTypedData,
   SwapTxLink,
+  tradeAutoApprovalCookie,
   tradeYieldChainCookie,
   tradeYieldDefiCookie,
   tradeYieldMarketCookie,
@@ -132,6 +133,10 @@ function getInitialYieldDefi(initialCookieM = {}, walletType = "evm") {
     : options[0]?.value || "";
 }
 
+function getInitialAutoApproval(initialCookieM = {}) {
+  return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
+}
+
 function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = "") {
   const isHyperliquid = defi == "hyperliquid";
 
@@ -162,7 +167,7 @@ function getUnderlyingCoin(chainE, lendCoin) {
 
   const candidates = getChainCoins(chainE)
     .filter((coin) => coin != lendCoin)
-    .filter((coin) => coinInfoM[coin]?.type != "lending")
+    .filter((coin) => coinInfoM[coin]?.type != "lend")
     .sort((a, b) => b.length - a.length);
 
   return (
@@ -411,7 +416,9 @@ export default function YieldPanel({
   const [lendPending, setLendPending] = useState(false);
   const [lendPendingAction, setLendPendingAction] = useState("");
   const [lendResult, setLendResult] = useState(null);
-  const [autoApproval, setAutoApproval] = useState(false);
+  const [autoApproval, setAutoApproval] = useState(
+    getInitialAutoApproval(initialCookieM),
+  );
   const [showMarketMenu, setShowMarketMenu] = useState(false);
   const [sparkAllMarketM, setSparkAllMarketM] = useState({});
   const [sparkAllLoadingM, setSparkAllLoadingM] = useState({});
@@ -1149,6 +1156,13 @@ export default function YieldPanel({
     }
 
     updateRedeemQty(inputQty(maxReceipt - toNum(endQty)));
+  }
+
+  function updateAutoApproval(checked) {
+    setAutoApproval(checked);
+    setCookie(tradeAutoApprovalCookie, checked ? "1" : "0", {
+      maxAge: cookieMaxAge,
+    });
   }
 
   function nextDefi() {
@@ -2173,7 +2187,7 @@ export default function YieldPanel({
           <label className="swapGasSelect">
             <span className="gray">gas:</span>
             <select value="default" disabled>
-              <option value="default">default</option>
+              <option value="default">auto</option>
             </select>
           </label>
           {!isHyperliquid && !selectedWalletEntry?.isBrowserWallet && (
@@ -2181,7 +2195,7 @@ export default function YieldPanel({
               <input
                 type="checkbox"
                 checked={autoApproval}
-                onChange={(e) => setAutoApproval(e.target.checked)}
+                onChange={(e) => updateAutoApproval(e.target.checked)}
               />
               <span className="gray">auto approve</span>
             </label>

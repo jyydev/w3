@@ -18,6 +18,13 @@ import {
   getJupiterTokenDiscovery,
 } from "./svJupiter";
 import {
+  buildJumperSwapTxs,
+  executeJumperSwap,
+  getJumperSupportedBridge,
+  getJumperSwapPreview,
+  getJumperTokenDiscovery,
+} from "./svJumper";
+import {
   buildRelaySwapSteps,
   executeRelaySwap,
   getRelayCurrencyDiscovery,
@@ -62,6 +69,7 @@ import {
   shortAddress,
   signBrowserRelayItem,
   SwapTxLink,
+  tradeAutoApprovalCookie,
   tradeSwapDexCookie,
   tradeSwapFromChainCookie,
   tradeSwapFromCoinCookie,
@@ -71,7 +79,7 @@ import {
 } from "../clientShared";
 
 const walletBalancePatchEvent = "w3:walletBalancePatch";
-const chainDiscoveryDexs = ["relay", "across", "uniswap", "jupiter"];
+const chainDiscoveryDexs = ["relay", "jumper", "across", "uniswap", "jupiter"];
 const emptySwapSupportE = {
   chains: [],
   tokens: [],
@@ -97,6 +105,7 @@ function hasChainDiscovery(defi = "") {
 
 function getSwapSupport(defi = "") {
   if (defi == "relay") return getRelaySupportedBridge();
+  if (defi == "jumper") return getJumperSupportedBridge();
   if (defi == "across") return getAcrossSupportedBridge();
   if (defi == "uniswap") return getUniswapSupportedSwap();
   if (defi == "jupiter") return getJupiterSupportedSwap();
@@ -229,7 +238,7 @@ function isDexSupportedForChain(option = {}, fromChain = "") {
   if (!fromChain) return true;
   if (option.value == "jupiter") return fromChain == "Solana";
   if (fromChain == "Solana") {
-    return ["relay", "across", "jupiter"].includes(option.value);
+    return ["relay", "jumper", "across", "jupiter"].includes(option.value);
   }
 
   return true;
@@ -264,6 +273,10 @@ function getInitialSwapDex(initialCookieM = {}, walletType = "evm") {
   return dexOptions.some((entry) => entry.value == savedDefi)
     ? savedDefi
     : dexOptions[0]?.value || "";
+}
+
+function getInitialAutoApproval(initialCookieM = {}) {
+  return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
 }
 
 export default function SwapPanel({
@@ -363,7 +376,9 @@ export default function SwapPanel({
   );
   const [recipientMode, setRecipientMode] = useState("wallet");
   const [recipientWallet, setRecipientWallet] = useState("");
-  const [autoApproval, setAutoApproval] = useState(false);
+  const [autoApproval, setAutoApproval] = useState(
+    getInitialAutoApproval(initialCookieM),
+  );
   const recipientDefaultKeyRef = useRef("");
   const [recipientBalanceE, setRecipientBalanceE] = useState({
     key: "",
@@ -480,13 +495,13 @@ export default function SwapPanel({
         selectedWalletEntry.address,
       )})`
     : selectedWalletEntry?.name || selectedWalletEntry?.label || "";
-  const needsPrivateKey = ["jupiter", "relay", "uniswap", "across"].includes(defi);
+  const needsPrivateKey = ["jupiter", "jumper", "relay", "uniswap", "across"].includes(defi);
   const canBrowserSignEvm =
     selectedWalletEntry?.isBrowserWallet && selectedWalletEntry?.type == "evm";
   const canBrowserSignSolana =
     selectedWalletEntry?.isBrowserWallet &&
     selectedWalletEntry?.type == "solana" &&
-    ["relay", "across", "jupiter"].includes(defi);
+    ["relay", "jumper", "across", "jupiter"].includes(defi);
   const canBrowserSign = canBrowserSignEvm || canBrowserSignSolana;
   const swapCanExecute =
     !needsPrivateKey || !!selectedWalletEntry?.hasPrivateKey || canBrowserSign;
@@ -556,7 +571,8 @@ export default function SwapPanel({
     relayCurrencyM[fromRelayCurrencyKey] || emptyTokenDiscoveryE;
   const toRelayCurrencyE =
     relayCurrencyM[toRelayCurrencyKey] || emptyTokenDiscoveryE;
-  const usesLazyTokenDiscovery = defi == "relay" || defi == "jupiter";
+  const usesLazyTokenDiscovery =
+    defi == "relay" || defi == "jumper" || defi == "jupiter";
   const fromTokenDiscoveryE =
     usesLazyTokenDiscovery
       ? fromRelayCurrencyE
@@ -698,9 +714,12 @@ export default function SwapPanel({
     }
   }, [defiE.bridge, fromChain, toChain]);
 
-  useEffect(() => {
-    if (!canAutoApprove && autoApproval) setAutoApproval(false);
-  }, [autoApproval, canAutoApprove]);
+  function updateAutoApproval(checked) {
+    setAutoApproval(checked);
+    setCookie(tradeAutoApprovalCookie, checked ? "1" : "0", {
+      maxAge: cookieMaxAge,
+    });
+  }
 
   useEffect(() => {
     if (fromCoins.length) {
@@ -938,7 +957,7 @@ export default function SwapPanel({
   }
 
   async function runSwap() {
-    if (!["jupiter", "relay", "uniswap", "across"].includes(defi)) {
+    if (!["jupiter", "jumper", "relay", "uniswap", "across"].includes(defi)) {
       toast(`${defiE.label}: swap not wired yet`);
       return;
     }
@@ -948,7 +967,7 @@ export default function SwapPanel({
     const useBrowserSolanaWallet =
       selectedWalletEntry?.isBrowserWallet &&
       selectedWalletEntry?.type == "solana" &&
-      ["jupiter", "relay"].includes(defi);
+      ["jupiter", "jumper", "relay"].includes(defi);
     const useBrowserWallet = useBrowserEvmWallet || useBrowserSolanaWallet;
     if (!selectedWalletEntry?.hasPrivateKey && !useBrowserWallet) {
       if (selectedWalletEntry?.isBrowserWallet) {
@@ -965,7 +984,7 @@ export default function SwapPanel({
       toast.error("Jupiter is for Solana swaps only");
       return;
     }
-    if (fromChain == "Solana" && !["jupiter", "relay", "across"].includes(defi)) {
+    if (fromChain == "Solana" && !["jupiter", "jumper", "relay", "across"].includes(defi)) {
       toast.error(`${defiE.label} is not available for Solana-origin swaps`);
       return;
     }
@@ -1054,6 +1073,79 @@ export default function SwapPanel({
             fromCoin,
             toCoin,
             amount,
+          });
+        }
+      } else if (defi == "jumper") {
+        if (useBrowserWallet) {
+          toast.loading("Jumper: building wallet prompts...", { id: toastId });
+          const built = await buildJumperSwapTxs({
+            walletAddress: selectedWalletEntry.address,
+            fromChain,
+            toChain,
+            fromCoin,
+            toCoin,
+            amount,
+            recipient: toAddress,
+          });
+          const txs = [];
+
+          for (const tx of built.txs || []) {
+            toast.loading(`Jumper: confirm ${tx.type}...`, { id: toastId });
+            txs.push(
+              tx.chain == "Solana" || tx.format?.startsWith("solana:")
+                ? await sendBrowserSolanaTx({
+                    tx,
+                    wallet: selectedWalletEntry.browserWallet,
+                    address: selectedWalletEntry.address,
+                  })
+                : await sendBrowserTx({
+                    tx,
+                    wallet: selectedWalletEntry.browserWallet,
+                    address: selectedWalletEntry.address,
+                  }),
+            );
+          }
+          res = { ...built, txs };
+        } else {
+          toast.loading("Jumper: checking quote and allowance...", {
+            id: toastId,
+          });
+          const preview = await getJumperSwapPreview({
+            walletAddress: selectedWalletEntry.address,
+            fromChain,
+            toChain,
+            fromCoin,
+            toCoin,
+            amount,
+            recipient: toAddress,
+          });
+          let approvalAmount = "";
+
+          if (preview.approvalNeeded) {
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
+            if (!approvalAmount) {
+              setSwapPending(false);
+              toast.dismiss(toastId);
+              return;
+            }
+          }
+
+          toast.loading(
+            preview.approvalNeeded
+              ? "Jumper: approving then swapping..."
+              : "Jumper: submitting swap...",
+            { id: toastId },
+          );
+          res = await executeJumperSwap({
+            walletName: selectedWalletEntry.name,
+            walletAddress: selectedWalletEntry.address,
+            fromChain,
+            toChain,
+            fromCoin,
+            toCoin,
+            amount,
+            recipient: toAddress,
+            approvalAmount,
           });
         }
       } else if (defi == "relay") {
@@ -1420,7 +1512,7 @@ export default function SwapPanel({
 
   function requestRelayCurrencies(chain = "", term = "", { force = false } = {}) {
     const currentDefi = defi;
-    if (!chain || !["relay", "jupiter"].includes(currentDefi)) return;
+    if (!chain || !["relay", "jumper", "jupiter"].includes(currentDefi)) return;
     const key = getTokenDiscoveryKey(currentDefi, chain, term);
     const current = relayCurrencyM[key] || emptyTokenDiscoveryE;
     if (!force && (current.loading || current.loaded)) return;
@@ -1470,6 +1562,8 @@ export default function SwapPanel({
     const discoveryRequest =
       currentDefi == "jupiter"
         ? getJupiterTokenDiscovery({ chain, term })
+        : currentDefi == "jumper"
+          ? getJumperTokenDiscovery({ chain, term })
         : getRelayCurrencyDiscovery({ chain, term });
 
     relayCurrencyPromiseM[key] = discoveryRequest
@@ -1545,7 +1639,7 @@ export default function SwapPanel({
   }
 
   function openRelayCoinMenu(side = "from", chain = "") {
-    if (!["relay", "jupiter"].includes(defi)) return;
+    if (!["relay", "jumper", "jupiter"].includes(defi)) return;
     requestRelayCurrencies(chain, relayTokenSearchM[side] || "");
   }
 
@@ -2562,7 +2656,7 @@ export default function SwapPanel({
           <label className="swapGasSelect">
             <span className="gray">gas:</span>
             <select value="default" disabled>
-              <option value="default">default</option>
+              <option value="default">auto</option>
             </select>
           </label>
           <input
@@ -2603,7 +2697,7 @@ export default function SwapPanel({
               <input
                 type="checkbox"
                 checked={autoApproval}
-                onChange={(e) => setAutoApproval(e.target.checked)}
+                onChange={(e) => updateAutoApproval(e.target.checked)}
               />
               <span className="gray">auto approve</span>
             </label>
