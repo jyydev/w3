@@ -8,7 +8,7 @@ import {
   confirmSolanaTransaction,
   sendSolanaRawTransaction,
   submitRelaySignature,
-} from "./sharedAct";
+} from "./svShared";
 
 export const tradeShowCookie = "w3_trade_show";
 export const tradeRightPaneCookie = "w3_trade_right_pane";

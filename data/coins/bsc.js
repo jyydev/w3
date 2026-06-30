@@ -34,7 +34,7 @@ const bsc = {
     address: "0xA5b8FCa32E5252B0B58EAbf1A8c79d958F8EE6A2",
     decimals: 18,
     name: "Venus Fluid Tether USD",
-    type: "lending",
+    type: "yield",
   },
   ASTER: {
     address: "0x000Ae314E2A2172a039B26378814C252734f556A",

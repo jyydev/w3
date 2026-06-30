@@ -8,7 +8,7 @@ import {
   executeSend,
   getTradeCoinBalance,
   getTradeCoinPrice,
-} from "./act";
+} from "./sv";
 import {
   clampInputValue,
   cookieMaxAge,
@@ -32,12 +32,17 @@ import {
   tradeSendCoinCookie,
   tradeSendToWalletCookie,
   toNum,
-} from "../sharedClient";
+} from "../clientShared";
 
 const walletBalancePatchEvent = "w3:walletBalancePatch";
 
 function getChainCoinCookie(base = "", walletType = "evm", chain = "") {
   return `${getTradeModeCookie(base, walletType)}_${chain}`;
+}
+
+function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
 }
 
 export default function SendPanel({
@@ -46,6 +51,7 @@ export default function SendPanel({
   wallets = [],
   selectedWalletEntry,
   walletType = "evm",
+  initialCookieM = {},
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
@@ -66,8 +72,28 @@ export default function SendPanel({
         ),
     [chainList, walletType],
   );
-  const [chain, setChain] = useState(chainNames[0] || "");
-  const [coin, setCoin] = useState("");
+  const initialChain = getInitialCookie(
+    initialCookieM,
+    getTradeModeCookie(tradeSendChainCookie, walletType),
+  );
+  const initialSelectedChain = chainNames.includes(initialChain)
+    ? initialChain
+    : chainNames[0] || "";
+  const initialChainE =
+    chainList.find((entry) => entry.chain == initialSelectedChain) ||
+    chainList[0] ||
+    {};
+  const initialCoins = getChainCoins(initialChainE);
+  const initialSavedCoin =
+    getInitialCookie(
+      initialCookieM,
+      getChainCoinCookie(tradeSendCoinCookie, walletType, initialSelectedChain),
+    ) || "";
+  const initialCoin = initialCoins.includes(initialSavedCoin)
+    ? initialSavedCoin
+    : initialCoins[0] || "";
+  const [chain, setChain] = useState(initialSelectedChain);
+  const [coin, setCoin] = useState(initialCoin);
   const [qty, setQty] = useState("0");
   const [fromEndDraft, setFromEndDraft] = useState("");
   const [toEndDraft, setToEndDraft] = useState("");
@@ -83,7 +109,12 @@ export default function SendPanel({
   const [fromWallet, setFromWallet] = useState(
     selectedWalletEntry?.value || "",
   );
-  const [toWallet, setToWallet] = useState("");
+  const [toWallet, setToWallet] = useState(
+    getInitialCookie(
+      initialCookieM,
+      getTradeModeCookie(tradeSendToWalletCookie, walletType),
+    ) || "",
+  );
   const chainE =
     chainList.find((entry) => entry.chain == chain) || chainList[0] || {};
   const coins = useMemo(() => getChainCoins(chainE), [chainE]);

@@ -20,7 +20,7 @@ import LendPanel from "./_lend/Lend";
 import SendPanel from "./_send/Send";
 import SwapPanel from "./_swap/Swap";
 import YieldPanel from "./_yield/Yield";
-import { getTradeCoinBalance } from "./sharedAct";
+import { getTradeCoinBalance } from "./svShared";
 import {
   cookieMaxAge,
   findWalletEntryByAddress,
@@ -32,7 +32,7 @@ import {
   tradeRightPaneSelectCookie,
   shortAddress,
   tradeShowCookie,
-} from "./sharedClient";
+} from "./clientShared";
 
 const walletBalancePatchEvent = "w3:walletBalancePatch";
 
@@ -64,6 +64,11 @@ function isReservedWalletSource(source = "") {
 
 function filterReservedWalletEntries(entries = []) {
   return entries.filter((entry) => !isReservedWalletSource(entry?.source));
+}
+
+function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
 }
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
@@ -155,7 +160,7 @@ function getLocalSelectedWalletEntries({
   );
 }
 
-function TradePanels({
+function Panels({
   data = [],
   walletData = [],
   customCoinM = {},
@@ -173,10 +178,20 @@ function TradePanels({
   selectedWallet = "",
   requestedWallet = "",
   walletType = "evm",
+  initialCookieM = {},
 }) {
   const router = useRouter();
   const tradeTypes = ["Swap", "Lend", "Yield", "Send"];
   const paneTypes = tradeTypes;
+  const initialLeftPane = getInitialCookie(initialCookieM, tradeLeftPaneCookie);
+  const initialRightPane = getInitialCookie(
+    initialCookieM,
+    tradeRightPaneSelectCookie,
+  );
+  const initialRightPaneVisible = getInitialCookie(
+    initialCookieM,
+    tradeRightPaneCookie,
+  );
   const [connectedWallet, setConnectedWallet] = useState(null);
   const [localWalletEntriesM, setLocalWalletEntriesM] = useState({
     evm: [],
@@ -380,11 +395,24 @@ function TradePanels({
     walletPkM,
     walletType,
   ]);
-  const [show, setShow] = useState(false);
-  const [tradeType, setTradeType] = useState(tradeTypes[0]);
-  const [showRightPane, setShowRightPane] = useState(false);
+  const [show, setShow] = useState(
+    () => getInitialCookie(initialCookieM, tradeShowCookie) == "1",
+  );
+  const [tradeType, setTradeType] = useState(() =>
+    tradeTypes.includes(initialLeftPane) ? initialLeftPane : tradeTypes[0],
+  );
+  const [showRightPane, setShowRightPane] = useState(() =>
+    initialRightPaneVisible === undefined
+      ? false
+      : initialRightPaneVisible == "1",
+  );
   const [pane, setPane] = useState(
-    paneTypes.includes("Lend") ? "Lend" : paneTypes[0],
+    () =>
+      paneTypes.includes(initialRightPane)
+        ? initialRightPane
+        : paneTypes.includes("Lend")
+          ? "Lend"
+          : paneTypes[0],
   );
   const [paneCookiesLoaded, setPaneCookiesLoaded] = useState(false);
   const [wallet, setWallet] = useState(wallets[0]?.value || "");
@@ -691,6 +719,7 @@ function TradePanels({
         walletEntriesM={effectiveWalletEntriesM}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
+        initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
@@ -702,6 +731,7 @@ function TradePanels({
         data={effectiveData}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
+        initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
@@ -713,6 +743,7 @@ function TradePanels({
         data={effectiveYieldData}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
+        initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
@@ -726,6 +757,7 @@ function TradePanels({
         wallets={wallets}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
+        initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
@@ -860,4 +892,4 @@ function TradePanels({
   );
 }
 
-export default TradePanels;
+export default Panels;

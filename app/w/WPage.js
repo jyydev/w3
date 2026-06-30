@@ -119,6 +119,15 @@ function findWalletEntryByAddress(
   );
 }
 
+function getInitialClientCookieM(cookieStore) {
+  return Object.fromEntries(
+    cookieStore
+      .getAll()
+      .filter((entry) => String(entry.name || "").startsWith("w3_"))
+      .map((entry) => [entry.name, entry.value]),
+  );
+}
+
 function getFavWalletEntries(
   favAddrs = [],
   walletType = defaultWalletType,
@@ -194,6 +203,7 @@ async function WPage({
     ]),
   );
   const cookieStore = await cookies();
+  const initialCookieM = getInitialClientCookieM(cookieStore);
   const favAddrs = parseFavAddrs(cookieStore.get(favAddrCookie)?.value);
   const disabledChains = parseDisabledChains(
     cookieStore.get(disabledChainsCookie)?.value,
@@ -438,6 +448,7 @@ async function WPage({
         walletType={selectedWalletType}
         useAlchemy={useAlchemy}
         alchemyMinUsd={alchemyMinUsd}
+        initialCookieM={initialCookieM}
       />
       {isValidElement(afterWallet)
         ? cloneElement(afterWallet, {
@@ -461,6 +472,7 @@ async function WPage({
             selectedWalletName,
             walletType: selectedWalletType,
             walletTypeOptions,
+            initialCookieM,
           })
         : afterWallet}
     </div>

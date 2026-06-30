@@ -267,6 +267,20 @@ const cookieMaxAge = 365 * 24 * 60 * 60;
 const connectedWalletValue = "__connected__";
 const walletNotFoundValue = "__not_found__";
 
+function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+function getInitialActiveChain({ data, initialCookieM = {} } = {}) {
+  const chainList = Array.isArray(data) ? data : data ? [data] : [];
+  const chainNames = chainList.map((chainE) => chainE.chain).filter(Boolean);
+  if (chainNames.length == 1) return chainNames[0];
+
+  const savedActiveChain = getInitialCookie(initialCookieM, activeChainCookie);
+  return chainNames.includes(savedActiveChain) ? savedActiveChain : "";
+}
+
 function Wallet({
   routeBase = "/w",
   customCoinChains = [],
@@ -289,6 +303,7 @@ function Wallet({
   walletType = "evm",
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  initialCookieM = {},
 }) {
   const router = useRouter();
   const walletFileOptions = walletFiles.filter((file) => !file.endsWith("/"));
@@ -296,10 +311,23 @@ function Wallet({
     ? selectedWallet
     : walletFileOptions[0] || "";
   let [show, setShow] = useState(false);
-  let [activeChain, setActiveChain] = useState("");
+  let [activeChain, setActiveChain] = useState(() =>
+    getInitialActiveChain({ data, initialCookieM }),
+  );
   let [loadingWallet, setLoadingWallet] = useState(false);
-  let [coinLimit, setCoinLimit] = useState(1);
-  let [rowSort, setRowSort] = useState("");
+  let [coinLimit, setCoinLimit] = useState(() => {
+    const savedCoinLimit = Number(getInitialCookie(initialCookieM, coinLimitCookie));
+    return Number.isInteger(savedCoinLimit) && savedCoinLimit >= 0
+      ? savedCoinLimit
+      : 1;
+  });
+  let [rowSort, setRowSort] = useState(() => {
+    const savedRowSort = getInitialCookie(initialCookieM, rowSortCookie) || "";
+    return (
+      savedRowSort ||
+      (getInitialCookie(initialCookieM, assetSortCookie) == "1" ? "asset" : "")
+    );
+  });
   let [customAddress, setCustomAddress] = useState(selectedAddress);
   let [showAddWallet, setShowAddWallet] = useState(false);
   let [addWalletFile, setAddWalletFile] = useState(defaultAddWalletFile);
@@ -329,7 +357,9 @@ function Wallet({
   let [localOffChains, setLocalOffChains] = useState([]);
   let [coinSettingSortM, setCoinSettingSortM] = useState({});
   let [openCoinSettingsChain, setOpenCoinSettingsChain] = useState("");
-  let [favAddrs, setFavAddrs] = useState([]);
+  let [favAddrs, setFavAddrs] = useState(() =>
+    parseFavAddrs(getInitialCookie(initialCookieM, favAddrCookie)),
+  );
   let [connectedWallet, setConnectedWallet] = useState(null);
   let [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
   let [localEditorStoreChecked, setLocalEditorStoreChecked] = useState(false);
@@ -800,7 +830,7 @@ function Wallet({
   useEffect(() => {
     const chainNames = chainNameKey ? chainNameKey.split("|") : [];
     if (chainNames.length == 1) {
-      setActiveChain(chainNames[0]);
+      setActiveChain((prev) => (prev == chainNames[0] ? prev : chainNames[0]));
       return;
     }
 
@@ -871,14 +901,18 @@ function Wallet({
 
   useEffect(() => {
     const savedCoinLimit = Number(getCookie(coinLimitCookie));
-    if (Number.isInteger(savedCoinLimit) && savedCoinLimit >= 0) {
+    if (
+      Number.isInteger(savedCoinLimit) &&
+      savedCoinLimit >= 0 &&
+      savedCoinLimit != coinLimit
+    ) {
       setCoinLimit(savedCoinLimit);
     }
 
     const savedRowSort = String(getCookie(rowSortCookie) || "");
-    setRowSort(
-      savedRowSort || (getCookie(assetSortCookie) == "1" ? "asset" : ""),
-    );
+    const nextRowSort =
+      savedRowSort || (getCookie(assetSortCookie) == "1" ? "asset" : "");
+    if (nextRowSort != rowSort) setRowSort(nextRowSort);
     setFavAddrs(parseFavAddrs(getCookie(favAddrCookie)));
   }, []);
 

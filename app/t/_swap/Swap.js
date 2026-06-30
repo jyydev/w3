@@ -6,26 +6,34 @@ import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import {
   buildAcrossSwapTxs,
-  buildJupiterSwapTxs,
-  buildRelaySwapSteps,
-  buildUniswapSwapTxs,
   executeAcrossSwap,
-  executeJupiterSwap,
-  executeRelaySwap,
-  executeUniswapSwap,
   getAcrossSupportedBridge,
   getAcrossSwapPreview,
+} from "./svAcross";
+import {
+  buildJupiterSwapTxs,
+  executeJupiterSwap,
   getJupiterSupportedSwap,
-  getJupiterTokenDiscovery,
   getJupiterSwapPreview,
+  getJupiterTokenDiscovery,
+} from "./svJupiter";
+import {
+  buildRelaySwapSteps,
+  executeRelaySwap,
   getRelayCurrencyDiscovery,
   getRelaySupportedBridge,
   getRelaySwapPreview,
-  getTradeCoinBalance,
-  getTradeCoinPrice,
+} from "./svRelay";
+import {
+  buildUniswapSwapTxs,
+  executeUniswapSwap,
   getUniswapSupportedSwap,
   getUniswapSwapPreview,
-} from "./act";
+} from "./svUniswap";
+import {
+  getTradeCoinBalance,
+  getTradeCoinPrice,
+} from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
@@ -60,7 +68,7 @@ import {
   tradeSwapToChainCookie,
   tradeSwapToCoinCookie,
   toNum,
-} from "../sharedClient";
+} from "../clientShared";
 
 const walletBalancePatchEvent = "w3:walletBalancePatch";
 const chainDiscoveryDexs = ["relay", "across", "uniswap", "jupiter"];
@@ -242,11 +250,28 @@ function getSwapRouteCookie(
     .join("_");
 }
 
+function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+function getInitialSwapDex(initialCookieM = {}, walletType = "evm") {
+  const savedDefi = getInitialCookie(
+    initialCookieM,
+    getTradeModeCookie(tradeSwapDexCookie, walletType),
+  );
+
+  return dexOptions.some((entry) => entry.value == savedDefi)
+    ? savedDefi
+    : dexOptions[0]?.value || "";
+}
+
 export default function SwapPanel({
   data = [],
   walletEntriesM = {},
   selectedWalletEntry,
   walletType = "evm",
+  initialCookieM = {},
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
@@ -268,11 +293,62 @@ export default function SwapPanel({
         : chainNames.filter((chain) => chain != "Solana"),
     [chainNames, walletType],
   );
-  const [defi, setDefi] = useState(dexOptions[0]?.value || "");
-  const [fromChain, setFromChain] = useState(sellChainNames[0] || "");
-  const [toChain, setToChain] = useState(chainNames[0] || "");
-  const [fromCoin, setFromCoin] = useState("");
-  const [toCoin, setToCoin] = useState("");
+  const initialDefi = getInitialSwapDex(initialCookieM, walletType);
+  const initialFromChain =
+    getInitialCookie(
+      initialCookieM,
+      getSwapRouteCookie(tradeSwapFromChainCookie, walletType, initialDefi),
+    ) || "";
+  const initialToChain =
+    getInitialCookie(
+      initialCookieM,
+      getSwapRouteCookie(tradeSwapToChainCookie, walletType, initialDefi),
+    ) || "";
+  const initialSelectedFromChain = sellChainNames.includes(initialFromChain)
+    ? initialFromChain
+    : sellChainNames[0] || "";
+  const initialSelectedToChain = chainNames.includes(initialToChain)
+    ? initialToChain
+    : chainNames[0] || "";
+  const initialFromChainE =
+    chainList.find((chainE) => chainE.chain == initialSelectedFromChain) ||
+    chainList[0];
+  const initialToChainE =
+    chainList.find((chainE) => chainE.chain == initialSelectedToChain) ||
+    initialFromChainE;
+  const initialFromCoins = getChainCoins(initialFromChainE);
+  const initialToCoins = getChainCoins(initialToChainE);
+  const initialSavedFromCoin =
+    getInitialCookie(
+      initialCookieM,
+      getSwapRouteCookie(
+        tradeSwapFromCoinCookie,
+        walletType,
+        initialDefi,
+        initialSelectedFromChain,
+      ),
+    ) || "";
+  const initialSavedToCoin =
+    getInitialCookie(
+      initialCookieM,
+      getSwapRouteCookie(
+        tradeSwapToCoinCookie,
+        walletType,
+        initialDefi,
+        initialSelectedToChain,
+      ),
+    ) || "";
+  const initialFromCoin = initialFromCoins.includes(initialSavedFromCoin)
+    ? initialSavedFromCoin
+    : initialFromCoins[0] || "";
+  const initialToCoin = initialToCoins.includes(initialSavedToCoin)
+    ? initialSavedToCoin
+    : initialToCoins[0] || "";
+  const [defi, setDefi] = useState(initialDefi);
+  const [fromChain, setFromChain] = useState(initialSelectedFromChain);
+  const [toChain, setToChain] = useState(initialSelectedToChain);
+  const [fromCoin, setFromCoin] = useState(initialFromCoin);
+  const [toCoin, setToCoin] = useState(initialToCoin);
   const [fromQty, setFromQty] = useState("0");
   const [toQty, setToQty] = useState("0");
   const [sellEndDraft, setSellEndDraft] = useState("");

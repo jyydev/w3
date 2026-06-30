@@ -7,17 +7,26 @@ import { scanners } from "@/sets";
 import {
   buildHyperliquidAgentApproval,
   buildHyperliquidLendTxs,
-  buildSparkLendTxs,
   executeHyperliquidLend,
-  executeSparkLend,
   getHyperliquidLendPreview,
+  submitHyperliquidAgentApproval,
+  submitHyperliquidLendSignature,
+} from "./svHyperliquid";
+import {
+  buildSparkLendTxs,
+  executeSparkLend,
   getSparkAllMarkets,
   getSparkLendPreview,
   getSparkMarketBalance,
-  getTradeCoinPrice,
-  submitHyperliquidAgentApproval,
-  submitHyperliquidLendSignature,
-} from "./act";
+} from "./svSpark";
+import {
+  buildVenusFluxLendTxs,
+  executeVenusFluxLend,
+  getVenusFluxAllMarkets,
+  getVenusFluxLendPreview,
+  getVenusFluxMarketBalance,
+} from "./svVenusFlux";
+import { getTradeCoinPrice } from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
@@ -50,7 +59,7 @@ import {
   tradeYieldDefiCookie,
   tradeYieldMarketCookie,
   toNum,
-} from "../sharedClient";
+} from "../clientShared";
 
 function isProtocolCoin(protocol, coin, coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
@@ -62,6 +71,15 @@ function isProtocolCoin(protocol, coin, coinE = {}) {
         text.includes("savings") ||
         text.includes("susds") ||
         /^sp[A-Z]/.test(coin))
+    );
+  }
+  if (protocol == "venusFlux") {
+    return (
+      !!coinE?.address &&
+      /^f[A-Z0-9]/.test(coin) &&
+      (text.includes("venus") ||
+        text.includes("fluid") ||
+        text.includes("flux"))
     );
   }
 
@@ -79,6 +97,7 @@ const sparkSupportedChains = new Set([
 function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return false;
   if (option.value == "spark") return true;
+  if (option.value == "venusFlux") return true;
   if (option.value == "hyperliquid") return true;
 
   return false;
@@ -94,6 +113,39 @@ function getProtocolCookie(base = "", walletType = "evm", defi = "", chain = "")
     .join("_");
 }
 
+function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+function getInitialYieldDefi(initialCookieM = {}, walletType = "evm") {
+  const savedDefi = getInitialCookie(
+    initialCookieM,
+    getTradeModeCookie(tradeYieldDefiCookie, walletType),
+  );
+  const options = lendingOptions.filter((option) =>
+    isYieldProtocolSupportedForWallet(option, walletType),
+  );
+
+  return options.some((entry) => entry.value == savedDefi)
+    ? savedDefi
+    : options[0]?.value || "";
+}
+
+function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = "") {
+  const isHyperliquid = defi == "hyperliquid";
+
+  return chainList
+    .filter(
+      (chainE) =>
+        (isHyperliquid
+          ? chainE.chain == "Hyperliquid" && chainMarketsM[chainE.chain]?.length
+          : chainMarketsM[chainE.chain]?.length) ||
+        (defi == "spark" && sparkSupportedChains.has(chainE.chain)),
+    )
+    .map((chainE) => chainE.chain);
+}
+
 function getUnderlyingCoin(chainE, lendCoin) {
   if (chainE?.chain == "Hyperliquid") return "USDC";
 
@@ -105,6 +157,7 @@ function getUnderlyingCoin(chainE, lendCoin) {
   );
   if (savingsNameMatch?.[1]) return savingsNameMatch[1].toUpperCase();
   if (/^sp[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(2);
+  if (/^f[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
   if (/^s[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
 
   const candidates = getChainCoins(chainE)
@@ -188,7 +241,7 @@ function getHyperliquidAgentCookie(walletAddress = "", agentAddress = "") {
 }
 
 function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
-  if (defi != "spark") return 0;
+  if (defi != "spark" && defi != "venusFlux") return 0;
   if (marketE?.supplyApr) return toNum(marketE.supplyApr);
 
   const lendAddress =
@@ -289,12 +342,14 @@ export default function YieldPanel({
   data = [],
   selectedWalletEntry,
   walletType = "evm",
+  initialCookieM = {},
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
   onCycleTradeType,
   onTxComplete = () => {},
 }) {
+  const initialDefi = getInitialYieldDefi(initialCookieM, walletType);
   const chainList = useMemo(
     () =>
       (Array.isArray(data) ? data : data ? [data] : [])
@@ -303,12 +358,47 @@ export default function YieldPanel({
           walletType == "solana"
             ? chainE.chain == "Solana"
             : chainE.chain != "Solana",
-        ),
+      ),
     [data, walletType],
   );
-  const [defi, setDefi] = useState(lendingOptions[0]?.value || "");
-  const [chain, setChain] = useState("");
-  const [market, setMarket] = useState("");
+  const initialChainMarketsM = useMemo(() => {
+    return Object.fromEntries(
+      chainList.map((chainE) => [
+        chainE.chain,
+        getLendingMarkets(chainE, initialDefi),
+      ]),
+    );
+  }, [chainList, initialDefi]);
+  const initialMarketChains = useMemo(
+    () => getYieldMarketChains(chainList, initialChainMarketsM, initialDefi),
+    [chainList, initialChainMarketsM, initialDefi],
+  );
+  const initialSavedChain =
+    getInitialCookie(
+      initialCookieM,
+      getProtocolCookie(tradeYieldChainCookie, walletType, initialDefi),
+    ) || "";
+  const initialChain = initialMarketChains.includes(initialSavedChain)
+    ? initialSavedChain
+    : initialMarketChains[0] || "";
+  const initialChainE =
+    chainList.find((entry) => entry.chain == initialChain) || chainList[0];
+  const initialMarkets = initialChainMarketsM[initialChainE?.chain] || [];
+  const initialSavedMarket =
+    getInitialCookie(
+      initialCookieM,
+      getProtocolCookie(
+        tradeYieldMarketCookie,
+        walletType,
+        initialDefi,
+        initialChain,
+      ),
+    ) || "";
+  const initialMarket =
+    initialSavedMarket || initialMarkets[0]?.value || "";
+  const [defi, setDefi] = useState(initialDefi);
+  const [chain, setChain] = useState(initialChain);
+  const [market, setMarket] = useState(initialMarket);
   const [lendQty, setLendQty] = useState("0");
   const [receiptQty, setReceiptQty] = useState("0");
   const [underlyingEndDraft, setUnderlyingEndDraft] = useState("");
@@ -348,20 +438,10 @@ export default function YieldPanel({
     );
   }, [chainList, defi]);
   const isHyperliquid = defi == "hyperliquid";
+  const isVenusFlux = defi == "venusFlux";
   const marketChains = useMemo(
-    () => {
-      return chainList
-        .filter(
-          (chainE) =>
-            (isHyperliquid
-              ? chainE.chain == "Hyperliquid" &&
-                chainMarketsM[chainE.chain]?.length
-              : chainMarketsM[chainE.chain]?.length) ||
-            (defi == "spark" && sparkSupportedChains.has(chainE.chain)),
-        )
-        .map((chainE) => chainE.chain);
-    },
-    [chainList, chainMarketsM, defi, isHyperliquid],
+    () => getYieldMarketChains(chainList, chainMarketsM, defi),
+    [chainList, chainMarketsM, defi],
   );
   const activeChain = marketChains.includes(chain) ? chain : marketChains[0] || "";
   const chainE =
@@ -395,7 +475,8 @@ export default function YieldPanel({
     return entries;
   }, [chainE?.coinInfoM]);
   const sparkAllKey = chainE?.chain || "";
-  const rawSparkAllMarkets = sparkAllMarketM[sparkAllKey] || [];
+  const allMarketCacheKey = `${defi}:${sparkAllKey}`;
+  const rawSparkAllMarkets = sparkAllMarketM[allMarketCacheKey] || [];
   const sparkAllMarkets = rawSparkAllMarkets
     .map((entry) => {
       const addressKey = String(entry.lendAddress || "").toLowerCase();
@@ -418,27 +499,52 @@ export default function YieldPanel({
       };
     })
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
-  const sparkAllLoading = !!sparkAllLoadingM[sparkAllKey];
-  const sparkAllError = sparkAllErrorM[sparkAllKey] || "";
-  const sparkAddedMarkets = rawSparkAllMarkets
-    .map((entry) => {
-      const addressKey = String(entry.lendAddress || "").toLowerCase();
-      const addedValue = addedMarketAddressM[addressKey] || entry.value;
+  const sparkAllLoading = !!sparkAllLoadingM[allMarketCacheKey];
+  const sparkAllError = sparkAllErrorM[allMarketCacheKey] || "";
+  const visibleAddedMarkets = useMemo(() => {
+    if (!rawSparkAllMarkets.length) return addedMarkets;
+
+    const rawMarketByLendAddress = Object.fromEntries(
+      rawSparkAllMarkets
+        .filter((entry) => entry.lendAddress)
+        .map((entry) => [String(entry.lendAddress).toLowerCase(), entry]),
+    );
+
+    return addedMarkets.map((entry) => {
+      const lendAddress =
+        entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
+      const raw = rawMarketByLendAddress[String(lendAddress).toLowerCase()];
+      if (!raw) return entry;
 
       return {
         ...entry,
-        addedValue,
+        ...raw,
+        value: entry.value,
+        underlyingCoin: entry.underlyingCoin,
+        lendCoin: entry.lendCoin,
+        lendName: entry.lendName || raw.lendName,
+        underlyingAddress: entry.underlyingAddress || raw.underlyingAddress,
+        underlyingDecimals: Number.isInteger(entry.underlyingDecimals)
+          ? entry.underlyingDecimals
+          : raw.underlyingDecimals,
+        lendAddress: entry.lendAddress || raw.lendAddress,
+        lendDecimals: Number.isInteger(entry.lendDecimals)
+          ? entry.lendDecimals
+          : raw.lendDecimals,
+        addedValue: entry.value,
+        addedLend: true,
       };
-    })
-    .filter((entry) => addedCoinAddressM[String(entry.lendAddress || "").toLowerCase()]);
-  const visibleAddedMarkets = sparkAddedMarkets.length
-    ? sparkAddedMarkets
-    : addedMarkets;
+    });
+  }, [addedMarkets, chainE?.coinInfoM, rawSparkAllMarkets]);
   const allMarkets = isHyperliquid ? [] : sparkAllMarkets;
   const allLoading = isHyperliquid ? false : sparkAllLoading;
   const allError = isHyperliquid ? "" : sparkAllError;
   const hasProtocolAllMarkets = !isHyperliquid;
-  const allProtocolLabel = isHyperliquid ? "Hyperliquid" : "Spark";
+  const allProtocolLabel = isHyperliquid
+    ? "Hyperliquid"
+    : isVenusFlux
+      ? "Venus Flux"
+      : "Spark";
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
@@ -530,7 +636,9 @@ export default function YieldPanel({
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    defi == "spark" ? toNum(marketPreview?.receiptPerUnderlying) : 0;
+    defi == "spark" || defi == "venusFlux"
+      ? toNum(marketPreview?.receiptPerUnderlying)
+      : 0;
   const underlyingListPrice = toNum(underlyingBalance.price);
   const receiptListPrice = toNum(receiptBalance.price);
   const underlyingFallbackPrice = fallbackPriceM[underlyingPriceKey];
@@ -543,7 +651,9 @@ export default function YieldPanel({
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
     (isHyperliquid && lendCoin ? 1 : 0) ||
-    (defi == "spark" && underlyingPrice && marketReceiptRate
+    ((defi == "spark" || defi == "venusFlux") &&
+    underlyingPrice &&
+    marketReceiptRate
       ? underlyingPrice / marketReceiptRate
       : 0);
   const vaultLockedUntil =
@@ -555,7 +665,7 @@ export default function YieldPanel({
     isHyperliquid && nowMs > 0 && vaultLockedUntilMs > nowMs;
   const vaultLockText = vaultLocked ? formatLockUntil(vaultLockedUntilMs) : "";
   const receiptRate =
-    defi == "spark" && marketReceiptRate
+    (defi == "spark" || defi == "venusFlux") && marketReceiptRate
       ? marketReceiptRate
       : underlyingPrice && receiptPrice
         ? underlyingPrice / receiptPrice
@@ -699,41 +809,55 @@ export default function YieldPanel({
   }, []);
 
   useEffect(() => {
-    if (defi != "spark" || !sparkAllKey) return;
-    if (sparkAllMarketM[sparkAllKey] !== undefined || sparkAllLoadingM[sparkAllKey]) {
+    if ((defi != "spark" && defi != "venusFlux") || !sparkAllKey) return;
+    if (
+      sparkAllMarketM[allMarketCacheKey] !== undefined ||
+      sparkAllLoadingM[allMarketCacheKey]
+    ) {
       return;
     }
 
-    setSparkAllLoadingM((loadingM) => ({ ...loadingM, [sparkAllKey]: true }));
-    setSparkAllErrorM((errorM) => ({ ...errorM, [sparkAllKey]: "" }));
+    const getAllMarkets =
+      defi == "venusFlux" ? getVenusFluxAllMarkets : getSparkAllMarkets;
+    const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
+
+    setSparkAllLoadingM((loadingM) => ({
+      ...loadingM,
+      [allMarketCacheKey]: true,
+    }));
+    setSparkAllErrorM((errorM) => ({ ...errorM, [allMarketCacheKey]: "" }));
     withClientTimeout(
-      getSparkAllMarkets({ chain: sparkAllKey }),
+      getAllMarkets({ chain: sparkAllKey }),
       25000,
-      `${sparkAllKey} Spark loading timeout`,
+      `${sparkAllKey} ${protocolLabel} loading timeout`,
     )
       .then((res) => {
         if (!mountedRef.current) return;
         setSparkAllMarketM((marketM) => ({
           ...marketM,
-          [sparkAllKey]: Array.isArray(res?.markets) ? res.markets : [],
+          [allMarketCacheKey]: Array.isArray(res?.markets) ? res.markets : [],
         }));
       })
       .catch((e) => {
         if (!mountedRef.current) return;
-        setSparkAllMarketM((marketM) => ({ ...marketM, [sparkAllKey]: [] }));
+        setSparkAllMarketM((marketM) => ({
+          ...marketM,
+          [allMarketCacheKey]: [],
+        }));
         setSparkAllErrorM((errorM) => ({
           ...errorM,
-          [sparkAllKey]: e?.message || "Spark markets failed",
+          [allMarketCacheKey]: e?.message || `${protocolLabel} markets failed`,
         }));
       })
       .finally(() => {
         if (!mountedRef.current) return;
         setSparkAllLoadingM((loadingM) => ({
           ...loadingM,
-          [sparkAllKey]: false,
+          [allMarketCacheKey]: false,
         }));
       });
   }, [
+    allMarketCacheKey,
     defi,
     sparkAllKey,
     sparkAllRetryTick,
@@ -752,12 +876,15 @@ export default function YieldPanel({
     }
 
     let cancelled = false;
+    const getMarketBalance =
+      defi == "venusFlux" ? getVenusFluxMarketBalance : getSparkMarketBalance;
+    const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
     setDirectBalanceLoadingM((loadingM) => ({
       ...loadingM,
       [directBalanceKey]: true,
     }));
     withClientTimeout(
-      getSparkMarketBalance({
+      getMarketBalance({
         walletAddress: selectedWalletEntry.address,
         chain: chainE.chain,
         underlyingAddress: marketE.underlyingAddress,
@@ -766,7 +893,7 @@ export default function YieldPanel({
         lendDecimals: marketE.lendDecimals,
       }),
       12000,
-      `${chainE.chain} Spark balance timeout`,
+      `${chainE.chain} ${protocolLabel} balance timeout`,
     )
       .then((res) => {
         if (cancelled) return;
@@ -811,7 +938,7 @@ export default function YieldPanel({
 
   useEffect(() => {
     if (
-      defi != "spark" ||
+      (defi != "spark" && defi != "venusFlux") ||
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
@@ -822,11 +949,13 @@ export default function YieldPanel({
     if (marketPreviewLoaded) return;
 
     let cancelled = false;
+    const getPreview =
+      defi == "venusFlux" ? getVenusFluxLendPreview : getSparkLendPreview;
     setMarketLoadingM((loadingM) => ({
       ...loadingM,
       [marketPreviewKey]: true,
     }));
-    getSparkLendPreview({
+    getPreview({
       walletAddress: selectedWalletEntry.address,
       chain: chainE.chain,
       action: "lend",
@@ -1105,11 +1234,14 @@ export default function YieldPanel({
     e.stopPropagation();
     setSparkAllMarketM((marketM) => {
       const next = { ...marketM };
-      delete next[sparkAllKey];
+      delete next[allMarketCacheKey];
       return next;
     });
-    setSparkAllErrorM((errorM) => ({ ...errorM, [sparkAllKey]: "" }));
-    setSparkAllLoadingM((loadingM) => ({ ...loadingM, [sparkAllKey]: false }));
+    setSparkAllErrorM((errorM) => ({ ...errorM, [allMarketCacheKey]: "" }));
+    setSparkAllLoadingM((loadingM) => ({
+      ...loadingM,
+      [allMarketCacheKey]: false,
+    }));
     setSparkAllRetryTick((tick) => tick + 1);
   }
 
@@ -1229,13 +1361,18 @@ export default function YieldPanel({
       return;
     }
     const isSpark = defi == "spark";
+    const isVenusFluxAction = defi == "venusFlux";
     const isHyperliquidAction = defi == "hyperliquid";
 
-    if (!isSpark && !isHyperliquidAction) {
+    if (!isSpark && !isVenusFluxAction && !isHyperliquidAction) {
       toast(`${lendingE.label}: lending not wired yet`);
       return;
     }
-    const protocol = isHyperliquidAction ? "Hyperliquid" : "Spark";
+    const protocol = isHyperliquidAction
+      ? "Hyperliquid"
+      : isVenusFluxAction
+        ? "Venus Flux"
+        : "Spark";
     if (!selectedWalletEntry?.address) {
       toast.error("wallet missing");
       return;
@@ -1285,13 +1422,19 @@ export default function YieldPanel({
     const useBrowserWallet = !!selectedWalletEntry?.isBrowserWallet;
     const buildTxs = isHyperliquidAction
       ? buildHyperliquidLendTxs
-      : buildSparkLendTxs;
+      : isVenusFluxAction
+        ? buildVenusFluxLendTxs
+        : buildSparkLendTxs;
     const executeLend = isHyperliquidAction
       ? executeHyperliquidLend
-      : executeSparkLend;
+      : isVenusFluxAction
+        ? executeVenusFluxLend
+        : executeSparkLend;
     const previewLend = isHyperliquidAction
       ? getHyperliquidLendPreview
-      : getSparkLendPreview;
+      : isVenusFluxAction
+        ? getVenusFluxLendPreview
+        : getSparkLendPreview;
     const directMarketArgs =
       isHyperliquidAction
         ? {
@@ -1714,30 +1857,32 @@ export default function YieldPanel({
             {">"}
           </button>
         </label>
-        <span className="selectCycle">
-          <select
-            value={marketChains.length ? chainE?.chain || "" : ""}
-            onChange={(e) => selectChain(e.target.value)}
-            onClick={focusSelectedChain}
-            onFocus={focusSelectedChain}
-            disabled={!marketChains.length}
-          >
-            {!marketChains.length && <option value="">no chain</option>}
-            {marketChains.map((chainName) => (
-              <option key={chainName} value={chainName}>
-                {chainName}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn small bgGray"
-            onClick={nextChain}
-            disabled={marketChains.length < 2}
-          >
-            {">"}
-          </button>
-        </span>
+        {!isHyperliquid && (
+          <span className="selectCycle">
+            <select
+              value={marketChains.length ? chainE?.chain || "" : ""}
+              onChange={(e) => selectChain(e.target.value)}
+              onClick={focusSelectedChain}
+              onFocus={focusSelectedChain}
+              disabled={!marketChains.length}
+            >
+              {!marketChains.length && <option value="">no chain</option>}
+              {marketChains.map((chainName) => (
+                <option key={chainName} value={chainName}>
+                  {chainName}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn small bgGray"
+              onClick={nextChain}
+              disabled={marketChains.length < 2}
+            >
+              {">"}
+            </button>
+          </span>
+        )}
         {hasProtocolAllMarkets ? (
           <span className="selectCycle walletCycle lendMarketCycle">
             <button
@@ -1769,8 +1914,8 @@ export default function YieldPanel({
                           type="button"
                           className={
                             entry.value == market
-                              ? "sendWalletMenuItem on"
-                              : "sendWalletMenuItem"
+                              ? "sendWalletMenuItem lendMarketAddedItem on"
+                              : "sendWalletMenuItem lendMarketAddedItem"
                           }
                           onClick={() => selectMarket(entry.value)}
                         >
@@ -1786,6 +1931,7 @@ export default function YieldPanel({
                               }
                             />
                           </span>
+                          <AprText apr={entry.supplyApr} label={false} />
                         </button>
                       ))
                     ) : (

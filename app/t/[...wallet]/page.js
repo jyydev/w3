@@ -1,5 +1,5 @@
 import WPage from "../../w/WPage";
-import TradePanels from "../TradePanels";
+import Panels from "../Panels";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ async function App({ params, searchParams }) {
       walletType={chain}
       walletName={w}
       walletAddress={addr}
-      afterWallet={<TradePanels />}
+      afterWallet={<Panels />}
     />
   );
 }
