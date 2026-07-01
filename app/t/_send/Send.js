@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import { pc } from "@/fn/basic";
 import {
   buildSendTx,
   executeSend,
@@ -28,6 +29,12 @@ import {
   sendBrowserTx,
   shortAddress,
   SwapTxLink,
+  TradePickerColumn,
+  TradePickerMenu,
+  TradePickerSortHeader,
+  TradePickerTable,
+  sortTradePickerRows,
+  toggleTradePickerSort,
   tradeSendChainCookie,
   tradeSendCoinCookie,
   tradeSendToWalletCookie,
@@ -57,6 +64,7 @@ export default function SendPanel({
   onTradeTypeChange,
   onCycleTradeType,
   onFromWalletChange = () => {},
+  showGasAutoLabel = false,
   onTxComplete = () => {},
 }) {
   const chainList = useMemo(
@@ -104,7 +112,12 @@ export default function SendPanel({
   const [priceLoadingM, setPriceLoadingM] = useState({});
   const [sendPending, setSendPending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
+  const [showCoinMenu, setShowCoinMenu] = useState(false);
   const [showToWalletMenu, setShowToWalletMenu] = useState(false);
+  const [coinSort, setCoinSort] = useState("");
+  const [loadedWalletSort, setLoadedWalletSort] = useState("");
+  const [allWalletSort, setAllWalletSort] = useState("");
+  const coinPickerRef = useRef(null);
   const toWalletPickerRef = useRef(null);
   const [fromWallet, setFromWallet] = useState(
     selectedWalletEntry?.value || "",
@@ -127,6 +140,11 @@ export default function SendPanel({
     [walletEntriesM, walletType],
   );
   const currentToWallets = fromWallets;
+  const coinButtonWidth = useMemo(() => {
+    const maxLength = Math.max(4, ...coins.map((coinName) => coinName.length));
+
+    return `${Math.min(Math.max(maxLength, 4), 18)}ch`;
+  }, [coins]);
   const toWalletButtonWidth = useMemo(() => {
     const maxLabelLength = Math.max(
       6,
@@ -268,16 +286,19 @@ export default function SendPanel({
   }, [chain, coin, fromEntry?.value]);
 
   useEffect(() => {
-    function closeToWalletMenu(e) {
+    function closeMenus(e) {
+      if (!coinPickerRef.current?.contains(e.target)) {
+        setShowCoinMenu(false);
+      }
       if (!toWalletPickerRef.current?.contains(e.target)) {
         setShowToWalletMenu(false);
       }
     }
 
-    document.addEventListener("mousedown", closeToWalletMenu);
+    document.addEventListener("mousedown", closeMenus);
 
     return () => {
-      document.removeEventListener("mousedown", closeToWalletMenu);
+      document.removeEventListener("mousedown", closeMenus);
     };
   }, []);
 
@@ -497,6 +518,7 @@ export default function SendPanel({
   function selectCoin(coin) {
     setCoin(coin);
     saveSendCoinCookie(coin);
+    setShowCoinMenu(false);
   }
 
   function saveSendCoinCookie(coin) {
@@ -504,6 +526,35 @@ export default function SendPanel({
     setCookie(getChainCoinCookie(tradeSendCoinCookie, walletType, chain), coin, {
       maxAge: cookieMaxAge,
     });
+  }
+
+  function CoinQty({ coinName = "" }) {
+    const balance = getSelectedBalance(chainE, coinName, fromEntry);
+    if (!Object.prototype.hasOwnProperty.call(balance || {}, "balance")) {
+      return null;
+    }
+
+    return <span>{pc(balance.balance)}</span>;
+  }
+
+  function getCoinQty(coinName = "") {
+    const balance = getSelectedBalance(chainE, coinName, fromEntry);
+
+    return Object.prototype.hasOwnProperty.call(balance || {}, "balance")
+      ? toNum(balance.balance)
+      : 0;
+  }
+
+  function PickerSortHeader({ activeSort = "", setSort, sortKey = "", children }) {
+    return (
+      <TradePickerSortHeader
+        activeSort={activeSort}
+        sortKey={sortKey}
+        onSort={() => toggleTradePickerSort(setSort, sortKey)}
+      >
+        {children}
+      </TradePickerSortHeader>
+    );
   }
 
   function cycleWalletSelection(list, value, direction = "next") {
@@ -694,6 +745,35 @@ export default function SendPanel({
     }
   }
 
+  const sortedCoinRows = sortTradePickerRows(
+    coins.map((coinName) => ({
+      coinName,
+      qty: getCoinQty(coinName),
+    })),
+    coinSort,
+    {
+      coin: (entry) => entry.coinName,
+      qty: (entry) => entry.qty,
+    },
+    { qty: "desc" },
+  );
+  const sortedLoadedWallets = sortTradePickerRows(
+    currentToWallets,
+    loadedWalletSort,
+    {
+      wallet: (entry) => entry.label,
+      addr: (entry) => entry.address,
+    },
+  );
+  const sortedAllWallets = sortTradePickerRows(
+    toWallets,
+    allWalletSort,
+    {
+      wallet: (entry) => entry.label,
+      addr: (entry) => entry.address,
+    },
+  );
+
   return (
     <div className="tradePane swapPane sendPane">
       <div className="flex tradePaneTop">
@@ -739,14 +819,70 @@ export default function SendPanel({
             {">"}
           </button>
         </span>
-        <span className="selectCycle">
-          <select value={coin} onChange={(e) => selectCoin(e.target.value)}>
-            {coins.map((coinName) => (
-              <option key={coinName} value={coinName}>
-                {coinName}
-              </option>
-            ))}
-          </select>
+        <span className="selectCycle sendCoinCycle">
+          <div className="sendWalletPicker" ref={coinPickerRef}>
+            <button
+              type="button"
+              className="sendWalletPickerButton"
+              style={{ width: coinButtonWidth }}
+              disabled={!coins.length}
+              onClick={() => setShowCoinMenu((show) => !show)}
+            >
+              {coin || "coin"}
+            </button>
+            {showCoinMenu && (
+              <TradePickerMenu className="sendCoinMenu">
+                <TradePickerColumn title="coins">
+                  <TradePickerTable
+                    className="sendCoinTable"
+                    headers={[
+                      <PickerSortHeader
+                        activeSort={coinSort}
+                        setSort={setCoinSort}
+                        sortKey="coin"
+                      >
+                        coin
+                      </PickerSortHeader>,
+                      <PickerSortHeader
+                        activeSort={coinSort}
+                        setSort={setCoinSort}
+                        sortKey="qty"
+                      >
+                        qty
+                      </PickerSortHeader>,
+                    ]}
+                  >
+                    <tbody>
+                      {sortedCoinRows.length ? (
+                        sortedCoinRows.map(({ coinName }) => (
+                          <tr
+                            key={coinName}
+                            className={
+                              coinName == coin
+                                ? "lendMarketRow on"
+                                : "lendMarketRow"
+                            }
+                            onClick={() => selectCoin(coinName)}
+                          >
+                            <td>{coinName}</td>
+                            <td>
+                              <CoinQty coinName={coinName} />
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={2} className="gray">
+                            -
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </TradePickerTable>
+                </TradePickerColumn>
+              </TradePickerMenu>
+            )}
+          </div>
           <button
             type="button"
             className="btn small bgGray"
@@ -845,12 +981,14 @@ export default function SendPanel({
 
         <div className="swapMiddle">
           <div className="sendQtyControl">
-            <label className="swapGasSelect">
-              <span className="gray">gas:</span>
-              <select value="default" disabled>
-                <option value="default">auto</option>
-              </select>
-            </label>
+            {showGasAutoLabel && (
+              <label className="swapGasSelect">
+                <span className="gray">gas:</span>
+                <select value="default" disabled>
+                  <option value="default">auto</option>
+                </select>
+              </label>
+            )}
             <input
               className="swapMiddleRange"
               type="range"
@@ -883,7 +1021,7 @@ export default function SendPanel({
         <div className="swapBox">
           <div className="swapAssetLine">
             <span className="gray">to:</span>
-            <span className="selectCycle walletCycle toWalletCycle">
+            <div className="selectCycle walletCycle toWalletCycle">
               <button
                 type="button"
                 className="btn small bgGray"
@@ -892,7 +1030,7 @@ export default function SendPanel({
               >
                 {"<"}
               </button>
-              <span className="sendWalletPicker" ref={toWalletPickerRef}>
+              <div className="sendWalletPicker" ref={toWalletPickerRef}>
                 <button
                   type="button"
                   className="sendWalletPickerButton"
@@ -902,54 +1040,98 @@ export default function SendPanel({
                   {toEntry?.label || "wallet"}
                 </button>
                 {showToWalletMenu && (
-                  <span className="sendWalletMenu">
-                    <span className="sendWalletMenuCol">
-                      <span className="sendWalletMenuTitle">loaded</span>
-                      {currentToWallets.length ? (
-                        currentToWallets.map((entry) => (
-                          <button
-                            key={`loaded_${entry.value}_${entry.address}`}
-                            type="button"
-                            className={
-                              entry.value == toWallet
-                                ? "sendWalletMenuItem on"
-                                : "sendWalletMenuItem"
-                            }
-                            onClick={() => selectToWallet(entry.value)}
+                  <TradePickerMenu className="sendWalletTableMenu">
+                    <TradePickerColumn title="loaded">
+                      <TradePickerTable
+                        className="sendWalletTable"
+                        headers={[
+                          <PickerSortHeader
+                            activeSort={loadedWalletSort}
+                            setSort={setLoadedWalletSort}
+                            sortKey="wallet"
                           >
-                            <span>{entry.label}</span>
-                            <span className="gray">
-                              {shortTail(entry.address)}
-                            </span>
-                          </button>
-                        ))
-                      ) : (
-                        <span className="gray">-</span>
-                      )}
-                    </span>
-                    <span className="sendWalletMenuCol">
-                      <span className="sendWalletMenuTitle">all</span>
-                      {toWallets.map((entry) => (
-                        <button
-                          key={`all_${entry.value}_${entry.address}`}
-                          type="button"
-                          className={
-                            entry.value == toWallet
-                              ? "sendWalletMenuItem on"
-                              : "sendWalletMenuItem"
-                          }
-                          onClick={() => selectToWallet(entry.value)}
-                        >
-                          <span>{entry.label}</span>
-                          <span className="gray">
-                            {shortTail(entry.address)}
-                          </span>
-                        </button>
-                      ))}
-                    </span>
-                  </span>
+                            wallet
+                          </PickerSortHeader>,
+                          <PickerSortHeader
+                            activeSort={loadedWalletSort}
+                            setSort={setLoadedWalletSort}
+                            sortKey="addr"
+                          >
+                            addr
+                          </PickerSortHeader>,
+                        ]}
+                      >
+                        <tbody>
+                          {sortedLoadedWallets.length ? (
+                            sortedLoadedWallets.map((entry) => (
+                              <tr
+                                key={`loaded_${entry.value}_${entry.address}`}
+                                className={
+                                  entry.value == toWallet
+                                    ? "lendMarketRow on"
+                                    : "lendMarketRow"
+                                }
+                                onClick={() => selectToWallet(entry.value)}
+                              >
+                                <td>{entry.label}</td>
+                                <td className="gray">
+                                  {shortTail(entry.address)}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={2} className="gray">
+                                -
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </TradePickerTable>
+                    </TradePickerColumn>
+                    <TradePickerColumn title="all">
+                      <TradePickerTable
+                        className="sendWalletTable"
+                        headers={[
+                          <PickerSortHeader
+                            activeSort={allWalletSort}
+                            setSort={setAllWalletSort}
+                            sortKey="wallet"
+                          >
+                            wallet
+                          </PickerSortHeader>,
+                          <PickerSortHeader
+                            activeSort={allWalletSort}
+                            setSort={setAllWalletSort}
+                            sortKey="addr"
+                          >
+                            addr
+                          </PickerSortHeader>,
+                        ]}
+                      >
+                        <tbody>
+                          {sortedAllWallets.map((entry) => (
+                            <tr
+                              key={`all_${entry.value}_${entry.address}`}
+                              className={
+                                entry.value == toWallet
+                                  ? "lendMarketRow on"
+                                  : "lendMarketRow"
+                              }
+                              onClick={() => selectToWallet(entry.value)}
+                            >
+                              <td>{entry.label}</td>
+                              <td className="gray">
+                                {shortTail(entry.address)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </TradePickerTable>
+                    </TradePickerColumn>
+                  </TradePickerMenu>
                 )}
-              </span>
+              </div>
               <button
                 type="button"
                 className="btn small bgGray"
@@ -961,7 +1143,7 @@ export default function SendPanel({
               <span className="gray sendWalletTail">
                 {shortTail(toEntry?.address)}
               </span>
-            </span>
+            </div>
           </div>
           <div className="swapBalanceLine">
             <span className="swapAssetBalance">

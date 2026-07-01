@@ -170,6 +170,7 @@ function Panels({
   offAddrs = [],
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  showGasAutoLabel = false,
   walletEntries = [],
   walletEntriesM = {},
   walletPkM = {},
@@ -732,6 +733,7 @@ function Panels({
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
+        showGasAutoLabel={showGasAutoLabel}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Lend" ? (
@@ -744,6 +746,7 @@ function Panels({
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
+        showGasAutoLabel={showGasAutoLabel}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Yield" ? (
@@ -756,6 +759,7 @@ function Panels({
         tradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
+        showGasAutoLabel={showGasAutoLabel}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Send" ? (
@@ -771,6 +775,7 @@ function Panels({
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
         onFromWalletChange={setWallet}
+        showGasAutoLabel={showGasAutoLabel}
         onTxComplete={refreshWalletBalances}
       />
     ) : null;

@@ -90,6 +90,16 @@ const hyperliquidUnitWithdrawHiddenRoutes = new Set([
   "base_across",
   "lifi",
 ]);
+const hyperliquidStaticRouteFeeM = {
+  deposit: {
+    "arbitrum:usdc": { fee: "0.2" },
+    "arbitrum_cctp:usdc": { fee: "0.2" },
+  },
+  withdraw: {
+    "arbitrum:usdc": { fee: "0.2", eta: "5m" },
+    "arbitrum_cctp:usdc": { fee: "0.2", eta: "5m" },
+  },
+};
 
 function getHyperliquidUnitFeeGroup(route = "", asset = "") {
   if (route == "base" && asset != "eth") return "base-erc20";
@@ -120,15 +130,24 @@ function getHyperliquidUnitFeeValue(fees = {}, route = "", asset = "", action = 
     `${actionKey}-eta`,
   ];
 
+  const staticFeeE =
+    hyperliquidStaticRouteFeeM?.[action]?.[
+      `${String(route || "").toLowerCase()}:${String(asset || "").toLowerCase()}`
+    ] || {};
+
   return {
     fee:
       feeKeys
         .map((key) => entry?.[key])
-        .find((value) => value !== undefined && value !== null) || "",
+        .find((value) => value !== undefined && value !== null) ||
+      staticFeeE.fee ||
+      "",
     eta:
       etaKeys
         .map((key) => entry?.[key])
-        .find((value) => value !== undefined && value !== null) || "",
+        .find((value) => value !== undefined && value !== null) ||
+      staticFeeE.eta ||
+      "",
   };
 }
 
@@ -162,10 +181,12 @@ function buildHyperliquidUnitDiscovery({ action = "deposit", fees = {} } = {}) {
           chain,
           label: chain,
           routes: [],
+          coins: [],
           added: !!coinM?.[chain],
         });
       }
-      chainM.get(chainKey).routes.push({
+      const chainE = chainM.get(chainKey);
+      chainE.routes.push({
         label: route.label,
         route: route.value,
       });
@@ -192,13 +213,40 @@ function buildHyperliquidUnitDiscovery({ action = "deposit", fees = {} } = {}) {
       tokenE.added = tokenE.added || !!localCoinE;
       tokenE.fee = tokenE.fee || feeE.fee;
       tokenE.eta = tokenE.eta || feeE.eta;
+
+      let chainCoinE = chainE.coins.find((entry) => entry.coin == coin);
+      if (!chainCoinE) {
+        chainCoinE = {
+          chain,
+          coin,
+          name: localCoinE?.name || coin,
+          asset,
+          routes: [],
+          added: !!localCoinE,
+          actionSupported,
+          fee: feeE.fee,
+          eta: feeE.eta,
+        };
+        chainE.coins.push(chainCoinE);
+      }
+      chainCoinE.routes.push({
+        label: route.label,
+        route: route.value,
+      });
+      chainCoinE.added = chainCoinE.added || !!localCoinE;
+      chainCoinE.actionSupported = chainCoinE.actionSupported || actionSupported;
+      chainCoinE.fee = chainCoinE.fee || feeE.fee;
+      chainCoinE.eta = chainCoinE.eta || feeE.eta;
     }
   }
 
   return {
-    chains: [...chainM.values()].sort((a, b) =>
-      a.chain.localeCompare(b.chain),
-    ),
+    chains: [...chainM.values()]
+      .map((entry) => ({
+        ...entry,
+        coins: entry.coins.sort((a, b) => a.coin.localeCompare(b.coin)),
+      }))
+      .sort((a, b) => a.chain.localeCompare(b.chain)),
     tokens: [...tokenM.values()].sort(
       (a, b) => a.chain.localeCompare(b.chain) || a.coin.localeCompare(b.coin),
     ),

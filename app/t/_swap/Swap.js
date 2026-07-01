@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
+import { pc } from "@/fn/basic";
 import {
   buildAcrossSwapTxs,
   executeAcrossSwap,
@@ -69,6 +70,11 @@ import {
   shortAddress,
   signBrowserRelayItem,
   SwapTxLink,
+  TradePickerColumn,
+  TradePickerMenu,
+  TradePickerSortHeader,
+  TradePickerTable,
+  sortTradePickerRows,
   tradeAutoApprovalCookie,
   tradeSwapDexCookie,
   tradeSwapFromChainCookie,
@@ -197,10 +203,17 @@ function getTokenDiscoveryKey(defi = "", chain = "", term = "") {
   return `${defi}:${getRelayCurrencyKey(chain, term)}`;
 }
 
+function getTokenAddressKey(chain = "", address = "") {
+  const value = String(address || "").trim();
+  if (!value) return "";
+
+  return chain == "Solana" ? value : value.toLowerCase();
+}
+
 function getDiscoveryTokenKey(entry = {}, index = "") {
   return [
     entry.chain || "",
-    String(entry.address || "").toLowerCase(),
+    getTokenAddressKey(entry.chain, entry.address),
     entry.symbol || "",
     entry.name || "",
     Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
@@ -211,7 +224,7 @@ function getDiscoveryTokenKey(entry = {}, index = "") {
 function getDiscoveryTokenDedupeKey(entry = {}) {
   return [
     entry.chain || "",
-    String(entry.address || "").toLowerCase(),
+    getTokenAddressKey(entry.chain, entry.address),
     entry.symbol || "",
     entry.name || "",
     Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
@@ -289,6 +302,7 @@ export default function SwapPanel({
   tradeTypes = [],
   onTradeTypeChange,
   onCycleTradeType,
+  showGasAutoLabel = false,
   onTxComplete = () => {},
 }) {
   const chainList = useMemo(
@@ -391,6 +405,7 @@ export default function SwapPanel({
   const [showToChainMenu, setShowToChainMenu] = useState(false);
   const [showFromCoinMenu, setShowFromCoinMenu] = useState(false);
   const [showToCoinMenu, setShowToCoinMenu] = useState(false);
+  const [pickerSortM, setPickerSortM] = useState({});
   const fromChainPickerRef = useRef(null);
   const toChainPickerRef = useRef(null);
   const fromCoinPickerRef = useRef(null);
@@ -906,6 +921,66 @@ export default function SwapPanel({
     );
 
     return row?.balances?.[coin] || {};
+  }
+
+  function hasLoadedBalance(balance = {}) {
+    return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
+  }
+
+  function getCoinByAddress(chainE, address = "") {
+    const addressKey = getTokenAddressKey(chainE?.chain, address);
+    if (!addressKey) return "";
+
+    return (
+      Object.entries(chainE?.coinInfoM || {}).find(
+        ([, coinE]) =>
+          getTokenAddressKey(chainE?.chain, coinE?.address) == addressKey,
+      )?.[0] || ""
+    );
+  }
+
+  function getSwapCoinBalance(chain = "", coin = "", address = "") {
+    const chainE = chainList.find((entry) => entry.chain == chain);
+    const localCoin =
+      getCoinByAddress(chainE, address) || (chainE?.coinInfoM?.[coin] ? coin : "");
+
+    return localCoin ? getSelectedBalance(chainE, localCoin) : {};
+  }
+
+  function CoinBalance({ balance = {} }) {
+    if (!hasLoadedBalance(balance)) return null;
+
+    return <span>{pc(balance.balance)}</span>;
+  }
+
+  function getSwapBalanceQty(balance = {}) {
+    return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
+  }
+
+  function getPickerSortKey(name = "") {
+    return `${defi || "dex"}:${name}`;
+  }
+
+  function togglePickerSort(name = "", sortKey = "") {
+    const pickerKey = getPickerSortKey(name);
+    setPickerSortM((sortM) => ({
+      ...sortM,
+      [pickerKey]: sortM[pickerKey] == sortKey ? "" : sortKey,
+    }));
+  }
+
+  function PickerSortHeader({ picker = "", sortKey = "", children }) {
+    const pickerKey = getPickerSortKey(picker);
+
+    return (
+      <TradePickerSortHeader
+        activeSort={pickerSortM[pickerKey] || ""}
+        sortKey={sortKey}
+        onSort={() => togglePickerSort(picker, sortKey)}
+      >
+        {children}
+      </TradePickerSortHeader>
+    );
   }
 
   function isRecipientBalanceMode() {
@@ -1673,31 +1748,36 @@ export default function SwapPanel({
     const chainE = chainList.find((chainEntry) => chainEntry.chain == chain);
     const coins = getChainCoins(chainE);
     const symbol = String(entry.symbol || "").trim();
-    if (symbol && coins.includes(symbol)) return symbol;
+    const address = getTokenAddressKey(chain, entry.address);
 
-    const address = String(entry.address || "").toLowerCase();
-    if (!address) return "";
+    if (address) {
+      return (
+        coins.find((coin) => {
+          const coinAddress = getTokenAddressKey(
+            chain,
+            chainE?.coinInfoM?.[coin]?.address,
+          );
+          return coinAddress && coinAddress == address;
+        }) || ""
+      );
+    }
 
-    return (
-      coins.find((coin) => {
-        const coinAddress = String(
-          chainE?.coinInfoM?.[coin]?.address || "",
-        ).toLowerCase();
-        return coinAddress && coinAddress == address;
-      }) || ""
-    );
+    return symbol && coins.includes(symbol) ? symbol : "";
   }
 
   function isDiscoveryCoinSupported(chain = "", coin = "", allTokens = []) {
     const chainE = chainList.find((chainEntry) => chainEntry.chain == chain);
     const coinE = chainE?.coinInfoM?.[coin] || {};
+    const coinAddress = getTokenAddressKey(chain, coinE.address);
     return allTokens.some((entry) => {
       if (entry.chain != chain) return false;
-      if (entry.symbol && entry.symbol == coin) return true;
+      const tokenAddress = getTokenAddressKey(chain, entry.address);
 
-      const tokenAddress = String(entry.address || "").toLowerCase();
-      const coinAddress = String(coinE.address || "").toLowerCase();
-      return tokenAddress && coinAddress && tokenAddress == coinAddress;
+      if (tokenAddress || coinAddress) {
+        return tokenAddress && coinAddress && tokenAddress == coinAddress;
+      }
+
+      return entry.symbol && entry.symbol == coin;
     });
   }
 
@@ -1802,7 +1882,7 @@ export default function SwapPanel({
         return;
       }
 
-      const addressKey = String(entry.address || "").toLowerCase();
+      const addressKey = getTokenAddressKey(customCoinPreview.chain, entry.address);
       setLocallyAddedAddressM((addressM) => ({
         ...addressM,
         [`${customCoinPreview.chain}:${addressKey}`]: true,
@@ -1823,121 +1903,207 @@ export default function SwapPanel({
     addedChains = [],
     allChains = [],
   }) {
+    const supportLoaded =
+      swapSupportE.loaded && !swapSupportE.loading && !swapSupportE.error;
+    const addedPicker = `${side}:chain:added`;
+    const allPicker = `${side}:chain:all`;
+    const addedSort = pickerSortM[getPickerSortKey(addedPicker)] || "";
+    const allSort = pickerSortM[getPickerSortKey(allPicker)] || "";
+    const addedChainRows = sortTradePickerRows(
+      addedChains.map((chain) => {
+        const supported =
+          !supportLoaded || allChains.some((entry) => entry.chain == chain);
+        return {
+          chain,
+          label: chain,
+          supported,
+          on: supported ? 1 : 0,
+        };
+      }),
+      addedSort,
+      {
+        chain: (entry) => entry.label,
+        on: (entry) => entry.on,
+      },
+      { on: "desc" },
+    );
+    const allChainRows = sortTradePickerRows(
+      allChains.map((entry) => {
+        const label = entry.name || entry.chain || entry.chainId;
+        const canSelect = !!entry.chain && addedChains.includes(entry.chain);
+        return {
+          entry,
+          label,
+          chain: entry.chain || "",
+          canSelect,
+          add: canSelect ? 1 : 0,
+        };
+      }),
+      allSort,
+      {
+        chain: (entry) => entry.label,
+        add: (entry) => entry.add,
+      },
+      { add: "desc" },
+    );
+
     return (
-      <span className="sendWalletMenu swapChainMenu">
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">added</span>
-          {addedChains.length ? (
-            addedChains.map((chain) => {
-              const supportLoaded =
-                swapSupportE.loaded && !swapSupportE.loading && !swapSupportE.error;
-              const supported =
-                !supportLoaded || allChains.some((entry) => entry.chain == chain);
-              return (
-                <button
-                  key={`${side}_added_${chain}`}
-                  type="button"
-                  className={
-                    [
-                      "sendWalletMenuItem",
-                      "swapChainAddedItem",
-                      chain == selectedChain ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")
-                  }
-                  onClick={() =>
-                    supported
-                      ? selectDiscoveryChain(
-                          { chain, name: chain, added: true },
-                          side,
-                        )
-                      : showUnsupportedChain(chain)
-                  }
-                >
-                  <span>{chain}</span>
-                  {!supported && <span className="gray">off</span>}
-                </button>
-              );
-            })
-          ) : (
-            <span className="gray">-</span>
-          )}
-        </span>
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">all</span>
-          {swapSupportE.loading && (
-            <span className="gray">loading {defiE.label || "DEX"}...</span>
-          )}
-          {!swapSupportE.loading && swapSupportE.error && (
-            <span className="sendWalletMenuItem swapChainAllItem">
-              <span className="red">{swapSupportE.error}</span>
-              <button
-                type="button"
-                className="btn small bgGray"
-                onClick={retrySwapSupport}
-              >
-                retry
-              </button>
-            </span>
-          )}
-          {!swapSupportE.loading &&
-            !swapSupportE.error &&
-            !allChains.length && (
-              <span className="sendWalletMenuItem swapChainAllItem">
-                <span className="gray">-</span>
-                <button
-                  type="button"
-                  className="btn small bgGray"
-                  onClick={retrySwapSupport}
-                >
-                  retry
-                </button>
-              </span>
-            )}
-          {!swapSupportE.loading &&
-            !swapSupportE.error &&
-            allChains.map((entry) => {
-              const canSelect =
-                !!entry.chain && addedChains.includes(entry.chain);
-              const label = entry.name || entry.chain || entry.chainId;
-              return (
-                <span
-                  key={`${side}_all_${entry.chainId || label}`}
-                  className={
-                    entry.chain == selectedChain
-                      ? "sendWalletMenuItem swapChainAllItem on"
-                      : "sendWalletMenuItem swapChainAllItem"
-                  }
-                >
-                  <button
-                    type="button"
-                    className="lendMarketAllSelect swapChainAllSelect"
-                    onClick={() => selectDiscoveryChain(entry, side)}
-                    disabled={!canSelect}
-                  >
-                    <span>{label}</span>
-                    {entry.chain && entry.chain != label && (
-                      <span className="gray">{entry.chain}</span>
-                    )}
-                  </button>
-                  {canSelect ? (
-                    <span className="gray">✓</span>
-                  ) : (
+      <TradePickerMenu className="swapChainMenu">
+        <TradePickerColumn title="added">
+          <TradePickerTable
+            className="swapChainAddedTable"
+            headers={[
+              <PickerSortHeader picker={addedPicker} sortKey="chain">
+                chain
+              </PickerSortHeader>,
+              <PickerSortHeader picker={addedPicker} sortKey="on">
+                on
+              </PickerSortHeader>,
+            ]}
+          >
+            <tbody>
+              {addedChainRows.length ? (
+                addedChainRows.map((row) => {
+                  const { chain, supported } = row;
+                  return (
+                    <tr
+                      key={`${side}_added_${chain}`}
+                      className={[
+                        "lendMarketRow",
+                        chain == selectedChain ? "on" : "",
+                        supported ? "" : "unsupported",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapChainAllSelect"
+                          onClick={() =>
+                            supported
+                              ? selectDiscoveryChain(
+                                  { chain, name: chain, added: true },
+                                  side,
+                                )
+                              : showUnsupportedChain(chain)
+                          }
+                        >
+                          <span>{chain}</span>
+                        </button>
+                      </td>
+                      <td>{!supported && <span className="gray">off</span>}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={2} className="gray">
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+        <TradePickerColumn title="all">
+          <TradePickerTable
+            className="swapChainAllTable"
+            headers={[
+              <PickerSortHeader picker={allPicker} sortKey="chain">
+                chain
+              </PickerSortHeader>,
+              <PickerSortHeader picker={allPicker} sortKey="add">
+                add
+              </PickerSortHeader>,
+            ]}
+          >
+            <tbody>
+              {swapSupportE.loading && (
+                <tr>
+                  <td colSpan={2} className="gray">
+                    loading {defiE.label || "DEX"}...
+                  </td>
+                </tr>
+              )}
+              {!swapSupportE.loading && swapSupportE.error && (
+                <tr>
+                  <td>
+                    <span className="red">{swapSupportE.error}</span>
+                  </td>
+                  <td>
                     <button
                       type="button"
-                      className="btn small bgCyan"
-                      onClick={() => showManualChain(entry)}
+                      className="btn small bgGray"
+                      onClick={retrySwapSupport}
                     >
-                      +
+                      retry
                     </button>
-                  )}
-                </span>
-              );
-            })}
-        </span>
-      </span>
+                  </td>
+                </tr>
+              )}
+              {!swapSupportE.loading &&
+                !swapSupportE.error &&
+                !allChains.length && (
+                  <tr>
+                    <td className="gray">-</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn small bgGray"
+                        onClick={retrySwapSupport}
+                      >
+                        retry
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              {!swapSupportE.loading &&
+                !swapSupportE.error &&
+                allChainRows.map((row) => {
+                  const { entry, label, canSelect } = row;
+                  return (
+                    <tr
+                      key={`${side}_all_${entry.chainId || label}`}
+                      className={
+                        entry.chain == selectedChain
+                          ? "lendMarketRow on"
+                          : "lendMarketRow"
+                      }
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapChainAllSelect"
+                          onClick={() => selectDiscoveryChain(entry, side)}
+                          disabled={!canSelect}
+                        >
+                          <span>{label}</span>
+                          {entry.chain && entry.chain != label && (
+                            <span className="gray">{entry.chain}</span>
+                          )}
+                        </button>
+                      </td>
+                      <td>
+                        {canSelect ? (
+                          <span className="gray">✓</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn small bgCyan"
+                            onClick={() => showManualChain(entry)}
+                          >
+                            +
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+      </TradePickerMenu>
     );
   }
 
@@ -1986,8 +2152,8 @@ export default function SwapPanel({
     }
 
     return (
-      <span className="selectCycle walletCycle swapChainCycle">
-        <span className="sendWalletPicker" ref={pickerRef}>
+      <div className="selectCycle walletCycle swapChainCycle">
+        <div className="sendWalletPicker" ref={pickerRef}>
           <button
             type="button"
             className="sendWalletPickerButton"
@@ -2009,7 +2175,7 @@ export default function SwapPanel({
               addedChains,
               allChains,
             })}
-        </span>
+        </div>
         <button
           type="button"
           className="btn small bgGray"
@@ -2018,7 +2184,7 @@ export default function SwapPanel({
         >
           {">"}
         </button>
-      </span>
+      </div>
     );
   }
 
@@ -2036,51 +2202,135 @@ export default function SwapPanel({
     onRetryTokens = retrySwapSupport,
     showSearch = false,
   }) {
+    const addedPicker = `${side}:coin:added:${chain}`;
+    const allPicker = `${side}:coin:all:${chain}`;
+    const addedSort = pickerSortM[getPickerSortKey(addedPicker)] || "";
+    const allSort = pickerSortM[getPickerSortKey(allPicker)] || "";
+    const supportLoaded =
+      strictSupport &&
+      tokenDiscoveryE.loaded &&
+      !tokenDiscoveryE.loading &&
+      !tokenDiscoveryE.error;
+    const addedCoinRows = sortTradePickerRows(
+      addedCoins.map((coin) => {
+        const balance = getSwapCoinBalance(chain, coin);
+        const supported =
+          !supportLoaded || isDiscoveryCoinSupported(chain, coin, allTokens);
+        return {
+          coin,
+          balance,
+          qty: getSwapBalanceQty(balance),
+          supported,
+          on: supported ? 1 : 0,
+        };
+      }),
+      addedSort,
+      {
+        coin: (entry) => entry.coin,
+        qty: (entry) => entry.qty,
+        on: (entry) => entry.on,
+      },
+      { qty: "desc", on: "desc" },
+    );
+    const allTokenRows = sortTradePickerRows(
+      allTokens.map((entry, index) => {
+        const localCoin = findLocalCoinForDiscovery(chain, entry);
+        const balance = getSwapCoinBalance(
+          chain,
+          localCoin || entry.symbol,
+          entry.address,
+        );
+        const addressKey = getTokenAddressKey(chain, entry.address);
+        const added =
+          !!localCoin ||
+          !!(addressKey && locallyAddedAddressM[`${chain}:${addressKey}`]);
+        const symbol = entry.symbol || "token";
+        const name = entry.name && entry.name != symbol ? entry.name : "";
+        return {
+          entry,
+          index,
+          localCoin,
+          balance,
+          qty: getSwapBalanceQty(balance),
+          added,
+          add: added ? 1 : 0,
+          symbol,
+          name,
+        };
+      }),
+      allSort,
+      {
+        coin: (entry) => entry.symbol,
+        name: (entry) => entry.name,
+        qty: (entry) => entry.qty,
+        add: (entry) => entry.add,
+      },
+      { qty: "desc", add: "desc" },
+    );
+
     return (
-      <span className="sendWalletMenu swapCoinMenu">
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">added</span>
-          {addedCoins.length ? (
-            addedCoins.map((coin) => {
-              const supportLoaded =
-                strictSupport &&
-                tokenDiscoveryE.loaded &&
-                !tokenDiscoveryE.loading &&
-                !tokenDiscoveryE.error;
-              const supported =
-                !supportLoaded ||
-                isDiscoveryCoinSupported(chain, coin, allTokens);
-              return (
-                <button
-                  key={`${side}_added_coin_${coin}`}
-                  type="button"
-                  className={
-                    [
-                      "sendWalletMenuItem",
-                      "swapCoinAddedItem",
-                      coin == selectedCoin ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")
-                  }
-                  onClick={() =>
-                    supported
-                      ? selectDiscoveryCoin({ symbol: coin }, side)
-                      : showUnsupportedCoin(chain, coin)
-                  }
-                >
-                  <span>{coin}</span>
-                  {!supported && <span className="gray">off</span>}
-                </button>
-              );
-            })
-          ) : (
-            <span className="gray">-</span>
-          )}
-        </span>
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">discovery</span>
+      <TradePickerMenu className="swapCoinMenu">
+        <TradePickerColumn title="added">
+          <TradePickerTable
+            className="swapCoinAddedTable"
+            headers={[
+              <PickerSortHeader picker={addedPicker} sortKey="coin">
+                coin
+              </PickerSortHeader>,
+              <PickerSortHeader picker={addedPicker} sortKey="qty">
+                qty
+              </PickerSortHeader>,
+              <PickerSortHeader picker={addedPicker} sortKey="on">
+                on
+              </PickerSortHeader>,
+            ]}
+          >
+            <tbody>
+              {addedCoinRows.length ? (
+                addedCoinRows.map((row) => {
+                  const { coin, balance, supported } = row;
+                  return (
+                    <tr
+                      key={`${side}_added_coin_${coin}`}
+                      className={[
+                        "lendMarketRow",
+                        coin == selectedCoin ? "on" : "",
+                        supported ? "" : "unsupported",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapCoinAllSelect"
+                          onClick={() =>
+                            supported
+                              ? selectDiscoveryCoin({ symbol: coin }, side)
+                              : showUnsupportedCoin(chain, coin)
+                          }
+                        >
+                          <span>{coin}</span>
+                        </button>
+                      </td>
+                      <td>
+                        <CoinBalance balance={balance} />
+                      </td>
+                      <td>{!supported && <span className="gray">off</span>}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={3} className="gray">
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+        <TradePickerColumn title="discovery">
           {showSearch && (
             <form className="swapCoinSearch" onSubmit={onSearchSubmit}>
               <input
@@ -2094,84 +2344,132 @@ export default function SwapPanel({
               </button>
             </form>
           )}
-          {tokenDiscoveryE.loading && (
-            <span className="gray">loading {defiE.label || "DEX"}...</span>
-          )}
-          {!tokenDiscoveryE.loading && tokenDiscoveryE.error && (
-            <span className="sendWalletMenuItem swapCoinAllItem">
-              <span className="red">{tokenDiscoveryE.error}</span>
-              <button
-                type="button"
-                className="btn small bgGray"
-                onClick={onRetryTokens}
-              >
-                retry
-              </button>
-            </span>
-          )}
-          {!tokenDiscoveryE.loading &&
-            !tokenDiscoveryE.error &&
-            !allTokens.length && (
-              <span className="sendWalletMenuItem swapCoinAllItem">
-                <span className="gray">-</span>
-                <button
-                  type="button"
-                  className="btn small bgGray"
-                  onClick={onRetryTokens}
-                >
-                  retry
-                </button>
-              </span>
-            )}
-          {!tokenDiscoveryE.loading &&
-            !tokenDiscoveryE.error &&
-            allTokens.map((entry, index) => {
-              const localCoin = findLocalCoinForDiscovery(chain, entry);
-              const addressKey = String(entry.address || "").toLowerCase();
-              const added =
-                !!localCoin || !!locallyAddedAddressM[`${chain}:${addressKey}`];
-              const symbol = entry.symbol || "token";
-              return (
-                <span
-                  key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
-                  className={
-                    localCoin == selectedCoin
-                      ? "sendWalletMenuItem swapCoinAllItem on"
-                      : "sendWalletMenuItem swapCoinAllItem"
-                  }
-                >
-                  <button
-                    type="button"
-                    className="lendMarketAllSelect swapCoinAllSelect"
-                    onClick={() =>
-                      localCoin
-                        ? selectDiscoveryCoin(entry, side)
-                        : openDiscoveryCoinConfirm(
-                            { preventDefault() {}, stopPropagation() {} },
-                            chain,
-                            entry,
-                          )
-                    }
-                  >
-                    <span>{symbol}</span>
-                    {entry.name && entry.name != symbol && (
-                      <span className="gray">{entry.name}</span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className={added ? "btn small bgGray" : "btn small bgCyan"}
-                    onClick={(e) => openDiscoveryCoinConfirm(e, chain, entry)}
-                    disabled={added || addingCoin}
-                    title={entry.name || symbol}
-                  >
-                    {added ? "✓" : "+"}
-                  </button>
-                </span>
-              );
-            })}
-        </span>
-      </span>
+          <TradePickerTable
+            className="swapCoinAllTable"
+            headers={[
+              <PickerSortHeader picker={allPicker} sortKey="coin">
+                coin
+              </PickerSortHeader>,
+              <PickerSortHeader picker={allPicker} sortKey="name">
+                name
+              </PickerSortHeader>,
+              <PickerSortHeader picker={allPicker} sortKey="qty">
+                qty
+              </PickerSortHeader>,
+              <PickerSortHeader picker={allPicker} sortKey="add">
+                add
+              </PickerSortHeader>,
+            ]}
+          >
+            <tbody>
+              {tokenDiscoveryE.loading && (
+                <tr>
+                  <td colSpan={4} className="gray">
+                    loading {defiE.label || "DEX"}...
+                  </td>
+                </tr>
+              )}
+              {!tokenDiscoveryE.loading && tokenDiscoveryE.error && (
+                <tr>
+                  <td colSpan={3}>
+                    <span className="red">{tokenDiscoveryE.error}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={onRetryTokens}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!tokenDiscoveryE.loading &&
+                !tokenDiscoveryE.error &&
+                !allTokens.length && (
+                  <tr>
+                    <td colSpan={3} className="gray">
+                      -
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn small bgGray"
+                        onClick={onRetryTokens}
+                      >
+                        retry
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              {!tokenDiscoveryE.loading &&
+                !tokenDiscoveryE.error &&
+                allTokenRows.map((row) => {
+                  const {
+                    entry,
+                    index,
+                    localCoin,
+                    balance,
+                    added,
+                    symbol,
+                    name,
+                  } = row;
+                  return (
+                    <tr
+                      key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
+                      className={
+                        localCoin == selectedCoin
+                          ? "lendMarketRow on"
+                          : "lendMarketRow"
+                      }
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapCoinAllSelect"
+                          onClick={() =>
+                            localCoin
+                              ? selectDiscoveryCoin(entry, side)
+                              : openDiscoveryCoinConfirm(
+                                  {
+                                    preventDefault() {},
+                                    stopPropagation() {},
+                                  },
+                                  chain,
+                                  entry,
+                                )
+                          }
+                        >
+                          <span>{symbol}</span>
+                        </button>
+                      </td>
+                      <td className="gray">{name}</td>
+                      <td>
+                        <CoinBalance balance={balance} />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className={
+                            added ? "btn small bgGray" : "btn small bgCyan"
+                          }
+                          onClick={(e) =>
+                            openDiscoveryCoinConfirm(e, chain, entry)
+                          }
+                          disabled={added || addingCoin}
+                          title={entry.name || symbol}
+                        >
+                          {added ? "✓" : "+"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+      </TradePickerMenu>
     );
   }
 
@@ -2219,8 +2517,8 @@ export default function SwapPanel({
     }
 
     return (
-      <span className="selectCycle walletCycle swapCoinCycle">
-        <span className="sendWalletPicker" ref={pickerRef}>
+      <div className="selectCycle walletCycle swapCoinCycle">
+        <div className="sendWalletPicker" ref={pickerRef}>
           <button
             type="button"
             className="sendWalletPickerButton"
@@ -2248,7 +2546,7 @@ export default function SwapPanel({
               onRetryTokens,
               showSearch,
             })}
-        </span>
+        </div>
         <button
           type="button"
           className="btn small bgGray"
@@ -2257,7 +2555,7 @@ export default function SwapPanel({
         >
           {">"}
         </button>
-      </span>
+      </div>
     );
   }
 
@@ -2653,12 +2951,14 @@ export default function SwapPanel({
         </div>
 
         <div className="swapMiddle">
-          <label className="swapGasSelect">
-            <span className="gray">gas:</span>
-            <select value="default" disabled>
-              <option value="default">auto</option>
-            </select>
-          </label>
+          {showGasAutoLabel && (
+            <label className="swapGasSelect">
+              <span className="gray">gas:</span>
+              <select value="default" disabled>
+                <option value="default">auto</option>
+              </select>
+            </label>
+          )}
           <input
             className="swapMiddleRange"
             type="range"

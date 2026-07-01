@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
+import { pc } from "@/fn/basic";
 import {
   buildHyperliquidAgentApproval,
   buildHyperliquidLendTxs,
@@ -61,9 +62,20 @@ import {
   signHyperliquidBrowserAgentTypedData,
   signBrowserTypedData,
   SwapTxLink,
+  TradePickerColumn,
+  TradePickerMenu,
+  TradePickerSortHeader,
+  TradePickerTable,
+  sortTradePickerRows,
+  toggleTradePickerSort,
   tradeAutoApprovalCookie,
   tradeYieldChainCookie,
   tradeYieldDefiCookie,
+  tradeYieldHyperliquidChainCookie,
+  tradeYieldHyperliquidCoinCookie,
+  tradeYieldHyperliquidDepositCoinCookie,
+  tradeYieldHyperliquidModeCookie,
+  tradeYieldHyperliquidWithdrawCoinCookie,
   tradeYieldMarketCookie,
   toNum,
 } from "../clientShared";
@@ -122,12 +134,13 @@ function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
   return false;
 }
 
-function getProtocolCookie(base = "", walletType = "evm", defi = "", chain = "") {
-  return [
-    getTradeModeCookie(base, walletType),
-    defi || "defi",
-    chain || "",
-  ]
+function getProtocolCookie(
+  base = "",
+  walletType = "evm",
+  defi = "",
+  chain = "",
+) {
+  return [getTradeModeCookie(base, walletType), defi || "defi", chain || ""]
     .filter(Boolean)
     .join("_");
 }
@@ -153,6 +166,32 @@ function getInitialYieldDefi(initialCookieM = {}, walletType = "evm") {
 
 function getInitialAutoApproval(initialCookieM = {}) {
   return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
+}
+
+function getInitialHyperliquidMode(initialCookieM = {}, walletType = "evm") {
+  const value = getInitialCookie(
+    initialCookieM,
+    getProtocolCookie(
+      tradeYieldHyperliquidModeCookie,
+      walletType,
+      "hyperliquid",
+    ),
+  );
+
+  return value == "deposit" ? "deposit" : "vault";
+}
+
+function getInitialHyperliquidRouteCookie(
+  initialCookieM = {},
+  walletType = "evm",
+  base = "",
+) {
+  return (
+    getInitialCookie(
+      initialCookieM,
+      getProtocolCookie(base, walletType, "hyperliquid"),
+    ) || ""
+  );
 }
 
 function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = "") {
@@ -247,9 +286,20 @@ function formatLockUntil(value) {
 
 function sameAddressText(a = "", b = "") {
   return (
-    String(a || "").trim().toLowerCase() ==
-    String(b || "").trim().toLowerCase()
+    String(a || "")
+      .trim()
+      .toLowerCase() ==
+    String(b || "")
+      .trim()
+      .toLowerCase()
   );
+}
+
+function getTokenAddressKey(chain = "", address = "") {
+  const value = String(address || "").trim();
+  if (!value) return "";
+
+  return chain == "Solana" ? value : value.toLowerCase();
 }
 
 function getHyperliquidAgentCookie(walletAddress = "", agentAddress = "") {
@@ -268,7 +318,9 @@ function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
   if (marketE?.supplyApr) return toNum(marketE.supplyApr);
 
   const lendAddress =
-    marketE?.lendAddress || chainE?.coinInfoM?.[marketE?.lendCoin]?.address || "";
+    marketE?.lendAddress ||
+    chainE?.coinInfoM?.[marketE?.lendCoin]?.address ||
+    "";
   const underlyingAddress =
     marketE?.underlyingAddress ||
     chainE?.coinInfoM?.[marketE?.underlyingCoin]?.address ||
@@ -354,16 +406,40 @@ function hasLoadedBalance(balance = {}) {
   return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
 }
 
+function getCoinByAddress(chainE, address = "") {
+  const addressKey = getTokenAddressKey(chainE?.chain, address);
+  if (!addressKey) return "";
+
+  return (
+    Object.entries(chainE?.coinInfoM || {}).find(
+      ([, coinE]) => getTokenAddressKey(chainE?.chain, coinE?.address) == addressKey,
+    )?.[0] || ""
+  );
+}
+
+function getMarketCoinBalance(chainE, coin = "", address = "", selectedWalletEntry) {
+  const localCoin =
+    getCoinByAddress(chainE, address) || (chainE?.coinInfoM?.[coin] ? coin : "");
+  return localCoin ? getSelectedBalance(chainE, localCoin, selectedWalletEntry) : {};
+}
+
+function MarketCoinBalance({ balance = {} }) {
+  if (!hasLoadedBalance(balance)) return null;
+
+  return <span>{pc(balance.balance)}</span>;
+}
+
+function getBalanceQty(balance = {}) {
+  return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
+}
+
 function isHyperliquidDepositCoin(chain = "", coin = "", coinE = {}) {
   const supportedCoins = hyperliquidBridgeCoinM[chain];
   if (!supportedCoins?.has(coin)) return false;
 
   const text = `${coin} ${coinE?.name || ""}`.toUpperCase();
 
-  return (
-    coinE?.type == "stable" &&
-    text.includes("USDC")
-  );
+  return coinE?.type == "stable" && text.includes("USDC");
 }
 
 function getHyperliquidDepositCoins(chainE) {
@@ -372,7 +448,9 @@ function getHyperliquidDepositCoins(chainE) {
   if (!hyperliquidBridgeCoinM[chainE?.chain]) return [];
 
   return getChainCoins(chainE)
-    .filter((coin) => isHyperliquidDepositCoin(chainE.chain, coin, coinInfoM[coin]))
+    .filter((coin) =>
+      isHyperliquidDepositCoin(chainE.chain, coin, coinInfoM[coin]),
+    )
     .sort((a, b) => {
       const ai = priority.indexOf(a);
       const bi = priority.indexOf(b);
@@ -394,85 +472,102 @@ function getHyperliquidBridgeTokens(discoveryE = {}, side = "deposit") {
     : [];
 }
 
-function getFallbackHyperliquidCoins(chainList = []) {
-  return uniqueText(
-    chainList.flatMap((chainE) => getHyperliquidDepositCoins(chainE)),
-  );
+function getHyperliquidBridgeChains(discoveryE = {}, side = "deposit") {
+  return Array.isArray(discoveryE?.[side]?.chains)
+    ? discoveryE[side].chains
+    : [];
 }
 
-function getFallbackHyperliquidChainsForCoin(chainList = [], coin = "") {
+function getFallbackHyperliquidChains(chainList = []) {
   return uniqueText(
     chainList
-      .filter((chainE) => getHyperliquidDepositCoins(chainE).includes(coin))
+      .filter((chainE) => getHyperliquidDepositCoins(chainE).length)
       .map((chainE) => chainE.chain),
   );
 }
 
-function getHyperliquidAllCoins({
+function getHyperliquidAllChains({
   discoveryE = {},
   side = "deposit",
-  fallbackCoins = [],
-} = {}) {
-  const coins = getHyperliquidBridgeTokens(discoveryE, side)
-    .map((entry) => entry.coin);
-
-  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
-}
-
-function getHyperliquidAddedCoins({
-  chainList = [],
-  discoveryE = {},
-  side = "deposit",
-  fallbackCoins = [],
-} = {}) {
-  const discoveryCoins = new Set(
-    getHyperliquidBridgeTokens(discoveryE, side).map((entry) => entry.coin),
-  );
-  const coins = chainList.flatMap((chainE) =>
-    getChainCoins(chainE).filter(
-      (coin) => !discoveryCoins.size || discoveryCoins.has(coin),
-    ),
-  );
-
-  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
-}
-
-function getHyperliquidAllChainsForCoin({
-  discoveryE = {},
-  side = "deposit",
-  coin = "",
   fallbackChains = [],
 } = {}) {
-  const chains = getHyperliquidBridgeTokens(discoveryE, side)
-    .filter((entry) => entry.coin == coin)
-    .map((entry) => entry.chain);
+  const chains = getHyperliquidBridgeChains(discoveryE, side).map(
+    (entry) => entry.chain,
+  );
 
   return uniqueText(chains).length ? uniqueText(chains) : fallbackChains;
 }
 
-function getHyperliquidAddedChainsForCoin({ chainList = [], coin = "" } = {}) {
-  return uniqueText(
-    chainList
-      .filter((chainE) => chainE?.coinInfoM?.[coin])
-      .map((chainE) => chainE.chain),
+function getHyperliquidAddedChains({
+  chainList = [],
+  discoveryE = {},
+  side = "deposit",
+  fallbackChains = [],
+} = {}) {
+  const discoveryChains = new Set(
+    getHyperliquidBridgeChains(discoveryE, side).map((entry) => entry.chain),
+  );
+  const chains = chainList
+    .map((chainE) => chainE.chain)
+    .filter((chain) => !discoveryChains.size || discoveryChains.has(chain));
+
+  return uniqueText(chains).length ? uniqueText(chains) : fallbackChains;
+}
+
+function getFallbackHyperliquidCoinsForChain(chainE) {
+  return getHyperliquidDepositCoins(chainE);
+}
+
+function getHyperliquidChainEntry({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+} = {}) {
+  return getHyperliquidBridgeChains(discoveryE, side).find(
+    (entry) => entry.chain == chain,
   );
 }
 
-function getHyperliquidChainTokenEntries({
+function getHyperliquidAllCoinsForChain({
   discoveryE = {},
   side = "deposit",
-  coin = "",
+  chain = "",
+  fallbackCoins = [],
 } = {}) {
-  const chainM = new Map();
-  for (const entry of getHyperliquidBridgeTokens(discoveryE, side)) {
-    if (entry.coin != coin) continue;
-    if (!chainM.has(entry.chain)) {
-      chainM.set(entry.chain, { ...entry, routes: [] });
-    }
-    chainM.get(entry.chain).routes.push(...(entry.routes || []));
-  }
+  const chainE = getHyperliquidChainEntry({ discoveryE, side, chain });
+  const coins = (chainE?.coins || []).map((entry) => entry.coin);
 
-  return [...chainM.values()];
+  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
+}
+
+function getHyperliquidAddedCoinsForChain({
+  chainE,
+  discoveryE = {},
+  side = "deposit",
+  fallbackCoins = [],
+} = {}) {
+  const allCoins = new Set(
+    getHyperliquidAllCoinsForChain({
+      discoveryE,
+      side,
+      chain: chainE?.chain,
+      fallbackCoins: [],
+    }),
+  );
+  const coins = getChainCoins(chainE).filter(
+    (coin) => !allCoins.size || allCoins.has(coin),
+  );
+
+  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
+}
+
+function getHyperliquidCoinTokenEntries({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+} = {}) {
+  const chainE = getHyperliquidChainEntry({ discoveryE, side, chain });
+  return Array.isArray(chainE?.coins) ? chainE.coins : [];
 }
 
 function getHyperliquidRouteToken({
@@ -489,19 +584,27 @@ function getHyperliquidRouteToken({
 function getHyperliquidRouteText(tokenE = {}) {
   if (!tokenE) return "";
   const parts = [];
-  const routeE =
-    tokenE.actionSupported
-      ? tokenE.routes?.find(
-          (entry) => entry.label == tokenE.chain || entry.route == "arbitrum",
-        ) || tokenE.routes?.[0]
-      : tokenE.routes?.[0];
+  const routeE = tokenE.actionSupported
+    ? tokenE.routes?.find(
+        (entry) => entry.label == tokenE.chain || entry.route == "arbitrum",
+      ) || tokenE.routes?.[0]
+    : tokenE.routes?.[0];
   const route = routeE?.label || "";
   if (route && route != tokenE.chain) parts.push(route);
-  if (tokenE.fee) parts.push(`fee ${tokenE.fee}`);
-  if (tokenE.eta) parts.push(`eta ${tokenE.eta}`);
-  if (tokenE.actionSupported === false) parts.push("discovery only");
 
-  return parts.join(" · ");
+  return parts.join(" ");
+}
+
+function getHyperliquidFeeEtaText(tokenE = {}) {
+  if (!tokenE) return "";
+  const parts = [];
+
+  if (tokenE.fee !== undefined && tokenE.fee !== null && tokenE.fee !== "") {
+    parts.push(`fee:${pc(tokenE.fee)}`);
+  }
+  if (tokenE.eta) parts.push(`ETA:${tokenE.eta}`);
+
+  return parts.join(" ");
 }
 
 function getHyperliquidPickerWidth(values = [], selected = "", max = 18) {
@@ -534,6 +637,7 @@ export default function YieldPanel({
   tradeTypes = [],
   onTradeTypeChange,
   onCycleTradeType,
+  showGasAutoLabel = false,
   onTxComplete = () => {},
 }) {
   const initialDefi = getInitialYieldDefi(initialCookieM, walletType);
@@ -545,7 +649,7 @@ export default function YieldPanel({
           walletType == "solana"
             ? chainE.chain == "Solana"
             : chainE.chain != "Solana",
-      ),
+        ),
     [data, walletType],
   );
   const initialChainMarketsM = useMemo(() => {
@@ -581,16 +685,51 @@ export default function YieldPanel({
         initialChain,
       ),
     ) || "";
-  const initialMarket =
-    initialSavedMarket || initialMarkets[0]?.value || "";
+  const initialMarket = initialSavedMarket || initialMarkets[0]?.value || "";
+  const initialHyperliquidMode = getInitialHyperliquidMode(
+    initialCookieM,
+    walletType,
+  );
+  const initialHyperliquidChain = getInitialHyperliquidRouteCookie(
+    initialCookieM,
+    walletType,
+    tradeYieldHyperliquidChainCookie,
+  );
+  const initialHyperliquidCoin = getInitialHyperliquidRouteCookie(
+    initialCookieM,
+    walletType,
+    tradeYieldHyperliquidCoinCookie,
+  );
+  const initialHyperliquidDepositCoin =
+    getInitialHyperliquidRouteCookie(
+      initialCookieM,
+      walletType,
+      tradeYieldHyperliquidDepositCoinCookie,
+    ) || initialHyperliquidCoin;
+  const initialHyperliquidWithdrawCoin =
+    getInitialHyperliquidRouteCookie(
+      initialCookieM,
+      walletType,
+      tradeYieldHyperliquidWithdrawCoinCookie,
+    ) || initialHyperliquidCoin;
   const [defi, setDefi] = useState(initialDefi);
   const [chain, setChain] = useState(initialChain);
   const [market, setMarket] = useState(initialMarket);
-  const [hyperliquidMode, setHyperliquidMode] = useState("vault");
-  const [hyperliquidDepositChain, setHyperliquidDepositChain] = useState("");
-  const [hyperliquidDepositCoin, setHyperliquidDepositCoin] = useState("");
-  const [hyperliquidWithdrawChain, setHyperliquidWithdrawChain] = useState("");
-  const [hyperliquidWithdrawCoin, setHyperliquidWithdrawCoin] = useState("");
+  const [hyperliquidMode, setHyperliquidMode] = useState(
+    initialHyperliquidMode,
+  );
+  const [hyperliquidDepositChain, setHyperliquidDepositChain] = useState(
+    initialHyperliquidChain,
+  );
+  const [hyperliquidDepositCoin, setHyperliquidDepositCoin] = useState(
+    initialHyperliquidDepositCoin,
+  );
+  const [hyperliquidWithdrawChain, setHyperliquidWithdrawChain] = useState(
+    initialHyperliquidChain,
+  );
+  const [hyperliquidWithdrawCoin, setHyperliquidWithdrawCoin] = useState(
+    initialHyperliquidWithdrawCoin,
+  );
   const [lendQty, setLendQty] = useState("0");
   const [receiptQty, setReceiptQty] = useState("0");
   const [underlyingEndDraft, setUnderlyingEndDraft] = useState("");
@@ -607,6 +746,8 @@ export default function YieldPanel({
     getInitialAutoApproval(initialCookieM),
   );
   const [showMarketMenu, setShowMarketMenu] = useState(false);
+  const [addedMarketSort, setAddedMarketSort] = useState("");
+  const [allMarketSort, setAllMarketSort] = useState("");
   const [sparkAllMarketM, setSparkAllMarketM] = useState({});
   const [sparkAllLoadingM, setSparkAllLoadingM] = useState({});
   const [sparkAllErrorM, setSparkAllErrorM] = useState({});
@@ -622,8 +763,10 @@ export default function YieldPanel({
     useState(false);
   const [showHyperliquidWithdrawCoinMenu, setShowHyperliquidWithdrawCoinMenu] =
     useState(false);
-  const [showHyperliquidWithdrawChainMenu, setShowHyperliquidWithdrawChainMenu] =
-    useState(false);
+  const [
+    showHyperliquidWithdrawChainMenu,
+    setShowHyperliquidWithdrawChainMenu,
+  ] = useState(false);
   const [directBalanceM, setDirectBalanceM] = useState({});
   const [directBalanceLoadingM, setDirectBalanceLoadingM] = useState({});
   const [customCoinPreview, setCustomCoinPreview] = useState(null);
@@ -645,7 +788,10 @@ export default function YieldPanel({
   const useLocalEditorStore = useLocalStorageEditor();
   const chainMarketsM = useMemo(() => {
     return Object.fromEntries(
-      chainList.map((chainE) => [chainE.chain, getLendingMarkets(chainE, defi)]),
+      chainList.map((chainE) => [
+        chainE.chain,
+        getLendingMarkets(chainE, defi),
+      ]),
     );
   }, [chainList, defi]);
   const isHyperliquid = defi == "hyperliquid";
@@ -654,156 +800,166 @@ export default function YieldPanel({
     () => getYieldMarketChains(chainList, chainMarketsM, defi),
     [chainList, chainMarketsM, defi],
   );
-  const activeChain = marketChains.includes(chain) ? chain : marketChains[0] || "";
+  const activeChain = marketChains.includes(chain)
+    ? chain
+    : marketChains[0] || "";
   const chainE =
     chainList.find((entry) => entry.chain == activeChain) ||
     chainList.find((entry) => marketChains.includes(entry.chain)) ||
     chainList[0];
-  const fallbackHyperliquidDepositCoins = useMemo(
-    () => getFallbackHyperliquidCoins(chainList),
-    [chainList],
-  );
-  const hyperliquidDepositCoins = useMemo(
-    () =>
-      getHyperliquidAllCoins({
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        fallbackCoins: fallbackHyperliquidDepositCoins,
-      }),
-    [fallbackHyperliquidDepositCoins, hyperliquidBridgeE],
-  );
-  const hyperliquidDepositAddedCoins = useMemo(
-    () =>
-      getHyperliquidAddedCoins({
-        chainList,
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        fallbackCoins: fallbackHyperliquidDepositCoins,
-      }),
-    [chainList, fallbackHyperliquidDepositCoins, hyperliquidBridgeE],
-  );
-  const activeHyperliquidDepositCoin =
-    hyperliquidDepositCoins.includes(hyperliquidDepositCoin)
-      ? hyperliquidDepositCoin
-      : hyperliquidDepositAddedCoins[0] || hyperliquidDepositCoins[0] || "";
   const fallbackHyperliquidDepositChains = useMemo(
-    () =>
-      getFallbackHyperliquidChainsForCoin(
-        chainList,
-        activeHyperliquidDepositCoin,
-      ),
-    [activeHyperliquidDepositCoin, chainList],
+    () => getFallbackHyperliquidChains(chainList),
+    [chainList],
   );
   const hyperliquidDepositChains = useMemo(
     () =>
-      getHyperliquidAllChainsForCoin({
+      getHyperliquidAllChains({
         discoveryE: hyperliquidBridgeE,
         side: "deposit",
-        coin: activeHyperliquidDepositCoin,
         fallbackChains: fallbackHyperliquidDepositChains,
       }),
-    [
-      activeHyperliquidDepositCoin,
-      fallbackHyperliquidDepositChains,
-      hyperliquidBridgeE,
-    ],
+    [fallbackHyperliquidDepositChains, hyperliquidBridgeE],
   );
   const hyperliquidDepositAddedChains = useMemo(
     () =>
-      getHyperliquidAddedChainsForCoin({
+      getHyperliquidAddedChains({
         chainList,
-        coin: activeHyperliquidDepositCoin,
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        fallbackChains: fallbackHyperliquidDepositChains,
       }),
-    [activeHyperliquidDepositCoin, chainList],
+    [chainList, fallbackHyperliquidDepositChains, hyperliquidBridgeE],
   );
-  const activeHyperliquidDepositChain =
-    hyperliquidDepositChains.includes(hyperliquidDepositChain)
-      ? hyperliquidDepositChain
-      : hyperliquidDepositAddedChains[0] || hyperliquidDepositChains[0] || "";
+  const activeHyperliquidDepositChain = hyperliquidDepositChains.includes(
+    hyperliquidDepositChain,
+  )
+    ? hyperliquidDepositChain
+    : hyperliquidDepositAddedChains[0] || hyperliquidDepositChains[0] || "";
   const hyperliquidDepositChainE = chainList.find(
     (entry) => entry.chain == activeHyperliquidDepositChain,
   );
-  const fallbackHyperliquidWithdrawCoins = useMemo(
-    () => getFallbackHyperliquidCoins(chainList),
-    [chainList],
+  const fallbackHyperliquidDepositCoins = useMemo(
+    () => getFallbackHyperliquidCoinsForChain(hyperliquidDepositChainE),
+    [hyperliquidDepositChainE],
   );
-  const hyperliquidWithdrawCoins = useMemo(
+  const hyperliquidDepositCoins = useMemo(
     () =>
-      getHyperliquidAllCoins({
+      getHyperliquidAllCoinsForChain({
         discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        fallbackCoins: fallbackHyperliquidWithdrawCoins,
-      }),
-    [fallbackHyperliquidWithdrawCoins, hyperliquidBridgeE],
-  );
-  const hyperliquidWithdrawAddedCoins = useMemo(
-    () =>
-      getHyperliquidAddedCoins({
-        chainList,
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        fallbackCoins: fallbackHyperliquidWithdrawCoins,
-      }),
-    [chainList, fallbackHyperliquidWithdrawCoins, hyperliquidBridgeE],
-  );
-  const activeHyperliquidWithdrawCoin =
-    hyperliquidWithdrawCoins.includes(hyperliquidWithdrawCoin)
-      ? hyperliquidWithdrawCoin
-      : hyperliquidWithdrawAddedCoins[0] || hyperliquidWithdrawCoins[0] || "";
-  const fallbackHyperliquidWithdrawChains = useMemo(
-    () =>
-      getFallbackHyperliquidChainsForCoin(
-        chainList,
-        activeHyperliquidWithdrawCoin,
-      ),
-    [activeHyperliquidWithdrawCoin, chainList],
-  );
-  const hyperliquidWithdrawChains = useMemo(
-    () =>
-      getHyperliquidAllChainsForCoin({
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        coin: activeHyperliquidWithdrawCoin,
-        fallbackChains: fallbackHyperliquidWithdrawChains,
+        side: "deposit",
+        chain: activeHyperliquidDepositChain,
+        fallbackCoins: fallbackHyperliquidDepositCoins,
       }),
     [
-      activeHyperliquidWithdrawCoin,
-      fallbackHyperliquidWithdrawChains,
+      activeHyperliquidDepositChain,
+      fallbackHyperliquidDepositCoins,
       hyperliquidBridgeE,
     ],
   );
+  const hyperliquidDepositAddedCoins = useMemo(
+    () =>
+      getHyperliquidAddedCoinsForChain({
+        chainE: hyperliquidDepositChainE,
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        fallbackCoins: fallbackHyperliquidDepositCoins,
+      }),
+    [
+      fallbackHyperliquidDepositCoins,
+      hyperliquidBridgeE,
+      hyperliquidDepositChainE,
+    ],
+  );
+  const activeHyperliquidDepositCoin = hyperliquidDepositCoins.includes(
+    hyperliquidDepositCoin,
+  )
+    ? hyperliquidDepositCoin
+    : hyperliquidDepositAddedCoins[0] || hyperliquidDepositCoins[0] || "";
+  const fallbackHyperliquidWithdrawChains = useMemo(
+    () => getFallbackHyperliquidChains(chainList),
+    [chainList],
+  );
+  const hyperliquidWithdrawChains = useMemo(
+    () =>
+      getHyperliquidAllChains({
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        fallbackChains: fallbackHyperliquidWithdrawChains,
+      }),
+    [fallbackHyperliquidWithdrawChains, hyperliquidBridgeE],
+  );
   const hyperliquidWithdrawAddedChains = useMemo(
     () =>
-      getHyperliquidAddedChainsForCoin({
+      getHyperliquidAddedChains({
         chainList,
-        coin: activeHyperliquidWithdrawCoin,
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        fallbackChains: fallbackHyperliquidWithdrawChains,
       }),
-    [activeHyperliquidWithdrawCoin, chainList],
+    [chainList, fallbackHyperliquidWithdrawChains, hyperliquidBridgeE],
   );
-  const activeHyperliquidWithdrawChain =
-    hyperliquidWithdrawChains.includes(hyperliquidWithdrawChain)
-      ? hyperliquidWithdrawChain
-      : hyperliquidWithdrawAddedChains[0] || hyperliquidWithdrawChains[0] || "";
+  const activeHyperliquidWithdrawChain = hyperliquidWithdrawChains.includes(
+    hyperliquidWithdrawChain,
+  )
+    ? hyperliquidWithdrawChain
+    : hyperliquidWithdrawAddedChains[0] || hyperliquidWithdrawChains[0] || "";
   const hyperliquidWithdrawChainE = chainList.find(
     (entry) => entry.chain == activeHyperliquidWithdrawChain,
   );
-  const hyperliquidDepositAllChainEntries = useMemo(
-    () =>
-      getHyperliquidChainTokenEntries({
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        coin: activeHyperliquidDepositCoin,
-      }),
-    [activeHyperliquidDepositCoin, hyperliquidBridgeE],
+  const fallbackHyperliquidWithdrawCoins = useMemo(
+    () => getFallbackHyperliquidCoinsForChain(hyperliquidWithdrawChainE),
+    [hyperliquidWithdrawChainE],
   );
-  const hyperliquidWithdrawAllChainEntries = useMemo(
+  const hyperliquidWithdrawCoins = useMemo(
     () =>
-      getHyperliquidChainTokenEntries({
+      getHyperliquidAllCoinsForChain({
         discoveryE: hyperliquidBridgeE,
         side: "withdraw",
-        coin: activeHyperliquidWithdrawCoin,
+        chain: activeHyperliquidWithdrawChain,
+        fallbackCoins: fallbackHyperliquidWithdrawCoins,
       }),
-    [activeHyperliquidWithdrawCoin, hyperliquidBridgeE],
+    [
+      activeHyperliquidWithdrawChain,
+      fallbackHyperliquidWithdrawCoins,
+      hyperliquidBridgeE,
+    ],
+  );
+  const hyperliquidWithdrawAddedCoins = useMemo(
+    () =>
+      getHyperliquidAddedCoinsForChain({
+        chainE: hyperliquidWithdrawChainE,
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        fallbackCoins: fallbackHyperliquidWithdrawCoins,
+      }),
+    [
+      fallbackHyperliquidWithdrawCoins,
+      hyperliquidBridgeE,
+      hyperliquidWithdrawChainE,
+    ],
+  );
+  const activeHyperliquidWithdrawCoin = hyperliquidWithdrawCoins.includes(
+    hyperliquidWithdrawCoin,
+  )
+    ? hyperliquidWithdrawCoin
+    : hyperliquidWithdrawAddedCoins[0] || hyperliquidWithdrawCoins[0] || "";
+  const hyperliquidDepositAllCoinEntries = useMemo(
+    () =>
+      getHyperliquidCoinTokenEntries({
+        discoveryE: hyperliquidBridgeE,
+        side: "deposit",
+        chain: activeHyperliquidDepositChain,
+      }),
+    [activeHyperliquidDepositChain, hyperliquidBridgeE],
+  );
+  const hyperliquidWithdrawAllCoinEntries = useMemo(
+    () =>
+      getHyperliquidCoinTokenEntries({
+        discoveryE: hyperliquidBridgeE,
+        side: "withdraw",
+        chain: activeHyperliquidWithdrawChain,
+      }),
+    [activeHyperliquidWithdrawChain, hyperliquidBridgeE],
   );
   const hyperliquidDepositRouteToken = getHyperliquidRouteToken({
     discoveryE: hyperliquidBridgeE,
@@ -823,6 +979,12 @@ export default function YieldPanel({
   const hyperliquidWithdrawRouteText = getHyperliquidRouteText(
     hyperliquidWithdrawRouteToken,
   );
+  const hyperliquidDepositFeeEtaText = getHyperliquidFeeEtaText(
+    hyperliquidDepositRouteToken,
+  );
+  const hyperliquidWithdrawFeeEtaText = getHyperliquidFeeEtaText(
+    hyperliquidWithdrawRouteToken,
+  );
   const isHyperliquidDepositMode =
     isHyperliquid && hyperliquidMode == "deposit";
   const availableYieldOptions = useMemo(
@@ -840,24 +1002,29 @@ export default function YieldPanel({
     const entries = {};
     for (const entry of addedMarkets) {
       const lendAddress = chainE?.coinInfoM?.[entry.lendCoin]?.address;
-      if (lendAddress) entries[String(lendAddress).toLowerCase()] = entry.value;
+      const addressKey = getTokenAddressKey(chainE?.chain, lendAddress);
+      if (addressKey) entries[addressKey] = entry.value;
     }
     return entries;
-  }, [addedMarkets, chainE?.coinInfoM]);
+  }, [addedMarkets, chainE?.chain, chainE?.coinInfoM]);
   const addedCoinAddressM = useMemo(() => {
     const entries = {};
     for (const coinE of Object.values(chainE?.coinInfoM || {})) {
-      if (coinE?.address) entries[String(coinE.address).toLowerCase()] = true;
+      const addressKey = getTokenAddressKey(chainE?.chain, coinE?.address);
+      if (addressKey) entries[addressKey] = true;
     }
     return entries;
-  }, [chainE?.coinInfoM]);
+  }, [chainE?.chain, chainE?.coinInfoM]);
   const sparkAllKey = chainE?.chain || "";
   const allMarketCacheKey = `${defi}:${sparkAllKey}`;
   const rawSparkAllMarkets = sparkAllMarketM[allMarketCacheKey] || [];
   const sparkAllMarkets = rawSparkAllMarkets
     .map((entry) => {
-      const addressKey = String(entry.lendAddress || "").toLowerCase();
-      const underlyingAddressKey = String(entry.underlyingAddress || "").toLowerCase();
+      const addressKey = getTokenAddressKey(chainE?.chain, entry.lendAddress);
+      const underlyingAddressKey = getTokenAddressKey(
+        chainE?.chain,
+        entry.underlyingAddress,
+      );
       const addedValue = addedMarketAddressM[addressKey] || "";
       const addedUnderlying =
         entry.addedUnderlying ||
@@ -884,13 +1051,18 @@ export default function YieldPanel({
     const rawMarketByLendAddress = Object.fromEntries(
       rawSparkAllMarkets
         .filter((entry) => entry.lendAddress)
-        .map((entry) => [String(entry.lendAddress).toLowerCase(), entry]),
+        .map((entry) => [
+          getTokenAddressKey(chainE?.chain, entry.lendAddress),
+          entry,
+        ]),
     );
 
     return addedMarkets.map((entry) => {
       const lendAddress =
         entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
-      const raw = rawMarketByLendAddress[String(lendAddress).toLowerCase()];
+      const raw = rawMarketByLendAddress[
+        getTokenAddressKey(chainE?.chain, lendAddress)
+      ];
       if (!raw) return entry;
 
       return {
@@ -1002,9 +1174,7 @@ export default function YieldPanel({
   const displayReceiptCoin = isHyperliquidDepositMode
     ? underlyingCoin
     : lendCoin;
-  const displayReceiptName = isHyperliquidDepositMode
-    ? "Hyperliquid spot"
-    : lendName;
+  const displayReceiptName = isHyperliquidDepositMode ? "" : lendName;
   const displayUnderlyingBalance = isHyperliquidDepositMode
     ? hyperliquidDepositBalance
     : underlyingBalance;
@@ -1025,9 +1195,10 @@ export default function YieldPanel({
     !directBalance.lend;
   const maxUnderlying = toNum(displayUnderlyingBalance.balance);
   const maxReceipt = toNum(displayReceiptBalance.balance);
-  const withdrawMaxReceipt = isHyperliquid && !isHyperliquidDepositMode
-    ? Math.max(0, maxReceipt - 0.000001)
-    : maxReceipt;
+  const withdrawMaxReceipt =
+    isHyperliquid && !isHyperliquidDepositMode
+      ? Math.max(0, maxReceipt - 0.000001)
+      : maxReceipt;
   const baseUnderlyingPriceKey = priceKey(chainE?.chain || "", underlyingCoin);
   const baseReceiptPriceKey = priceKey(chainE?.chain || "", lendCoin);
   const hyperliquidDepositPriceKey = priceKey(
@@ -1056,7 +1227,9 @@ export default function YieldPanel({
     underlyingListPrice ||
     toNum(underlyingFallbackPrice) ||
     (isHyperliquid && displayUnderlyingCoin == "USDC" ? 1 : 0) ||
-    (isHyperliquidDepositMode && isUsdLikeYieldCoin(displayUnderlyingCoin) ? 1 : 0);
+    (isHyperliquidDepositMode && isUsdLikeYieldCoin(displayUnderlyingCoin)
+      ? 1
+      : 0);
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
@@ -1072,7 +1245,10 @@ export default function YieldPanel({
     0;
   const vaultLockedUntilMs = getLockUntilMs(vaultLockedUntil);
   const vaultLocked =
-    isHyperliquid && !isHyperliquidDepositMode && nowMs > 0 && vaultLockedUntilMs > nowMs;
+    isHyperliquid &&
+    !isHyperliquidDepositMode &&
+    nowMs > 0 &&
+    vaultLockedUntilMs > nowMs;
   const vaultLockText = vaultLocked ? formatLockUntil(vaultLockedUntilMs) : "";
   const receiptRate =
     (defi == "spark" || defi == "venusFlux") && marketReceiptRate
@@ -1093,7 +1269,9 @@ export default function YieldPanel({
     : maxReceipt + receiptQtyNum;
   const underlyingUsd = underlyingPrice ? maxUnderlying * underlyingPrice : 0;
   const receiptUsd = receiptPrice ? maxReceipt * receiptPrice : 0;
-  const underlyingQtyUsd = underlyingPrice ? underlyingQty * underlyingPrice : 0;
+  const underlyingQtyUsd = underlyingPrice
+    ? underlyingQty * underlyingPrice
+    : 0;
   const receiptQtyUsd = receiptPrice ? receiptQtyNum * receiptPrice : 0;
   const underlyingEndUsd = underlyingPrice
     ? underlyingEnd * underlyingPrice
@@ -1135,9 +1313,65 @@ export default function YieldPanel({
   }, []);
 
   useEffect(() => {
-    const savedDefi = getCookie(getTradeModeCookie(tradeYieldDefiCookie, walletType));
+    const savedDefi = getCookie(
+      getTradeModeCookie(tradeYieldDefiCookie, walletType),
+    );
     if (savedDefi && lendingOptions.some((entry) => entry.value == savedDefi)) {
       setDefi(savedDefi);
+    }
+  }, [walletType]);
+
+  useEffect(() => {
+    const savedMode = getCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidModeCookie,
+        walletType,
+        "hyperliquid",
+      ),
+    );
+    const savedChain = getCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidChainCookie,
+        walletType,
+        "hyperliquid",
+      ),
+    );
+    const savedCoin = getCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidCoinCookie,
+        walletType,
+        "hyperliquid",
+      ),
+    );
+    const savedDepositCoin =
+      getCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidDepositCoinCookie,
+          walletType,
+          "hyperliquid",
+        ),
+      ) || savedCoin;
+    const savedWithdrawCoin =
+      getCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidWithdrawCoinCookie,
+          walletType,
+          "hyperliquid",
+        ),
+      ) || savedCoin;
+
+    if (savedMode == "deposit" || savedMode == "vault") {
+      setHyperliquidMode(savedMode);
+    }
+    if (savedChain) {
+      setHyperliquidDepositChain(savedChain);
+      setHyperliquidWithdrawChain(savedChain);
+    }
+    if (savedDepositCoin) {
+      setHyperliquidDepositCoin(savedDepositCoin);
+    }
+    if (savedWithdrawCoin) {
+      setHyperliquidWithdrawCoin(savedWithdrawCoin);
     }
   }, [walletType]);
 
@@ -1154,40 +1388,20 @@ export default function YieldPanel({
 
   useEffect(() => {
     if (!isHyperliquid) return;
+    const syncChain =
+      activeHyperliquidDepositChain || activeHyperliquidWithdrawChain;
 
-    if (
-      activeHyperliquidDepositChain &&
-      activeHyperliquidDepositChain != hyperliquidDepositChain
-    ) {
-      setHyperliquidDepositChain(activeHyperliquidDepositChain);
+    if (syncChain && syncChain != hyperliquidDepositChain) {
+      setHyperliquidDepositChain(syncChain);
     }
-    if (
-      activeHyperliquidDepositCoin &&
-      activeHyperliquidDepositCoin != hyperliquidDepositCoin
-    ) {
-      setHyperliquidDepositCoin(activeHyperliquidDepositCoin);
-    }
-    if (
-      activeHyperliquidWithdrawChain &&
-      activeHyperliquidWithdrawChain != hyperliquidWithdrawChain
-    ) {
-      setHyperliquidWithdrawChain(activeHyperliquidWithdrawChain);
-    }
-    if (
-      activeHyperliquidWithdrawCoin &&
-      activeHyperliquidWithdrawCoin != hyperliquidWithdrawCoin
-    ) {
-      setHyperliquidWithdrawCoin(activeHyperliquidWithdrawCoin);
+    if (syncChain && syncChain != hyperliquidWithdrawChain) {
+      setHyperliquidWithdrawChain(syncChain);
     }
   }, [
     activeHyperliquidDepositChain,
-    activeHyperliquidDepositCoin,
     activeHyperliquidWithdrawChain,
-    activeHyperliquidWithdrawCoin,
     hyperliquidDepositChain,
-    hyperliquidDepositCoin,
     hyperliquidWithdrawChain,
-    hyperliquidWithdrawCoin,
     isHyperliquid,
   ]);
 
@@ -1226,14 +1440,7 @@ export default function YieldPanel({
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
     }
-  }, [
-    chainE?.chain,
-    defi,
-    market,
-    marketCookieValues,
-    markets,
-    walletType,
-  ]);
+  }, [chainE?.chain, defi, market, marketCookieValues, markets, walletType]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1367,12 +1574,7 @@ export default function YieldPanel({
           [allMarketCacheKey]: false,
         }));
       });
-  }, [
-    allMarketCacheKey,
-    defi,
-    sparkAllKey,
-    sparkAllRetryTick,
-  ]);
+  }, [allMarketCacheKey, defi, sparkAllKey, sparkAllRetryTick]);
 
   useEffect(() => {
     if (
@@ -1678,6 +1880,95 @@ export default function YieldPanel({
     });
   }
 
+  function saveHyperliquidModeCookie(value) {
+    setCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidModeCookie,
+        walletType,
+        "hyperliquid",
+      ),
+      value == "deposit" ? "deposit" : "vault",
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function saveHyperliquidRouteCookie(route = {}) {
+    const {
+      chainName = "",
+      depositCoin = "",
+      withdrawCoin = "",
+      coin = "",
+    } = route;
+    if ("chainName" in route) {
+      setCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidChainCookie,
+          walletType,
+          "hyperliquid",
+        ),
+        chainName,
+        { maxAge: cookieMaxAge },
+      );
+    }
+    if ("coin" in route) {
+      setCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidCoinCookie,
+          walletType,
+          "hyperliquid",
+        ),
+        coin,
+        { maxAge: cookieMaxAge },
+      );
+    }
+    if ("depositCoin" in route) {
+      setCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidDepositCoinCookie,
+          walletType,
+          "hyperliquid",
+        ),
+        depositCoin,
+        { maxAge: cookieMaxAge },
+      );
+    }
+    if ("withdrawCoin" in route) {
+      setCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidWithdrawCoinCookie,
+          walletType,
+          "hyperliquid",
+        ),
+        withdrawCoin,
+        { maxAge: cookieMaxAge },
+      );
+    }
+  }
+
+  function getNextHyperliquidCoinForSide({
+    side = "deposit",
+    chainName = "",
+    currentCoin = "",
+  } = {}) {
+    const chainEntry = chainList.find((entry) => entry.chain == chainName);
+    const coins = getHyperliquidAllCoinsForChain({
+      discoveryE: hyperliquidBridgeE,
+      side,
+      chain: chainName,
+      fallbackCoins: getFallbackHyperliquidCoinsForChain(chainEntry),
+    });
+    const addedCoins = getHyperliquidAddedCoinsForChain({
+      chainE: chainEntry,
+      discoveryE: hyperliquidBridgeE,
+      side,
+      fallbackCoins: getFallbackHyperliquidCoinsForChain(chainEntry),
+    });
+
+    return coins.includes(currentCoin)
+      ? currentCoin
+      : addedCoins[0] || coins[0] || "";
+  }
+
   function nextDefi() {
     const next = nextValue(
       availableYieldOptions.map((option) => option.value),
@@ -1704,7 +1995,9 @@ export default function YieldPanel({
   }
 
   function selectHyperliquidMode(value) {
-    setHyperliquidMode(value == "deposit" ? "deposit" : "vault");
+    const nextMode = value == "deposit" ? "deposit" : "vault";
+    setHyperliquidMode(nextMode);
+    saveHyperliquidModeCookie(nextMode);
     setShowMarketMenu(false);
     setLendQty("0");
     setReceiptQty("0");
@@ -1722,7 +2015,25 @@ export default function YieldPanel({
 
   function selectHyperliquidDepositChain(chainName) {
     setHyperliquidDepositChain(chainName);
+    setHyperliquidWithdrawChain(chainName);
     setShowHyperliquidDepositChainMenu(false);
+    const nextDepositCoin = getNextHyperliquidCoinForSide({
+      side: "deposit",
+      chainName,
+      currentCoin: hyperliquidDepositCoin,
+    });
+    const nextWithdrawCoin = getNextHyperliquidCoinForSide({
+      side: "withdraw",
+      chainName,
+      currentCoin: hyperliquidWithdrawCoin,
+    });
+    setHyperliquidDepositCoin(nextDepositCoin);
+    setHyperliquidWithdrawCoin(nextWithdrawCoin);
+    saveHyperliquidRouteCookie({
+      chainName,
+      depositCoin: nextDepositCoin,
+      withdrawCoin: nextWithdrawCoin,
+    });
     emitTradeChainSelect(chainName);
   }
 
@@ -1736,19 +2047,21 @@ export default function YieldPanel({
 
   function selectHyperliquidDepositCoin(coin) {
     setHyperliquidDepositCoin(coin);
-    setShowHyperliquidDepositCoinMenu(false);
-    const chains = getHyperliquidAllChainsForCoin({
-      discoveryE: hyperliquidBridgeE,
-      side: "deposit",
-      coin,
-      fallbackChains: getFallbackHyperliquidChainsForCoin(chainList, coin),
+    const route = {
+      chainName: activeHyperliquidDepositChain,
+      depositCoin: coin,
+    };
+    if (hyperliquidWithdrawCoins.includes(coin)) {
+      setHyperliquidWithdrawCoin(coin);
+      route.withdrawCoin = coin;
+    } else {
+      setHyperliquidWithdrawCoin(activeHyperliquidWithdrawCoin);
+      route.withdrawCoin = activeHyperliquidWithdrawCoin;
+    }
+    saveHyperliquidRouteCookie({
+      ...route,
     });
-    const addedChains = getHyperliquidAddedChainsForCoin({ chainList, coin });
-    const nextChain =
-      chains.includes(hyperliquidDepositChain)
-        ? hyperliquidDepositChain
-        : addedChains[0] || chains[0] || "";
-    if (nextChain) setHyperliquidDepositChain(nextChain);
+    setShowHyperliquidDepositCoinMenu(false);
   }
 
   function nextHyperliquidWithdrawChain() {
@@ -1760,8 +2073,26 @@ export default function YieldPanel({
   }
 
   function selectHyperliquidWithdrawChain(chainName) {
+    setHyperliquidDepositChain(chainName);
     setHyperliquidWithdrawChain(chainName);
     setShowHyperliquidWithdrawChainMenu(false);
+    const nextDepositCoin = getNextHyperliquidCoinForSide({
+      side: "deposit",
+      chainName,
+      currentCoin: hyperliquidDepositCoin,
+    });
+    const nextWithdrawCoin = getNextHyperliquidCoinForSide({
+      side: "withdraw",
+      chainName,
+      currentCoin: hyperliquidWithdrawCoin,
+    });
+    setHyperliquidDepositCoin(nextDepositCoin);
+    setHyperliquidWithdrawCoin(nextWithdrawCoin);
+    saveHyperliquidRouteCookie({
+      chainName,
+      depositCoin: nextDepositCoin,
+      withdrawCoin: nextWithdrawCoin,
+    });
     emitTradeChainSelect(chainName);
   }
 
@@ -1775,19 +2106,21 @@ export default function YieldPanel({
 
   function selectHyperliquidWithdrawCoin(coin) {
     setHyperliquidWithdrawCoin(coin);
-    setShowHyperliquidWithdrawCoinMenu(false);
-    const chains = getHyperliquidAllChainsForCoin({
-      discoveryE: hyperliquidBridgeE,
-      side: "withdraw",
-      coin,
-      fallbackChains: getFallbackHyperliquidChainsForCoin(chainList, coin),
+    const route = {
+      chainName: activeHyperliquidWithdrawChain,
+      withdrawCoin: coin,
+    };
+    if (hyperliquidDepositCoins.includes(coin)) {
+      setHyperliquidDepositCoin(coin);
+      route.depositCoin = coin;
+    } else {
+      setHyperliquidDepositCoin(activeHyperliquidDepositCoin);
+      route.depositCoin = activeHyperliquidDepositCoin;
+    }
+    saveHyperliquidRouteCookie({
+      ...route,
     });
-    const addedChains = getHyperliquidAddedChainsForCoin({ chainList, coin });
-    const nextChain =
-      chains.includes(hyperliquidWithdrawChain)
-        ? hyperliquidWithdrawChain
-        : addedChains[0] || chains[0] || "";
-    if (nextChain) setHyperliquidWithdrawChain(nextChain);
+    setShowHyperliquidWithdrawCoinMenu(false);
   }
 
   function selectChain(chain) {
@@ -1803,9 +2136,13 @@ export default function YieldPanel({
 
   function saveYieldChainCookie(chain) {
     if (!defi || !chain || !marketChains.includes(chain)) return;
-    setCookie(getProtocolCookie(tradeYieldChainCookie, walletType, defi), chain, {
-      maxAge: cookieMaxAge,
-    });
+    setCookie(
+      getProtocolCookie(tradeYieldChainCookie, walletType, defi),
+      chain,
+      {
+        maxAge: cookieMaxAge,
+      },
+    );
   }
 
   function nextMarket() {
@@ -1836,14 +2173,71 @@ export default function YieldPanel({
   function saveYieldMarketCookie(value) {
     if (!defi || !chainE?.chain || !marketCookieValues.includes(value)) return;
     setCookie(
-      getProtocolCookie(
-        tradeYieldMarketCookie,
-        walletType,
-        defi,
-        chainE.chain,
-      ),
+      getProtocolCookie(tradeYieldMarketCookie, walletType, defi, chainE.chain),
       value,
       { maxAge: cookieMaxAge },
+    );
+  }
+
+  function getMarketTableRow(entry = {}) {
+    const underlyingBalance = getMarketCoinBalance(
+      chainE,
+      entry.underlyingCoin,
+      entry.underlyingAddress,
+      selectedWalletEntry,
+    );
+    const lendBalance = getMarketCoinBalance(
+      chainE,
+      entry.lendCoin,
+      entry.lendAddress,
+      selectedWalletEntry,
+    );
+
+    return {
+      ...entry,
+      underlyingBalance,
+      lendBalance,
+      underlyingQty: getBalanceQty(underlyingBalance),
+      lendQty: getBalanceQty(lendBalance),
+      aprValue: toNum(entry.supplyApr),
+    };
+  }
+
+  function sortMarketRows(rows = [], key = "") {
+    return sortTradePickerRows(
+      rows,
+      key,
+      {
+        underlyingCoin: (entry) => entry.underlyingCoin,
+        underlyingQty: (entry) => entry.underlyingQty,
+        lendCoin: (entry) => entry.lendCoin,
+        lendQty: (entry) => entry.lendQty,
+        apr: (entry) => entry.aprValue,
+      },
+      {
+        underlyingQty: "desc",
+        lendQty: "desc",
+        apr: "desc",
+      },
+    );
+  }
+
+  function toggleMarketSort(section = "added", key = "") {
+    const setter = section == "all" ? setAllMarketSort : setAddedMarketSort;
+    toggleTradePickerSort(setter, key);
+  }
+
+  function SortHeader({ section = "added", sortKey = "", children }) {
+    const current = section == "all" ? allMarketSort : addedMarketSort;
+
+    return (
+      <TradePickerSortHeader
+        activeSort={current}
+        sortKey={sortKey}
+        onSort={() => toggleMarketSort(section, sortKey)}
+      >
+        {children}
+      </TradePickerSortHeader>
     );
   }
 
@@ -1878,226 +2272,343 @@ export default function YieldPanel({
 
   function renderHyperliquidCoinMenu({
     side = "deposit",
+    chain = "",
     selectedCoin = "",
     addedCoins = [],
     allCoins = [],
+    allCoinEntries = [],
     onSelect = () => {},
   }) {
+    const entryM = Object.fromEntries(
+      allCoinEntries.map((entry) => [entry.coin, entry]),
+    );
+    const chainEForBalance = chainList.find((entry) => entry.chain == chain);
+    const getRouteCoinBalance = (coin = "") =>
+      getMarketCoinBalance(chainEForBalance, coin, "", selectedWalletEntry);
+
     return (
-      <span className="sendWalletMenu swapCoinMenu">
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">added</span>
-          {addedCoins.length ? (
-            addedCoins.map((coin) => {
-              const supported =
-                !hyperliquidBridgeE.loaded || allCoins.includes(coin);
-              return (
-                <button
-                  key={`hl_${side}_added_coin_${coin}`}
-                  type="button"
-                  className={
-                    [
-                      "sendWalletMenuItem",
-                      "swapCoinAddedItem",
-                      coin == selectedCoin ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")
-                  }
-                  onClick={() =>
-                    supported
-                      ? onSelect(coin)
-                      : toast(`${coin} is not supported by Hyperliquid`)
-                  }
-                >
-                  <span>{coin}</span>
-                  {!supported && <span className="gray">off</span>}
-                </button>
-              );
-            })
-          ) : (
-            <span className="gray">-</span>
-          )}
-        </span>
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">all</span>
-          {hyperliquidBridgeE.loading && (
-            <span className="gray">loading Hyperliquid...</span>
-          )}
-          {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
-            <span className="sendWalletMenuItem swapCoinAllItem">
-              <span className="red">{hyperliquidBridgeE.error}</span>
-              <button
-                type="button"
-                className="btn small bgGray"
-                onClick={retryHyperliquidBridge}
-              >
-                retry
-              </button>
-            </span>
-          )}
-          {!hyperliquidBridgeE.loading &&
-            !hyperliquidBridgeE.error &&
-            !allCoins.length && (
-              <span className="sendWalletMenuItem swapCoinAllItem">
-                <span className="gray">-</span>
-                <button
-                  type="button"
-                  className="btn small bgGray"
-                  onClick={retryHyperliquidBridge}
-                >
-                  retry
-                </button>
-              </span>
-            )}
-          {!hyperliquidBridgeE.loading &&
-            !hyperliquidBridgeE.error &&
-            allCoins.map((coin) => {
-              const added = addedCoins.includes(coin);
-              return (
-                <span
-                  key={`hl_${side}_all_coin_${coin}`}
-                  className={
-                    coin == selectedCoin
-                      ? "sendWalletMenuItem swapCoinAllItem on"
-                      : "sendWalletMenuItem swapCoinAllItem"
-                  }
-                >
-                  <button
-                    type="button"
-                    className="lendMarketAllSelect swapCoinAllSelect"
-                    onClick={() => onSelect(coin)}
-                  >
-                    <span>{coin}</span>
-                  </button>
-                  <span className="gray">{added ? "✓" : "all"}</span>
-                </span>
-              );
-            })}
-        </span>
-      </span>
+      <TradePickerMenu className="swapCoinMenu">
+        <TradePickerColumn title="added">
+          <TradePickerTable
+            className="swapCoinAddedTable"
+            headers={["coin", "qty", "on"]}
+          >
+            <tbody>
+              {addedCoins.length ? (
+                addedCoins.map((coin) => {
+                  const balance = getRouteCoinBalance(coin);
+                  const supported =
+                    !hyperliquidBridgeE.loaded || allCoins.includes(coin);
+                  return (
+                    <tr
+                      key={`hl_${side}_added_coin_${coin}`}
+                      className={[
+                        "lendMarketRow",
+                        coin == selectedCoin ? "on" : "",
+                        supported ? "" : "unsupported",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapCoinAllSelect"
+                          onClick={() =>
+                            supported
+                              ? onSelect(coin)
+                              : toast(`${coin} is not supported by Hyperliquid`)
+                          }
+                        >
+                          <span>{coin}</span>
+                        </button>
+                      </td>
+                      <td>
+                        <MarketCoinBalance balance={balance} />
+                      </td>
+                      <td>{!supported && <span className="gray">off</span>}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={3} className="gray">
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+        <TradePickerColumn title="all">
+          <TradePickerTable
+            className="swapCoinAllTable"
+            headers={["coin", "qty", "add"]}
+          >
+            <tbody>
+              {hyperliquidBridgeE.loading && (
+                <tr>
+                  <td colSpan={3} className="gray">
+                    loading Hyperliquid...
+                  </td>
+                </tr>
+              )}
+              {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
+                <tr>
+                  <td colSpan={2}>
+                    <span className="red">{hyperliquidBridgeE.error}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={retryHyperliquidBridge}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!hyperliquidBridgeE.loading &&
+                !hyperliquidBridgeE.error &&
+                !allCoins.length && (
+                  <tr>
+                    <td colSpan={2} className="gray">
+                      -
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn small bgGray"
+                        onClick={retryHyperliquidBridge}
+                      >
+                        retry
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              {!hyperliquidBridgeE.loading &&
+                !hyperliquidBridgeE.error &&
+                allCoins.map((coin) => {
+                  const added = addedCoins.includes(coin);
+                  const entry = entryM[coin] || {};
+                  const balance = getRouteCoinBalance(coin);
+                  const routeText = getHyperliquidRouteText(entry);
+                  return (
+                    <tr
+                      key={`hl_${side}_all_coin_${coin}`}
+                      className={
+                        coin == selectedCoin
+                          ? "lendMarketRow on"
+                          : "lendMarketRow"
+                      }
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapCoinAllSelect"
+                          onClick={() => onSelect(coin)}
+                        >
+                          <span>{coin}</span>
+                          {routeText && (
+                            <span className="gray">{routeText}</span>
+                          )}
+                        </button>
+                      </td>
+                      <td>
+                        <MarketCoinBalance balance={balance} />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className={
+                            added ? "btn small bgGray" : "btn small bgCyan"
+                          }
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (added) return;
+                            toast(
+                              `${
+                                chain ? `${chain} ` : ""
+                              }${coin}: add manually; Hyperliquid discovery has no contract address`,
+                            );
+                          }}
+                          disabled={added}
+                        >
+                          {added ? "✓" : "+"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+      </TradePickerMenu>
     );
   }
 
   function renderHyperliquidChainMenu({
     side = "deposit",
     selectedChain = "",
-    coin = "",
     addedChains = [],
     allChains = [],
-    allChainEntries = [],
     onSelect = () => {},
   }) {
-    const entryM = Object.fromEntries(
-      allChainEntries.map((entry) => [entry.chain, entry]),
-    );
-
     return (
-      <span className="sendWalletMenu swapChainMenu">
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">added</span>
-          {addedChains.length ? (
-            addedChains.map((chain) => {
-              const supported =
-                !hyperliquidBridgeE.loaded || allChains.includes(chain);
-              return (
-                <button
-                  key={`hl_${side}_added_chain_${chain}`}
-                  type="button"
-                  className={
-                    [
-                      "sendWalletMenuItem",
-                      "swapChainAddedItem",
-                      chain == selectedChain ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")
-                  }
-                  onClick={() =>
-                    supported
-                      ? onSelect(chain)
-                      : toast(`${chain} does not support ${coin}`)
-                  }
-                >
-                  <span>{chain}</span>
-                  {!supported && <span className="gray">off</span>}
-                </button>
-              );
-            })
-          ) : (
-            <span className="gray">-</span>
-          )}
-        </span>
-        <span className="sendWalletMenuCol">
-          <span className="sendWalletMenuTitle">all</span>
-          {hyperliquidBridgeE.loading && (
-            <span className="gray">loading Hyperliquid...</span>
-          )}
-          {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
-            <span className="sendWalletMenuItem swapChainAllItem">
-              <span className="red">{hyperliquidBridgeE.error}</span>
-              <button
-                type="button"
-                className="btn small bgGray"
-                onClick={retryHyperliquidBridge}
-              >
-                retry
-              </button>
-            </span>
-          )}
-          {!hyperliquidBridgeE.loading &&
-            !hyperliquidBridgeE.error &&
-            !allChains.length && (
-              <span className="sendWalletMenuItem swapChainAllItem">
-                <span className="gray">-</span>
-                <button
-                  type="button"
-                  className="btn small bgGray"
-                  onClick={retryHyperliquidBridge}
-                >
-                  retry
-                </button>
-              </span>
-            )}
-          {!hyperliquidBridgeE.loading &&
-            !hyperliquidBridgeE.error &&
-            allChains.map((chain) => {
-              const entry = entryM[chain] || {};
-              const added = addedChains.includes(chain);
-              const routeText = getHyperliquidRouteText(entry);
-              return (
-                <span
-                  key={`hl_${side}_all_chain_${chain}`}
-                  className={
-                    chain == selectedChain
-                      ? "sendWalletMenuItem swapChainAllItem on"
-                      : "sendWalletMenuItem swapChainAllItem"
-                  }
-                >
-                  <button
-                    type="button"
-                    className="lendMarketAllSelect swapChainAllSelect"
-                    onClick={() => onSelect(chain)}
-                  >
-                    <span>{chain}</span>
-                    {routeText && <span className="gray">{routeText}</span>}
-                  </button>
-                  <span className="gray">{added ? "✓" : "all"}</span>
-                </span>
-              );
-            })}
-        </span>
-      </span>
+      <TradePickerMenu className="swapChainMenu">
+        <TradePickerColumn title="added">
+          <TradePickerTable
+            className="swapChainAddedTable"
+            headers={["chain", "on"]}
+          >
+            <tbody>
+              {addedChains.length ? (
+                addedChains.map((chain) => {
+                  const supported =
+                    !hyperliquidBridgeE.loaded || allChains.includes(chain);
+                  return (
+                    <tr
+                      key={`hl_${side}_added_chain_${chain}`}
+                      className={[
+                        "lendMarketRow",
+                        chain == selectedChain ? "on" : "",
+                        supported ? "" : "unsupported",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapChainAllSelect"
+                          onClick={() =>
+                            supported
+                              ? onSelect(chain)
+                              : toast(`${chain} is not supported by Hyperliquid`)
+                          }
+                        >
+                          <span>{chain}</span>
+                        </button>
+                      </td>
+                      <td>{!supported && <span className="gray">off</span>}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={2} className="gray">
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+        <TradePickerColumn title="all">
+          <TradePickerTable
+            className="swapChainAllTable"
+            headers={["chain", "add"]}
+          >
+            <tbody>
+              {hyperliquidBridgeE.loading && (
+                <tr>
+                  <td colSpan={2} className="gray">
+                    loading Hyperliquid...
+                  </td>
+                </tr>
+              )}
+              {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
+                <tr>
+                  <td>
+                    <span className="red">{hyperliquidBridgeE.error}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={retryHyperliquidBridge}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!hyperliquidBridgeE.loading &&
+                !hyperliquidBridgeE.error &&
+                !allChains.length && (
+                  <tr>
+                    <td className="gray">-</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn small bgGray"
+                        onClick={retryHyperliquidBridge}
+                      >
+                        retry
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              {!hyperliquidBridgeE.loading &&
+                !hyperliquidBridgeE.error &&
+                allChains.map((chain) => {
+                  const added = addedChains.includes(chain);
+                  return (
+                    <tr
+                      key={`hl_${side}_all_chain_${chain}`}
+                      className={
+                        chain == selectedChain
+                          ? "lendMarketRow on"
+                          : "lendMarketRow"
+                      }
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="lendMarketAllSelect swapChainAllSelect"
+                          onClick={() => onSelect(chain)}
+                        >
+                          <span>{chain}</span>
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className={
+                            added ? "btn small bgGray" : "btn small bgCyan"
+                          }
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (added) return;
+                            toast(
+                              `${chain}: add chain manually before using this route`,
+                            );
+                          }}
+                          disabled={added}
+                        >
+                          {added ? "✓" : "+"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+      </TradePickerMenu>
     );
   }
 
   function renderHyperliquidCoinSelect({
     side = "deposit",
+    chain = "",
     selectedCoin = "",
     addedCoins = [],
     allCoins = [],
+    allCoinEntries = [],
     showMenu = false,
     setShowMenu = () => {},
     pickerRef,
@@ -2105,8 +2616,8 @@ export default function YieldPanel({
     onNext = () => {},
   }) {
     return (
-      <span className="selectCycle walletCycle swapCoinCycle">
-        <span className="sendWalletPicker" ref={pickerRef}>
+      <div className="selectCycle walletCycle swapCoinCycle">
+        <div className="sendWalletPicker" ref={pickerRef}>
           <button
             type="button"
             className="sendWalletPickerButton"
@@ -2124,12 +2635,14 @@ export default function YieldPanel({
           {showMenu &&
             renderHyperliquidCoinMenu({
               side,
+              chain,
               selectedCoin,
               addedCoins,
               allCoins,
+              allCoinEntries,
               onSelect,
             })}
-        </span>
+        </div>
         <button
           type="button"
           className="btn small bgGray"
@@ -2138,17 +2651,15 @@ export default function YieldPanel({
         >
           {">"}
         </button>
-      </span>
+      </div>
     );
   }
 
   function renderHyperliquidChainSelect({
     side = "deposit",
     selectedChain = "",
-    coin = "",
     addedChains = [],
     allChains = [],
-    allChainEntries = [],
     showMenu = false,
     setShowMenu = () => {},
     pickerRef,
@@ -2156,8 +2667,8 @@ export default function YieldPanel({
     onNext = () => {},
   }) {
     return (
-      <span className="selectCycle walletCycle swapChainCycle">
-        <span className="sendWalletPicker" ref={pickerRef}>
+      <div className="selectCycle walletCycle swapChainCycle">
+        <div className="sendWalletPicker" ref={pickerRef}>
           <button
             type="button"
             className="sendWalletPickerButton"
@@ -2180,13 +2691,11 @@ export default function YieldPanel({
             renderHyperliquidChainMenu({
               side,
               selectedChain,
-              coin,
               addedChains,
               allChains,
-              allChainEntries,
               onSelect,
             })}
-        </span>
+        </div>
         <button
           type="button"
           className="btn small bgGray"
@@ -2195,7 +2704,7 @@ export default function YieldPanel({
         >
           {">"}
         </button>
-      </span>
+      </div>
     );
   }
 
@@ -2246,7 +2755,9 @@ export default function YieldPanel({
 
     setAddingCoin(true);
     try {
-      const coin = String(customCoinDraft.coin || customCoinPreview.coin || "").trim();
+      const coin = String(
+        customCoinDraft.coin || customCoinPreview.coin || "",
+      ).trim();
       const entry = {
         address: customCoinPreview.entry?.address,
         decimals: customCoinPreview.entry?.decimals,
@@ -2278,14 +2789,18 @@ export default function YieldPanel({
         return;
       }
 
-      const addressKey = String(entry.address || "").toLowerCase();
+      const addressKey = getTokenAddressKey(customCoinPreview.chain, entry.address);
       setLocallyAddedAddressM((addressM) => ({
         ...addressM,
         [`${customCoinPreview.chain}:${addressKey}`]: true,
       }));
       toast.success(`${res.chain} ${res.coin} added`);
       clearCustomCoinPreview();
-      onTxComplete({ ok: true, type: "addCoin", chain: customCoinPreview.chain });
+      onTxComplete({
+        ok: true,
+        type: "addCoin",
+        chain: customCoinPreview.chain,
+      });
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -2316,11 +2831,17 @@ export default function YieldPanel({
       toast.error("wallet missing");
       return;
     }
-    if (selectedWalletEntry?.isBrowserWallet && selectedWalletEntry.type != "evm") {
+    if (
+      selectedWalletEntry?.isBrowserWallet &&
+      selectedWalletEntry.type != "evm"
+    ) {
       toast.error("Hyperliquid needs an EVM browser wallet");
       return;
     }
-    if (!selectedWalletEntry?.isBrowserWallet && !selectedWalletEntry?.hasPrivateKey) {
+    if (
+      !selectedWalletEntry?.isBrowserWallet &&
+      !selectedWalletEntry?.hasPrivateKey
+    ) {
       toast.error("no private key");
       return;
     }
@@ -2494,11 +3015,17 @@ export default function YieldPanel({
       toast.error("wallet missing");
       return;
     }
-    if (selectedWalletEntry?.isBrowserWallet && selectedWalletEntry.type != "evm") {
+    if (
+      selectedWalletEntry?.isBrowserWallet &&
+      selectedWalletEntry.type != "evm"
+    ) {
       toast.error(`${protocol} needs an EVM browser wallet`);
       return;
     }
-    if (!selectedWalletEntry?.isBrowserWallet && !selectedWalletEntry?.hasPrivateKey) {
+    if (
+      !selectedWalletEntry?.isBrowserWallet &&
+      !selectedWalletEntry?.hasPrivateKey
+    ) {
       toast.error("no private key");
       return;
     }
@@ -2510,9 +3037,8 @@ export default function YieldPanel({
         : "deposit"
       : action;
     const qty = redeem ? readQtyInput(receiptQty) : readQtyInput(lendQty);
-    const autoApprovalAmount = !redeem && !isHyperliquidAction && autoApproval
-      ? qty
-      : "";
+    const autoApprovalAmount =
+      !redeem && !isHyperliquidAction && autoApproval ? qty : "";
     const getApprovalAmount = (approvalNeeded) => {
       if (!approvalNeeded) return "";
       return (
@@ -2552,11 +3078,10 @@ export default function YieldPanel({
       : isVenusFluxAction
         ? getVenusFluxLendPreview
         : getSparkLendPreview;
-    const directMarketArgs =
-      isHyperliquidAction
-        ? {
-            lendAddress: chainE?.coinInfoM?.[lendCoin]?.address,
-          }
+    const directMarketArgs = isHyperliquidAction
+      ? {
+          lendAddress: chainE?.coinInfoM?.[lendCoin]?.address,
+        }
       : usesDirectMarket
         ? {
             underlyingAddress: marketE.underlyingAddress,
@@ -2739,7 +3264,9 @@ export default function YieldPanel({
           }
         }
 
-        toast.loading(`${protocol}: submitting ${actionLabel}...`, { id: toastId });
+        toast.loading(`${protocol}: submitting ${actionLabel}...`, {
+          id: toastId,
+        });
         res = await executeLend({
           walletName: selectedWalletEntry.name,
           walletAddress: selectedWalletEntry.address,
@@ -2917,7 +3444,11 @@ export default function YieldPanel({
             >
               cancel
             </button>
-            <button type="submit" className="btn small bgCyan" disabled={addingCoin}>
+            <button
+              type="submit"
+              className="btn small bgCyan"
+              disabled={addingCoin}
+            >
               {addingCoin ? "..." : "confirm"}
             </button>
           </div>
@@ -3020,7 +3551,7 @@ export default function YieldPanel({
           </span>
         )}
         {!isHyperliquidDepositMode && hasProtocolAllMarkets ? (
-          <span className="selectCycle walletCycle lendMarketCycle">
+          <div className="selectCycle walletCycle lendMarketCycle">
             <button
               type="button"
               className="btn small bgGray"
@@ -3029,7 +3560,7 @@ export default function YieldPanel({
             >
               {"<"}
             </button>
-            <span className="sendWalletPicker" ref={marketPickerRef}>
+            <div className="sendWalletPicker" ref={marketPickerRef}>
               <button
                 type="button"
                 className="sendWalletPickerButton"
@@ -3040,152 +3571,263 @@ export default function YieldPanel({
                 {marketE ? getMarketLabel(marketE) : "no coin"}
               </button>
               {showMarketMenu && (
-                <span className="sendWalletMenu lendMarketMenu">
-                  <span className="sendWalletMenuCol">
-                    <span className="sendWalletMenuTitle">added</span>
-                    {visibleAddedMarkets.length ? (
-                      visibleAddedMarkets.map((entry) => (
-                        <button
-                          key={`wallet_${entry.value}`}
-                          type="button"
-                          className={
-                            entry.value == market
-                              ? "sendWalletMenuItem lendMarketAddedItem on"
-                              : "sendWalletMenuItem lendMarketAddedItem"
-                          }
-                          onClick={() => selectMarket(entry.value)}
-                        >
-                          <span>{entry.underlyingCoin}</span>
-                          <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
-                            <span className="gray">{entry.lendCoin}</span>
-                            <LendCoinInfoCard
-                              coin={entry.lendCoin}
-                              name={entry.lendName}
-                              lockedUntilTimestamp={
-                                chainE?.coinInfoM?.[entry.lendCoin]
-                                  ?.lockedUntilTimestamp
+                <TradePickerMenu className="lendMarketMenu">
+                  <TradePickerColumn title="added">
+                    <TradePickerTable
+                      className="lendMarketAddedTable"
+                      headers={[
+                        <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
+                        <SortHeader sortKey="underlyingQty">qty</SortHeader>,
+                        <SortHeader sortKey="lendCoin">coin</SortHeader>,
+                        <SortHeader sortKey="lendQty">qty</SortHeader>,
+                        <SortHeader sortKey="apr">apr</SortHeader>,
+                      ]}
+                    >
+                      <tbody>
+                        {visibleAddedMarkets.length ? (
+                          sortMarketRows(
+                            visibleAddedMarkets.map(getMarketTableRow),
+                            addedMarketSort,
+                          ).map((entry) => (
+                            <tr
+                              key={`wallet_${entry.value}`}
+                              className={
+                                entry.value == market
+                                  ? "lendMarketRow on"
+                                  : "lendMarketRow"
                               }
-                            />
-                          </span>
-                          <AprText apr={entry.supplyApr} label={false} />
-                        </button>
-                      ))
-                    ) : (
-                      <span className="gray">-</span>
-                    )}
-                  </span>
-                  <span className="sendWalletMenuCol">
-                    <span className="sendWalletMenuTitle">all</span>
-                    {allLoading && !visibleAddedMarkets.length && (
-                      <span className="gray">loading {allProtocolLabel}...</span>
-                    )}
-                    {!allLoading && allError && visibleAddedMarkets.length > 0 && (
-                      <span className="sendWalletMenuItem lendMarketAllItem">
-                        <span className="gray">all added</span>
-                      </span>
-                    )}
-                    {!allLoading && allError && !visibleAddedMarkets.length && (
-                      <span className="sendWalletMenuItem lendMarketAllItem">
-                        <span className="red">{allError}</span>
-                        <button
-                          type="button"
-                          className="btn small bgGray"
-                          onClick={retryAllMarkets}
-                        >
-                          retry
-                        </button>
-                      </span>
-                    )}
-                    {!allLoading && !allError && !allMarkets.length && (
-                      <span className="sendWalletMenuItem lendMarketAllItem">
-                        <span className="gray">
-                          {visibleAddedMarkets.length ? "all added" : "-"}
-                        </span>
-                        {!visibleAddedMarkets.length && (
-                          <button
-                            type="button"
-                            className="btn small bgGray"
-                            onClick={retryAllMarkets}
-                          >
-                            retry
-                          </button>
+                              onClick={() => selectMarket(entry.value)}
+                            >
+                              <td>
+                                <span>{entry.underlyingCoin}</span>
+                              </td>
+                              <td>
+                                <MarketCoinBalance
+                                  balance={entry.underlyingBalance}
+                                />
+                              </td>
+                              <td>
+                                <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
+                                  <span className="gray">{entry.lendCoin}</span>
+                                  <LendCoinInfoCard
+                                    coin={entry.lendCoin}
+                                    name={entry.lendName}
+                                    lockedUntilTimestamp={
+                                      chainE?.coinInfoM?.[entry.lendCoin]
+                                        ?.lockedUntilTimestamp
+                                    }
+                                  />
+                                </span>
+                              </td>
+                              <td>
+                                <MarketCoinBalance
+                                  balance={entry.lendBalance}
+                                />
+                              </td>
+                              <td>
+                                <AprText apr={entry.supplyApr} label={false} />
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="gray">
+                              -
+                            </td>
+                          </tr>
                         )}
-                      </span>
-                    )}
-                    {!allLoading &&
-                      !allError &&
-                      allMarkets.map((entry) => (
-                        <span
-                          key={`${defi}_${entry.value}`}
-                          className={
-                            entry.addedValue == market
-                              ? "sendWalletMenuItem lendMarketAllItem on"
-                              : "sendWalletMenuItem lendMarketAllItem"
-                          }
-                        >
-                          <button
-                            type="button"
-                            className="lendMarketAllSelect"
-                            onClick={() =>
-                              selectMarket(entry.addedValue || entry.value)
-                            }
-                            title={entry.underlyingName}
-                          >
-                            <span>{entry.underlyingCoin}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className={
-                              entry.addedUnderlying
-                                ? "btn small bgGray"
-                                : "btn small bgCyan"
-                            }
-                            onClick={(e) =>
-                              openProtocolCoinConfirm(e, entry, "underlying")
-                            }
-                            disabled={entry.addedUnderlying || addingCoin}
-                            title={entry.underlyingName}
-                          >
-                            {entry.addedUnderlying ? "✓" : "+"}
-                          </button>
-                          <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
-                            <button
-                              type="button"
-                              className="lendMarketAllSelect lendMarketAllLendSelect"
-                              onClick={() =>
-                                selectMarket(entry.addedValue || entry.value)
+                      </tbody>
+                    </TradePickerTable>
+                  </TradePickerColumn>
+                  <TradePickerColumn title="all">
+                    <TradePickerTable
+                      className="lendMarketAllTable"
+                      headers={[
+                        <SortHeader section="all" sortKey="underlyingCoin">
+                          coin
+                        </SortHeader>,
+                        <SortHeader section="all" sortKey="underlyingQty">
+                          qty
+                        </SortHeader>,
+                        "add",
+                        <SortHeader section="all" sortKey="lendCoin">
+                          coin
+                        </SortHeader>,
+                        <SortHeader section="all" sortKey="lendQty">
+                          qty
+                        </SortHeader>,
+                        "add",
+                        <SortHeader section="all" sortKey="apr">
+                          apr
+                        </SortHeader>,
+                      ]}
+                    >
+                      <tbody>
+                        {allLoading && (
+                          <tr>
+                            <td colSpan={7} className="gray">
+                              loading {allProtocolLabel}...
+                            </td>
+                          </tr>
+                        )}
+                        {!allLoading &&
+                          allError &&
+                          visibleAddedMarkets.length > 0 && (
+                            <tr>
+                              <td colSpan={7} className="gray">
+                                all added
+                              </td>
+                            </tr>
+                          )}
+                        {!allLoading &&
+                          allError &&
+                          !visibleAddedMarkets.length && (
+                            <tr>
+                              <td colSpan={6}>
+                                <span className="red">{allError}</span>
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn small bgGray"
+                                  onClick={retryAllMarkets}
+                                >
+                                  retry
+                                </button>
+                              </td>
+                            </tr>
+                          )}
+                        {!allLoading && !allError && !allMarkets.length && (
+                          <tr>
+                            <td colSpan={6} className="gray">
+                              {visibleAddedMarkets.length ? "all added" : "-"}
+                            </td>
+                            <td>
+                              {!visibleAddedMarkets.length && (
+                                <button
+                                  type="button"
+                                  className="btn small bgGray"
+                                  onClick={retryAllMarkets}
+                                >
+                                  retry
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                        {!allLoading &&
+                          !allError &&
+                          sortMarketRows(
+                            allMarkets.map(getMarketTableRow),
+                            allMarketSort,
+                          ).map((entry) => (
+                            <tr
+                              key={`${defi}_${entry.value}`}
+                              className={
+                                entry.addedValue == market
+                                  ? "lendMarketRow on"
+                                  : "lendMarketRow"
                               }
                             >
-                              <span className="gray">{entry.lendCoin}</span>
-                            </button>
-                            <LendCoinInfoCard
-                              coin={entry.lendCoin}
-                              name={entry.lendName}
-                              lockedUntilTimestamp={
-                                chainE?.coinInfoM?.[entry.lendCoin]
-                                  ?.lockedUntilTimestamp
-                              }
-                            />
-                          </span>
-                          <button
-                            type="button"
-                            className={
-                              entry.addedLend
-                                ? "btn small bgGray"
-                                : "btn small bgCyan"
-                            }
-                            onClick={(e) => openProtocolCoinConfirm(e, entry)}
-                            disabled={entry.addedLend || addingCoin}
-                          >
-                            {entry.addedLend ? "✓" : "+"}
-                          </button>
-                          <AprText apr={entry.supplyApr} label={false} />
-                        </span>
-                      ))}
-                  </span>
-                </span>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="lendMarketAllSelect"
+                                  onClick={() =>
+                                    selectMarket(
+                                      entry.addedValue || entry.value,
+                                    )
+                                  }
+                                  title={entry.underlyingName}
+                                >
+                                  <span>{entry.underlyingCoin}</span>
+                                </button>
+                              </td>
+                              <td>
+                                <MarketCoinBalance
+                                  balance={entry.underlyingBalance}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className={
+                                    entry.addedUnderlying
+                                      ? "btn small bgGray"
+                                      : "btn small bgCyan"
+                                  }
+                                  onClick={(e) =>
+                                    openProtocolCoinConfirm(
+                                      e,
+                                      entry,
+                                      "underlying",
+                                    )
+                                  }
+                                  disabled={
+                                    entry.addedUnderlying || addingCoin
+                                  }
+                                  title={entry.underlyingName}
+                                >
+                                  {entry.addedUnderlying ? "✓" : "+"}
+                                </button>
+                              </td>
+                              <td>
+                                <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
+                                  <button
+                                    type="button"
+                                    className="lendMarketAllSelect lendMarketAllLendSelect"
+                                    onClick={() =>
+                                      selectMarket(
+                                        entry.addedValue || entry.value,
+                                      )
+                                    }
+                                  >
+                                    <span className="gray">
+                                      {entry.lendCoin}
+                                    </span>
+                                  </button>
+                                  <LendCoinInfoCard
+                                    coin={entry.lendCoin}
+                                    name={entry.lendName}
+                                    lockedUntilTimestamp={
+                                      chainE?.coinInfoM?.[entry.lendCoin]
+                                        ?.lockedUntilTimestamp
+                                    }
+                                  />
+                                </span>
+                              </td>
+                              <td>
+                                <MarketCoinBalance
+                                  balance={entry.lendBalance}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className={
+                                    entry.addedLend
+                                      ? "btn small bgGray"
+                                      : "btn small bgCyan"
+                                  }
+                                  onClick={(e) =>
+                                    openProtocolCoinConfirm(e, entry)
+                                  }
+                                  disabled={entry.addedLend || addingCoin}
+                                >
+                                  {entry.addedLend ? "✓" : "+"}
+                                </button>
+                              </td>
+                              <td>
+                                <AprText apr={entry.supplyApr} label={false} />
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </TradePickerTable>
+                  </TradePickerColumn>
+                </TradePickerMenu>
               )}
-            </span>
+            </div>
             <button
               type="button"
               className="btn small bgGray"
@@ -3197,7 +3839,7 @@ export default function YieldPanel({
             <span className="lendSelectedApr">
               <AprText apr={marketSupplyApr} />
             </span>
-          </span>
+          </div>
         ) : !isHyperliquidDepositMode ? (
           <span className="selectCycle">
             <select
@@ -3229,29 +3871,30 @@ export default function YieldPanel({
           <div className="swapAssetLine">
             {isHyperliquidDepositMode ? (
               <>
-                {renderHyperliquidCoinSelect({
-                  side: "deposit",
-                  selectedCoin: activeHyperliquidDepositCoin,
-                  addedCoins: hyperliquidDepositAddedCoins,
-                  allCoins: hyperliquidDepositCoins,
-                  showMenu: showHyperliquidDepositCoinMenu,
-                  setShowMenu: setShowHyperliquidDepositCoinMenu,
-                  pickerRef: hyperliquidDepositCoinPickerRef,
-                  onSelect: selectHyperliquidDepositCoin,
-                  onNext: nextHyperliquidDepositCoin,
-                })}
+                <span className="gray">wallet</span>
                 {renderHyperliquidChainSelect({
                   side: "deposit",
                   selectedChain: activeHyperliquidDepositChain,
-                  coin: activeHyperliquidDepositCoin,
                   addedChains: hyperliquidDepositAddedChains,
                   allChains: hyperliquidDepositChains,
-                  allChainEntries: hyperliquidDepositAllChainEntries,
                   showMenu: showHyperliquidDepositChainMenu,
                   setShowMenu: setShowHyperliquidDepositChainMenu,
                   pickerRef: hyperliquidDepositChainPickerRef,
                   onSelect: selectHyperliquidDepositChain,
                   onNext: nextHyperliquidDepositChain,
+                })}
+                {renderHyperliquidCoinSelect({
+                  side: "deposit",
+                  chain: activeHyperliquidDepositChain,
+                  selectedCoin: activeHyperliquidDepositCoin,
+                  addedCoins: hyperliquidDepositAddedCoins,
+                  allCoins: hyperliquidDepositCoins,
+                  allCoinEntries: hyperliquidDepositAllCoinEntries,
+                  showMenu: showHyperliquidDepositCoinMenu,
+                  setShowMenu: setShowHyperliquidDepositCoinMenu,
+                  pickerRef: hyperliquidDepositCoinPickerRef,
+                  onSelect: selectHyperliquidDepositCoin,
+                  onNext: nextHyperliquidDepositCoin,
                 })}
                 {hyperliquidDepositRouteText && (
                   <span className="gray">{hyperliquidDepositRouteText}</span>
@@ -3358,15 +4001,22 @@ export default function YieldPanel({
                 : depositButtonLabel}
             </button>
           </div>
+          {isHyperliquidDepositMode && hyperliquidDepositFeeEtaText && (
+            <div className="hyperliquidFeeEtaLine gray">
+              {hyperliquidDepositFeeEtaText}
+            </div>
+          )}
         </div>
 
         <div className="swapMiddle">
-          <label className="swapGasSelect">
-            <span className="gray">gas:</span>
-            <select value="default" disabled>
-              <option value="default">auto</option>
-            </select>
-          </label>
+          {showGasAutoLabel && (
+            <label className="swapGasSelect">
+              <span className="gray">gas:</span>
+              <select value="default" disabled>
+                <option value="default">auto</option>
+              </select>
+            </label>
+          )}
           {!isHyperliquid && !selectedWalletEntry?.isBrowserWallet && (
             <label className="swapAutoApproval">
               <input
@@ -3377,42 +4027,45 @@ export default function YieldPanel({
               <span className="gray">auto approve</span>
             </label>
           )}
-          <span className="swapRateLine">
-            <span className="gray">rate:</span>{" "}
-            {displayUnderlyingCoin && displayReceiptCoin
-              ? `1 ${displayUnderlyingCoin} = ${fmtRate(receiptRate)} ${displayReceiptCoin}`
-              : "-"}
-            {priceStatus && <span className="gray"> {priceStatus}</span>}
-          </span>
+          {!isHyperliquidDepositMode && (
+            <span className="swapRateLine">
+              <span className="gray">rate:</span>{" "}
+              {displayUnderlyingCoin && displayReceiptCoin
+                ? `1 ${displayUnderlyingCoin} = ${fmtRate(receiptRate)} ${displayReceiptCoin}`
+                : "-"}
+              {priceStatus && <span className="gray"> {priceStatus}</span>}
+            </span>
+          )}
         </div>
 
         <div className="swapBox">
           <div className="swapAssetLine">
             {isHyperliquidDepositMode ? (
               <>
-                {renderHyperliquidCoinSelect({
-                  side: "withdraw",
-                  selectedCoin: activeHyperliquidWithdrawCoin,
-                  addedCoins: hyperliquidWithdrawAddedCoins,
-                  allCoins: hyperliquidWithdrawCoins,
-                  showMenu: showHyperliquidWithdrawCoinMenu,
-                  setShowMenu: setShowHyperliquidWithdrawCoinMenu,
-                  pickerRef: hyperliquidWithdrawCoinPickerRef,
-                  onSelect: selectHyperliquidWithdrawCoin,
-                  onNext: nextHyperliquidWithdrawCoin,
-                })}
+                <span className="gray">spot</span>
                 {renderHyperliquidChainSelect({
                   side: "withdraw",
                   selectedChain: activeHyperliquidWithdrawChain,
-                  coin: activeHyperliquidWithdrawCoin,
                   addedChains: hyperliquidWithdrawAddedChains,
                   allChains: hyperliquidWithdrawChains,
-                  allChainEntries: hyperliquidWithdrawAllChainEntries,
                   showMenu: showHyperliquidWithdrawChainMenu,
                   setShowMenu: setShowHyperliquidWithdrawChainMenu,
                   pickerRef: hyperliquidWithdrawChainPickerRef,
                   onSelect: selectHyperliquidWithdrawChain,
                   onNext: nextHyperliquidWithdrawChain,
+                })}
+                {renderHyperliquidCoinSelect({
+                  side: "withdraw",
+                  chain: activeHyperliquidWithdrawChain,
+                  selectedCoin: activeHyperliquidWithdrawCoin,
+                  addedCoins: hyperliquidWithdrawAddedCoins,
+                  allCoins: hyperliquidWithdrawCoins,
+                  allCoinEntries: hyperliquidWithdrawAllCoinEntries,
+                  showMenu: showHyperliquidWithdrawCoinMenu,
+                  setShowMenu: setShowHyperliquidWithdrawCoinMenu,
+                  pickerRef: hyperliquidWithdrawCoinPickerRef,
+                  onSelect: selectHyperliquidWithdrawCoin,
+                  onNext: nextHyperliquidWithdrawCoin,
                 })}
                 {hyperliquidWithdrawRouteText && (
                   <span className="gray">{hyperliquidWithdrawRouteText}</span>
@@ -3521,6 +4174,11 @@ export default function YieldPanel({
                 : withdrawButtonLabel}
             </button>
           </div>
+          {isHyperliquidDepositMode && hyperliquidWithdrawFeeEtaText && (
+            <div className="hyperliquidFeeEtaLine gray">
+              {hyperliquidWithdrawFeeEtaText}
+            </div>
+          )}
         </div>
       </div>
       {lendResult && (

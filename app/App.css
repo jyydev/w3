@@ -1153,6 +1153,10 @@ span.chainIcon {
   align-items: center;
   margin-top: 8px;
 }
+.hyperliquidFeeEtaLine {
+  font-size: 12px;
+  margin-top: 4px;
+}
 .sendQtyInput {
   width: 170px;
   min-width: 150px;
@@ -1190,10 +1194,10 @@ span.chainIcon {
   top: calc(100% + 4px);
   left: 0;
   display: grid;
-  grid-template-columns: minmax(140px, max-content) minmax(160px, max-content);
-  gap: 8px;
-  min-width: 360px;
-  max-width: min(720px, 90vw);
+  grid-template-columns: max-content max-content;
+  gap: 4px;
+  min-width: 0;
+  max-width: min(720px, 94vw);
   max-height: 320px;
   padding: 8px;
   overflow: auto;
@@ -1232,27 +1236,100 @@ span.chainIcon {
   background: rgb(35, 35, 35);
 }
 .lendMarketMenu {
-  grid-template-columns: minmax(150px, max-content) minmax(300px, 1fr);
-  min-width: 520px;
-  max-width: min(860px, 94vw);
-}
-.lendMarketAllItem {
-  display: grid;
-  grid-template-columns: 6ch 16px 10ch 16px auto;
-  column-gap: 2px;
-  align-items: center;
-  width: max-content;
+  grid-template-columns: max-content max-content;
   min-width: 0;
+  max-width: min(1180px, 96vw);
 }
-.lendMarketAddedItem {
-  grid-template-columns: max-content max-content auto;
-  column-gap: 3px;
+.lendMarketTable {
   width: max-content;
+  max-width: min(560px, 46vw);
+  border-collapse: collapse;
+  table-layout: auto;
 }
-.lendMarketAllItem > .btn {
+.lendMarketAllTable {
+  max-width: min(720px, 56vw);
+}
+.tradePickerTable {
+  max-width: min(420px, 44vw);
+}
+.tradePickerTable td:first-child {
+  max-width: 260px;
+}
+.swapChainAddedTable td:nth-child(2),
+.swapChainAllTable td:nth-child(2),
+.swapCoinAddedTable td:nth-child(3),
+.swapCoinAllTable td:nth-child(4) {
+  max-width: 28px;
+  padding-left: 2px;
+  padding-right: 2px;
+  text-align: center;
+}
+.tradePickerTable .lendMarketAllSelect {
+  grid-template-columns: max-content max-content;
+  column-gap: 6px;
+}
+.sendWalletTable td:nth-child(2) {
+  color: var(--gray);
+  font-size: 11px;
+  text-align: right;
+}
+.sendCoinMenu {
+  grid-template-columns: max-content;
+}
+.sendCoinTable td:nth-child(2) {
+  white-space: nowrap;
+}
+.lendMarketTable th {
+  padding: 0 5px 2px;
+  color: rgb(150, 150, 150);
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 1.1;
+  text-align: left;
+  white-space: nowrap;
+}
+.lendMarketSortHeader {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.lendMarketSortHeader.on {
+  color: rgb(210, 210, 210);
+}
+.lendMarketSortHeader.on::after {
+  content: "↓";
+  margin-left: 2px;
+}
+.lendMarketTable td {
+  max-width: 220px;
+  padding: 3px 5px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.lendMarketAllTable td:nth-child(3),
+.lendMarketAllTable td:nth-child(6) {
+  max-width: 24px;
+  padding-left: 2px;
+  padding-right: 2px;
+  text-align: center;
+}
+.lendMarketTable .btn {
   min-width: 16px;
   padding-left: 3px;
   padding-right: 3px;
+}
+.lendMarketRow {
+  cursor: pointer;
+}
+.lendMarketRow:hover,
+.lendMarketRow.on {
+  background: rgb(35, 35, 35);
+}
+.lendMarketRow.unsupported {
+  opacity: 0.72;
 }
 .lendSelectedApr {
   display: inline-flex;
@@ -1287,6 +1364,7 @@ span.chainIcon {
 .lendMarketCoinHover {
   display: block;
   min-width: 0;
+  overflow: hidden;
 }
 .lendMarketCoinHover .infoCard {
   top: 0;
@@ -1310,13 +1388,26 @@ span.chainIcon {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.lendMarketCoinWithBalance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+}
+.lendMarketCoinWithBalance > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .lendMarketAllSelect:disabled {
   cursor: default;
   opacity: 0.85;
 }
 .swapChainMenu {
-  grid-template-columns: minmax(130px, max-content) minmax(230px, max-content);
-  min-width: 430px;
+  grid-template-columns: max-content max-content;
+  min-width: 0;
   max-width: min(760px, 94vw);
 }
 .swapChainAddedItem {
@@ -1351,9 +1442,34 @@ span.chainIcon {
   column-gap: 6px;
 }
 .swapCoinMenu {
-  grid-template-columns: minmax(120px, max-content) minmax(260px, max-content);
-  min-width: 430px;
-  max-width: min(820px, 94vw);
+  grid-template-columns: max-content max-content;
+  min-width: 0;
+  max-width: min(620px, 94vw);
+}
+.swapCoinMenu .tradePickerTable {
+  width: max-content;
+  max-width: none;
+  table-layout: auto;
+}
+.swapCoinMenu .lendMarketAllSelect {
+  display: block;
+}
+.swapCoinMenu .lendMarketTable th,
+.swapCoinMenu .lendMarketTable td {
+  overflow: hidden;
+}
+.swapCoinAllTable td:nth-child(2) {
+  max-width: 170px;
+  text-align: left;
+}
+.swapCoinAllTable td:nth-child(4) {
+  max-width: 22px;
+}
+.swapCoinAddedTable td:nth-child(3) {
+  max-width: 22px;
+}
+.swapCoinMenu .lendMarketAllSelect span {
+  display: block;
 }
 .swapCoinAddedItem {
   grid-template-columns: minmax(0, max-content) 3ch;

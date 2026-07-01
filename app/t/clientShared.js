@@ -26,6 +26,16 @@ export const tradeLendMarketCookie = "w3_trade_lend_market";
 export const tradeYieldDefiCookie = "w3_trade_yield_defi";
 export const tradeYieldChainCookie = "w3_trade_yield_chain";
 export const tradeYieldMarketCookie = "w3_trade_yield_market";
+export const tradeYieldHyperliquidModeCookie =
+  "w3_trade_yield_hyperliquid_mode";
+export const tradeYieldHyperliquidChainCookie =
+  "w3_trade_yield_hyperliquid_chain";
+export const tradeYieldHyperliquidCoinCookie =
+  "w3_trade_yield_hyperliquid_coin";
+export const tradeYieldHyperliquidDepositCoinCookie =
+  "w3_trade_yield_hyperliquid_deposit_coin";
+export const tradeYieldHyperliquidWithdrawCoinCookie =
+  "w3_trade_yield_hyperliquid_withdraw_coin";
 export const tradeSendChainCookie = "w3_trade_send_chain";
 export const tradeSendCoinCookie = "w3_trade_send_coin";
 export const tradeSendToWalletCookie = "w3_trade_send_to_wallet";
@@ -68,6 +78,139 @@ export const yieldOptions = (Array.isArray(yields) ? yields : [])
     label: String(entry.label),
   }));
 export const noYield = { value: "", label: "Yield" };
+
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function getPickerSortText(value = "") {
+  return String(value ?? "").toLowerCase();
+}
+
+function getPickerSortNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+export function TradePickerMenu({ className = "", children }) {
+  return <div className={cn("sendWalletMenu", className)}>{children}</div>;
+}
+
+export function TradePickerColumn({ title = "", children }) {
+  return (
+    <div className="sendWalletMenuCol">
+      <span className="sendWalletMenuTitle">{title}</span>
+      {children}
+    </div>
+  );
+}
+
+export function TradePickerTable({ className = "", headers = [], children }) {
+  return (
+    <table className={cn("lendMarketTable", "tradePickerTable", className)}>
+      <thead>
+        <tr>
+          {headers.map((header, index) => (
+            <th key={`${index}_${String(header?.key || header)}`}>{header}</th>
+          ))}
+        </tr>
+      </thead>
+      {children}
+    </table>
+  );
+}
+
+export function TradePickerRow({
+  active = false,
+  unsupported = false,
+  onClick,
+  children,
+}) {
+  return (
+    <tr
+      className={cn(
+        "lendMarketRow",
+        active ? "on" : "",
+        unsupported ? "unsupported" : "",
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </tr>
+  );
+}
+
+export function TradePickerCell({ className = "", colSpan, children }) {
+  return (
+    <td className={className} colSpan={colSpan}>
+      {children}
+    </td>
+  );
+}
+
+export function sortTradePickerRows(
+  rows = [],
+  sortKey = "",
+  getterM = {},
+  directionM = {},
+) {
+  if (!sortKey) return rows;
+
+  const getter = getterM[sortKey] || ((entry) => entry?.[sortKey]);
+  const direction = directionM[sortKey] || "asc";
+  const multiplier = direction == "desc" ? -1 : 1;
+
+  return [...rows].sort((a, b) => {
+    const aValue = getter(a);
+    const bValue = getter(b);
+    const aNumber = getPickerSortNumber(aValue);
+    const bNumber = getPickerSortNumber(bValue);
+    const useNumber =
+      typeof aValue == "number" ||
+      typeof bValue == "number" ||
+      (aValue !== "" &&
+        aValue !== null &&
+        aValue !== undefined &&
+        bValue !== "" &&
+        bValue !== null &&
+        bValue !== undefined &&
+        Number.isFinite(Number(aValue)) &&
+        Number.isFinite(Number(bValue)));
+
+    if (useNumber) return (aNumber - bNumber) * multiplier;
+
+    return (
+      getPickerSortText(aValue).localeCompare(getPickerSortText(bValue)) *
+      multiplier
+    );
+  });
+}
+
+export function toggleTradePickerSort(setter, sortKey = "") {
+  setter((current) => (current == sortKey ? "" : sortKey));
+}
+
+export function TradePickerSortHeader({
+  activeSort = "",
+  sortKey = "",
+  onSort = () => {},
+  children,
+}) {
+  return (
+    <button
+      type="button"
+      className={
+        activeSort == sortKey
+          ? "lendMarketSortHeader on"
+          : "lendMarketSortHeader"
+      }
+      onClick={() => onSort(sortKey)}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function getTradeModeCookie(base = "", walletType = "evm") {
   return `${base}_${walletType == "solana" ? "solana" : "evm"}`;

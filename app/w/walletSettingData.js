@@ -5,6 +5,7 @@ export const disabledCoinsCookie = `${ckPrefix ?? ""}disabledCoins`;
 export const disabledWalletsCookie = `${ckPrefix ?? ""}disabledWallets`;
 export const useAlchemyCookie = `${ckPrefix ?? ""}useAlchemy`;
 export const alchemyMinUsdCookie = `${ckPrefix ?? ""}alchemyMinUsd`;
+export const showGasAutoCookie = `${ckPrefix ?? ""}showGasAuto`;
 
 export function parseOptionalBool(value) {
   if (value === undefined || value === null || value === "") return null;

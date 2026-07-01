@@ -14,6 +14,7 @@ import { toggleOffChain } from "./chainActions";
 import {
   alchemyMinUsdCookie,
   disabledChainsCookie,
+  showGasAutoCookie,
   useAlchemyCookie,
 } from "./walletSettingData";
 
@@ -31,11 +32,14 @@ function WalletSettings({
   useAlchemy = false,
   defaultAlchemyMinUsd = 0.01,
   alchemyMinUsd = 0.01,
+  defaultShowGasAuto = false,
+  showGasAuto = false,
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("chains");
   const [useAlchemyState, setUseAlchemyState] = useState(!!useAlchemy);
+  const [showGasAutoState, setShowGasAutoState] = useState(!!showGasAuto);
   const [alchemyMinUsdDraft, setAlchemyMinUsdDraft] = useState(
     String(alchemyMinUsd),
   );
@@ -73,6 +77,10 @@ function WalletSettings({
   useEffect(() => {
     setUseAlchemyState(!!useAlchemy);
   }, [useAlchemy]);
+
+  useEffect(() => {
+    setShowGasAutoState(!!showGasAuto);
+  }, [showGasAuto]);
 
   useEffect(() => {
     setAlchemyMinUsdDraft(String(alchemyMinUsd));
@@ -145,6 +153,17 @@ function WalletSettings({
 
     setUseAlchemyState(next);
     setCookie(useAlchemyCookie, next ? "1" : "0", {
+      maxAge: cookieMaxAge,
+      path: "/",
+    });
+    router.refresh();
+  }
+
+  function toggleShowGasAuto() {
+    const next = !showGasAutoState;
+
+    setShowGasAutoState(next);
+    setCookie(showGasAutoCookie, next ? "1" : "0", {
       maxAge: cookieMaxAge,
       path: "/",
     });
@@ -258,6 +277,17 @@ function WalletSettings({
                     />
                   </td>
                   <td>{defaultUseAlchemy ? "on" : "off"}</td>
+                </tr>
+                <tr>
+                  <td>gas auto label</td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={showGasAutoState}
+                      onChange={toggleShowGasAuto}
+                    />
+                  </td>
+                  <td>{defaultShowGasAuto ? "on" : "off"}</td>
                 </tr>
                 <tr>
                   <td>Alchemy min $</td>

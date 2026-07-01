@@ -20,6 +20,7 @@ import {
   parseDisabledChains,
   parseDisabledCoinM,
   parseDisabledWallets,
+  showGasAutoCookie,
   useAlchemyCookie,
 } from "./walletSettingData";
 import {
@@ -236,6 +237,14 @@ async function WPage({
     alchemyMinUsdCookieValue === null
       ? defaultAlchemyMinUsd
       : Math.max(0, alchemyMinUsdCookieValue);
+  const defaultShowGasAuto = false;
+  const showGasAutoCookieValue = parseOptionalBool(
+    cookieStore.get(showGasAutoCookie)?.value,
+  );
+  const showGasAuto =
+    showGasAutoCookieValue === null
+      ? defaultShowGasAuto
+      : showGasAutoCookieValue;
   const disabledChainM = new Set([...disabledChains, ...offChains]);
   const selectedWalletType =
     requestedWalletType == "solana" && disabledChainM.has("Solana")
@@ -418,6 +427,8 @@ async function WPage({
           useAlchemy={useAlchemy}
           defaultAlchemyMinUsd={defaultAlchemyMinUsd}
           alchemyMinUsd={alchemyMinUsd}
+          defaultShowGasAuto={defaultShowGasAuto}
+          showGasAuto={showGasAuto}
         />
         <BrowserWalletConnect
           routeBase={routeBase}
@@ -464,6 +475,7 @@ async function WPage({
             offAddrs,
             useAlchemy,
             alchemyMinUsd,
+            showGasAutoLabel: showGasAuto,
             walletFiles,
             walletFilesM,
             selectedAddress: selectedWalletAddress,

@@ -54,6 +54,7 @@ exports.rpcs = {
     // "https://bsc-dataseed2.bnbchain.org",
     // "https://bsc-dataseed3.bnbchain.org",
     // "https://bsc-dataseed4.bnbchain.org",
+    "https://rpc.nodeflare.app/bnb/public",
   ],
   Arbitrum: [
     "https://arb1.arbitrum.io/rpc",
@@ -85,7 +86,11 @@ exports.rpcs = {
     "https://klaytn.api.onfinality.io/public",
     "https://klaytn.drpc.org",
   ],
-  WEMIX: ["https://api.wemix.com", "https://wemix.drpc.org"],
+  WEMIX: [
+    "https://wemix.drpc.org",
+    // "wss://wemix.drpc.org", //wss: unsupported wss
+    // "https://api.wemix.com", //403 forbidden
+  ],
   Avalanche: [
     "https://avalanche-c-chain-rpc.publicnode.com",
     "https://api.avax.network/ext/bc/C/rpc",
