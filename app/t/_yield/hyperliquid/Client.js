@@ -1,13 +1,90 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
+import { getHyperliquidSpotBridgeDiscovery } from "./sv";
 import {
   emitTradeChainSelect,
+  getChainCoins,
+  getTradeModeCookie,
   TradePickerColumn,
   TradePickerMenu,
   TradePickerTable,
 } from "../../clientShared";
+
+const hyperliquidBridgeCoinM = {
+  Arbitrum: new Set(["USDC"]),
+};
+
+export const emptyHyperliquidBridgeE = {
+  deposit: { chains: [], tokens: [] },
+  withdraw: { chains: [], tokens: [] },
+  loading: false,
+  loaded: false,
+  error: "",
+};
+let hyperliquidBridgeCache = null;
+let hyperliquidBridgePromise = null;
+
+export function isHyperliquidCoin(_coin = "", coinE = {}) {
+  return coinE.type == "vault";
+}
+
+export function isHyperliquidChainAvailable(chain = "", chainMarkets = []) {
+  return chain == "Hyperliquid" && !!chainMarkets.length;
+}
+
+function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+function getHyperliquidProtocolCookie(base = "", walletType = "evm") {
+  return [getTradeModeCookie(base, walletType), "hyperliquid"]
+    .filter(Boolean)
+    .join("_");
+}
+
+export function getInitialHyperliquidMode(
+  initialCookieM = {},
+  walletType = "evm",
+  base = "",
+) {
+  const value = getInitialCookie(
+    initialCookieM,
+    getHyperliquidProtocolCookie(base, walletType),
+  );
+
+  return value == "deposit" ? "deposit" : "vault";
+}
+
+export function getInitialHyperliquidRouteCookie(
+  initialCookieM = {},
+  walletType = "evm",
+  base = "",
+) {
+  return (
+    getInitialCookie(
+      initialCookieM,
+      getHyperliquidProtocolCookie(base, walletType),
+    ) || ""
+  );
+}
+
+export function getHyperliquidAgentCookie(
+  walletAddress = "",
+  agentAddress = "",
+) {
+  const walletKey = String(walletAddress || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  const agentKey = String(agentAddress || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+  return `w3_hl_agent_${walletKey}_${agentKey}`;
+}
 
 function NoopBalance() {
   return null;
@@ -37,6 +114,402 @@ export function getHyperliquidFeeEtaText(tokenE = {}) {
   if (tokenE.eta) parts.push(`ETA:${tokenE.eta}`);
 
   return parts.join(" ");
+}
+
+function isHyperliquidDepositCoin(chain = "", coin = "", coinE = {}) {
+  const supportedCoins = hyperliquidBridgeCoinM[chain];
+  if (!supportedCoins?.has(coin)) return false;
+
+  const text = `${coin} ${coinE?.name || ""}`.toUpperCase();
+
+  return coinE?.type == "stable" && text.includes("USDC");
+}
+
+function getHyperliquidDepositCoins(chainE) {
+  const priority = ["USDC", "USDC.E", "USDT", "USDT.E", "USDE"];
+  const coinInfoM = chainE?.coinInfoM || {};
+  if (!hyperliquidBridgeCoinM[chainE?.chain]) return [];
+
+  return getChainCoins(chainE)
+    .filter((coin) =>
+      isHyperliquidDepositCoin(chainE.chain, coin, coinInfoM[coin]),
+    )
+    .sort((a, b) => {
+      const ai = priority.indexOf(a);
+      const bi = priority.indexOf(b);
+      if (ai >= 0 || bi >= 0) {
+        return (ai >= 0 ? ai : 999) - (bi >= 0 ? bi : 999);
+      }
+
+      return a.localeCompare(b);
+    });
+}
+
+function uniqueText(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function getHyperliquidBridgeTokens(discoveryE = {}, side = "deposit") {
+  return Array.isArray(discoveryE?.[side]?.tokens)
+    ? discoveryE[side].tokens
+    : [];
+}
+
+function getHyperliquidBridgeChains(discoveryE = {}, side = "deposit") {
+  return Array.isArray(discoveryE?.[side]?.chains)
+    ? discoveryE[side].chains
+    : [];
+}
+
+export function getFallbackHyperliquidChains(chainList = []) {
+  return uniqueText(
+    chainList
+      .filter((chainE) => getHyperliquidDepositCoins(chainE).length)
+      .map((chainE) => chainE.chain),
+  );
+}
+
+export function getHyperliquidAllChains({
+  discoveryE = {},
+  side = "deposit",
+  fallbackChains = [],
+} = {}) {
+  const chains = getHyperliquidBridgeChains(discoveryE, side).map(
+    (entry) => entry.chain,
+  );
+  const uniqueChains = uniqueText(chains);
+
+  return uniqueChains.length ? uniqueChains : fallbackChains;
+}
+
+export function getHyperliquidAddedChains({
+  chainList = [],
+  discoveryE = {},
+  side = "deposit",
+  fallbackChains = [],
+} = {}) {
+  const discoveryChains = new Set(
+    getHyperliquidBridgeChains(discoveryE, side).map((entry) => entry.chain),
+  );
+  const chains = chainList
+    .map((chainE) => chainE.chain)
+    .filter((chain) => !discoveryChains.size || discoveryChains.has(chain));
+  const uniqueChains = uniqueText(chains);
+
+  return uniqueChains.length ? uniqueChains : fallbackChains;
+}
+
+export function getFallbackHyperliquidCoinsForChain(chainE) {
+  return getHyperliquidDepositCoins(chainE);
+}
+
+function getHyperliquidChainEntry({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+} = {}) {
+  return getHyperliquidBridgeChains(discoveryE, side).find(
+    (entry) => entry.chain == chain,
+  );
+}
+
+export function getHyperliquidAllCoinsForChain({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+  fallbackCoins = [],
+} = {}) {
+  const chainE = getHyperliquidChainEntry({ discoveryE, side, chain });
+  const coins = (chainE?.coins || []).map((entry) => entry.coin);
+  const uniqueCoins = uniqueText(coins);
+
+  return uniqueCoins.length ? uniqueCoins : fallbackCoins;
+}
+
+export function getHyperliquidAddedCoinsForChain({
+  chainE,
+  discoveryE = {},
+  side = "deposit",
+  fallbackCoins = [],
+} = {}) {
+  const allCoins = new Set(
+    getHyperliquidAllCoinsForChain({
+      discoveryE,
+      side,
+      chain: chainE?.chain,
+      fallbackCoins: [],
+    }),
+  );
+  const coins = getChainCoins(chainE).filter(
+    (coin) => !allCoins.size || allCoins.has(coin),
+  );
+  const uniqueCoins = uniqueText(coins);
+
+  return uniqueCoins.length ? uniqueCoins : fallbackCoins;
+}
+
+export function getHyperliquidCoinTokenEntries({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+} = {}) {
+  const chainE = getHyperliquidChainEntry({ discoveryE, side, chain });
+  return Array.isArray(chainE?.coins) ? chainE.coins : [];
+}
+
+export function getHyperliquidRouteToken({
+  discoveryE = {},
+  side = "deposit",
+  chain = "",
+  coin = "",
+} = {}) {
+  return getHyperliquidBridgeTokens(discoveryE, side).find(
+    (entry) => entry.chain == chain && entry.coin == coin,
+  );
+}
+
+export function useHyperliquidBridgeDiscovery({ enabled = false } = {}) {
+  const [bridgeE, setBridgeE] = useState(
+    hyperliquidBridgeCache || emptyHyperliquidBridgeE,
+  );
+  const [retryTick, setRetryTick] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (hyperliquidBridgeCache && !retryTick) {
+      setBridgeE(hyperliquidBridgeCache);
+      return;
+    }
+
+    let cancelled = false;
+    if (!hyperliquidBridgePromise || retryTick) {
+      if (retryTick) hyperliquidBridgeCache = null;
+      hyperliquidBridgePromise = getHyperliquidSpotBridgeDiscovery()
+        .then((res) => ({
+          ...(res || {}),
+          loading: false,
+          loaded: true,
+          error: res?.ok ? "" : res?.msg || "Hyperliquid routes failed",
+        }))
+        .catch((e) => ({
+          ...emptyHyperliquidBridgeE,
+          loading: false,
+          loaded: true,
+          error: e?.message || "Hyperliquid routes failed",
+        }))
+        .then((res) => {
+          hyperliquidBridgeCache = res;
+          return res;
+        })
+        .finally(() => {
+          hyperliquidBridgePromise = null;
+        });
+    }
+
+    setBridgeE((entry) => ({
+      ...entry,
+      loading: true,
+      error: "",
+    }));
+    hyperliquidBridgePromise.then((res) => {
+      if (!cancelled) {
+        setBridgeE(res);
+        setRetryTick(0);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, retryTick]);
+
+  function retryBridge(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    hyperliquidBridgeCache = null;
+    hyperliquidBridgePromise = null;
+    setBridgeE(emptyHyperliquidBridgeE);
+    setRetryTick((tick) => tick + 1);
+  }
+
+  return { bridgeE, retryBridge };
+}
+
+export function useHyperliquidBridgeSelection({
+  chainList = [],
+  bridgeE = emptyHyperliquidBridgeE,
+  depositChain = "",
+  depositCoin = "",
+  withdrawChain = "",
+  withdrawCoin = "",
+} = {}) {
+  const fallbackDepositChains = useMemo(
+    () => getFallbackHyperliquidChains(chainList),
+    [chainList],
+  );
+  const depositChains = useMemo(
+    () =>
+      getHyperliquidAllChains({
+        discoveryE: bridgeE,
+        side: "deposit",
+        fallbackChains: fallbackDepositChains,
+      }),
+    [bridgeE, fallbackDepositChains],
+  );
+  const depositAddedChains = useMemo(
+    () =>
+      getHyperliquidAddedChains({
+        chainList,
+        discoveryE: bridgeE,
+        side: "deposit",
+        fallbackChains: fallbackDepositChains,
+      }),
+    [bridgeE, chainList, fallbackDepositChains],
+  );
+  const activeDepositChain = depositChains.includes(depositChain)
+    ? depositChain
+    : depositAddedChains[0] || depositChains[0] || "";
+  const depositChainE = chainList.find(
+    (entry) => entry.chain == activeDepositChain,
+  );
+  const fallbackDepositCoins = useMemo(
+    () => getFallbackHyperliquidCoinsForChain(depositChainE),
+    [depositChainE],
+  );
+  const depositCoins = useMemo(
+    () =>
+      getHyperliquidAllCoinsForChain({
+        discoveryE: bridgeE,
+        side: "deposit",
+        chain: activeDepositChain,
+        fallbackCoins: fallbackDepositCoins,
+      }),
+    [activeDepositChain, bridgeE, fallbackDepositCoins],
+  );
+  const depositAddedCoins = useMemo(
+    () =>
+      getHyperliquidAddedCoinsForChain({
+        chainE: depositChainE,
+        discoveryE: bridgeE,
+        side: "deposit",
+        fallbackCoins: fallbackDepositCoins,
+      }),
+    [bridgeE, depositChainE, fallbackDepositCoins],
+  );
+  const activeDepositCoin = depositCoins.includes(depositCoin)
+    ? depositCoin
+    : depositAddedCoins[0] || depositCoins[0] || "";
+  const fallbackWithdrawChains = useMemo(
+    () => getFallbackHyperliquidChains(chainList),
+    [chainList],
+  );
+  const withdrawChains = useMemo(
+    () =>
+      getHyperliquidAllChains({
+        discoveryE: bridgeE,
+        side: "withdraw",
+        fallbackChains: fallbackWithdrawChains,
+      }),
+    [bridgeE, fallbackWithdrawChains],
+  );
+  const withdrawAddedChains = useMemo(
+    () =>
+      getHyperliquidAddedChains({
+        chainList,
+        discoveryE: bridgeE,
+        side: "withdraw",
+        fallbackChains: fallbackWithdrawChains,
+      }),
+    [bridgeE, chainList, fallbackWithdrawChains],
+  );
+  const activeWithdrawChain = withdrawChains.includes(withdrawChain)
+    ? withdrawChain
+    : withdrawAddedChains[0] || withdrawChains[0] || "";
+  const withdrawChainE = chainList.find(
+    (entry) => entry.chain == activeWithdrawChain,
+  );
+  const fallbackWithdrawCoins = useMemo(
+    () => getFallbackHyperliquidCoinsForChain(withdrawChainE),
+    [withdrawChainE],
+  );
+  const withdrawCoins = useMemo(
+    () =>
+      getHyperliquidAllCoinsForChain({
+        discoveryE: bridgeE,
+        side: "withdraw",
+        chain: activeWithdrawChain,
+        fallbackCoins: fallbackWithdrawCoins,
+      }),
+    [activeWithdrawChain, bridgeE, fallbackWithdrawCoins],
+  );
+  const withdrawAddedCoins = useMemo(
+    () =>
+      getHyperliquidAddedCoinsForChain({
+        chainE: withdrawChainE,
+        discoveryE: bridgeE,
+        side: "withdraw",
+        fallbackCoins: fallbackWithdrawCoins,
+      }),
+    [bridgeE, fallbackWithdrawCoins, withdrawChainE],
+  );
+  const activeWithdrawCoin = withdrawCoins.includes(withdrawCoin)
+    ? withdrawCoin
+    : withdrawAddedCoins[0] || withdrawCoins[0] || "";
+  const depositAllCoinEntries = useMemo(
+    () =>
+      getHyperliquidCoinTokenEntries({
+        discoveryE: bridgeE,
+        side: "deposit",
+        chain: activeDepositChain,
+      }),
+    [activeDepositChain, bridgeE],
+  );
+  const withdrawAllCoinEntries = useMemo(
+    () =>
+      getHyperliquidCoinTokenEntries({
+        discoveryE: bridgeE,
+        side: "withdraw",
+        chain: activeWithdrawChain,
+      }),
+    [activeWithdrawChain, bridgeE],
+  );
+  const depositRouteToken = getHyperliquidRouteToken({
+    discoveryE: bridgeE,
+    side: "deposit",
+    chain: activeDepositChain,
+    coin: activeDepositCoin,
+  });
+  const withdrawRouteToken = getHyperliquidRouteToken({
+    discoveryE: bridgeE,
+    side: "withdraw",
+    chain: activeWithdrawChain,
+    coin: activeWithdrawCoin,
+  });
+
+  return {
+    depositChains,
+    depositAddedChains,
+    activeDepositChain,
+    depositChainE,
+    depositCoins,
+    depositAddedCoins,
+    activeDepositCoin,
+    depositAllCoinEntries,
+    depositRouteToken,
+    depositRouteText: getHyperliquidRouteText(depositRouteToken),
+    depositFeeEtaText: getHyperliquidFeeEtaText(depositRouteToken),
+    withdrawChains,
+    withdrawAddedChains,
+    activeWithdrawChain,
+    withdrawChainE,
+    withdrawCoins,
+    withdrawAddedCoins,
+    activeWithdrawCoin,
+    withdrawAllCoinEntries,
+    withdrawRouteToken,
+    withdrawRouteText: getHyperliquidRouteText(withdrawRouteToken),
+    withdrawFeeEtaText: getHyperliquidFeeEtaText(withdrawRouteToken),
+  };
 }
 
 function getHyperliquidPickerWidth(values = [], selected = "", max = 18) {

@@ -1,6 +1,7 @@
 "use client";
 
 import "ygb/client";
+import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import toast from "react-hot-toast";
@@ -92,6 +93,444 @@ function getPickerSortNumber(value) {
   const number = Number(value);
 
   return Number.isFinite(number) ? number : 0;
+}
+
+export function sameAddressText(a = "", b = "") {
+  return (
+    String(a || "").trim().toLowerCase() ==
+    String(b || "").trim().toLowerCase()
+  );
+}
+
+export function getTokenAddressKey(chain = "", address = "") {
+  const value = String(address || "").trim();
+  if (!value) return "";
+
+  return chain == "Solana" ? value : value.toLowerCase();
+}
+
+export function getCoinTypeOptions(chainList = [], extraType = "") {
+  const types = new Set(["token"]);
+
+  for (const chainE of chainList || []) {
+    for (const coinE of Object.values(chainE?.coinInfoM || {})) {
+      if (coinE?.type) types.add(String(coinE.type));
+    }
+  }
+  if (extraType) types.add(String(extraType));
+
+  return [...types].sort((a, b) => a.localeCompare(b));
+}
+
+export function withClientTimeout(promise, ms, message) {
+  if (!ms) return promise;
+
+  let timer;
+
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+export function useTradeAllMarkets({
+  enabled = false,
+  cacheKey = "",
+  chain = "",
+  protocolLabel = "Trade",
+  getAllMarkets,
+  timeoutMs = 25000,
+} = {}) {
+  const [marketM, setMarketM] = useState({});
+  const [loadingM, setLoadingM] = useState({});
+  const [errorM, setErrorM] = useState({});
+  const [retryTick, setRetryTick] = useState(0);
+  const markets = marketM[cacheKey] || [];
+  const loading = !!loadingM[cacheKey];
+  const error = errorM[cacheKey] || "";
+
+  useEffect(() => {
+    if (!enabled || !cacheKey || !chain || !getAllMarkets) return;
+    if (marketM[cacheKey] !== undefined || loadingM[cacheKey]) return;
+
+    let cancelled = false;
+    setLoadingM((current) => ({ ...current, [cacheKey]: true }));
+    setErrorM((current) => ({ ...current, [cacheKey]: "" }));
+    withClientTimeout(
+      getAllMarkets({ chain }),
+      timeoutMs,
+      `${chain} ${protocolLabel} loading timeout`,
+    )
+      .then((res) => {
+        if (cancelled) return;
+        setMarketM((current) => ({
+          ...current,
+          [cacheKey]: Array.isArray(res?.markets) ? res.markets : [],
+        }));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setMarketM((current) => ({ ...current, [cacheKey]: [] }));
+        setErrorM((current) => ({
+          ...current,
+          [cacheKey]: e?.message || `${protocolLabel} markets failed`,
+        }));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingM((current) => ({ ...current, [cacheKey]: false }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cacheKey,
+    chain,
+    enabled,
+    getAllMarkets,
+    loadingM,
+    marketM,
+    protocolLabel,
+    retryTick,
+    timeoutMs,
+  ]);
+
+  function retry(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setMarketM((current) => {
+      const next = { ...current };
+      delete next[cacheKey];
+      return next;
+    });
+    setErrorM((current) => ({ ...current, [cacheKey]: "" }));
+    setLoadingM((current) => ({ ...current, [cacheKey]: false }));
+    setRetryTick((tick) => tick + 1);
+  }
+
+  return { markets, loading, error, retry };
+}
+
+export function useTradeDirectMarketBalance({
+  enabled = false,
+  cacheKey = "",
+  walletAddress = "",
+  chain = "",
+  marketE = {},
+  getMarketBalance,
+  protocolLabel = "Trade",
+  timeoutMs = 12000,
+} = {}) {
+  const [balanceM, setBalanceM] = useState({});
+  const [loadingM, setLoadingM] = useState({});
+  const balance = balanceM[cacheKey] || {};
+  const loading = !!loadingM[cacheKey];
+  const underlyingAddress = marketE?.underlyingAddress;
+  const underlyingDecimals = marketE?.underlyingDecimals;
+  const lendAddress = marketE?.lendAddress;
+  const lendDecimals = marketE?.lendDecimals;
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !cacheKey ||
+      !walletAddress ||
+      !chain ||
+      !underlyingAddress ||
+      !lendAddress ||
+      !getMarketBalance ||
+      balanceM[cacheKey] ||
+      loadingM[cacheKey]
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingM((current) => ({ ...current, [cacheKey]: true }));
+    withClientTimeout(
+      getMarketBalance({
+        walletAddress,
+        chain,
+        underlyingAddress,
+        underlyingDecimals,
+        lendAddress,
+        lendDecimals,
+      }),
+      timeoutMs,
+      `${chain} ${protocolLabel} balance timeout`,
+    )
+      .then((res) => {
+        if (cancelled) return;
+        setBalanceM((current) => ({
+          ...current,
+          [cacheKey]: {
+            underlying: res?.underlying || {},
+            lend: res?.lend || {},
+          },
+        }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBalanceM((current) => ({
+          ...current,
+          [cacheKey]: { underlying: {}, lend: {} },
+        }));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingM((current) => ({ ...current, [cacheKey]: false }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    balanceM,
+    cacheKey,
+    chain,
+    enabled,
+    getMarketBalance,
+    lendAddress,
+    lendDecimals,
+    loadingM,
+    protocolLabel,
+    timeoutMs,
+    underlyingAddress,
+    underlyingDecimals,
+    walletAddress,
+  ]);
+
+  function clear() {
+    setBalanceM((current) => {
+      const next = { ...current };
+      delete next[cacheKey];
+      return next;
+    });
+    setLoadingM((current) => ({ ...current, [cacheKey]: false }));
+  }
+
+  return { balance, loading, clear };
+}
+
+export function getExplorerAddressUrl(chain = "", address = "") {
+  const scanner = scanners?.[chain];
+  if (!scanner || !address) return "";
+
+  return `${String(scanner).replace(/\/+$/, "")}/address/${address}`;
+}
+
+export function CustomCoinConfirmModal({
+  preview,
+  draft,
+  setDraft = () => {},
+  adding = false,
+  coinTypeOptions = [],
+  idPrefix = "coinConfirm",
+  onCancel = () => {},
+  onConfirm = () => {},
+}) {
+  if (!preview) return null;
+
+  const entry = preview.entry || {};
+  const typeOptions = coinTypeOptions.length ? coinTypeOptions : ["token"];
+  const typeSelectWidth = Math.max(...typeOptions.map((type) => type.length), 5) + 2;
+  const addressUrl = getExplorerAddressUrl(preview.chain, entry.address);
+
+  return (
+    <div className="walletCoinConfirmBackdrop">
+      <form
+        className="walletCoinConfirmCard"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onConfirm();
+        }}
+      >
+        <div className="walletCoinConfirmTitle">Confirm coin</div>
+        <div className="walletCoinConfirmGrid">
+          <span className="gray">chain</span>
+          <span className="white">{preview.chain}</span>
+
+          <span className="gray">address</span>
+          {addressUrl ? (
+            <a
+              className="walletCoinConfirmAddress"
+              href={addressUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={entry.address}
+            >
+              {entry.address}
+            </a>
+          ) : (
+            <span className="walletCoinConfirmAddress" title={entry.address}>
+              {entry.address}
+            </span>
+          )}
+
+          <span className="gray">decimals</span>
+          <span className="white">{entry.decimals ?? "-"}</span>
+
+          <label className="gray" htmlFor={`${idPrefix}Key`}>
+            coin
+          </label>
+          <input
+            id={`${idPrefix}Key`}
+            type="text"
+            value={draft.coin}
+            onChange={(e) =>
+              setDraft((current) => ({
+                ...current,
+                coin: e.target.value,
+              }))
+            }
+            disabled={adding}
+            style={{
+              width: `${Math.max(draft.coin.length || 0, 5) + 2}ch`,
+            }}
+            autoFocus
+          />
+
+          <label className="gray" htmlFor={`${idPrefix}Name`}>
+            name
+          </label>
+          <input
+            id={`${idPrefix}Name`}
+            type="text"
+            value={draft.name}
+            onChange={(e) =>
+              setDraft((current) => ({
+                ...current,
+                name: e.target.value,
+              }))
+            }
+            disabled={adding}
+            style={{
+              width: `${Math.max(draft.name.length || 0, 10) + 2}ch`,
+            }}
+          />
+
+          <label className="gray" htmlFor={`${idPrefix}Type`}>
+            type
+          </label>
+          <span className="walletCoinConfirmTypeRow">
+            <select
+              id={`${idPrefix}Type`}
+              value={draft.type}
+              onChange={(e) =>
+                setDraft((current) => ({
+                  ...current,
+                  type: e.target.value,
+                  customType: e.target.value,
+                }))
+              }
+              disabled={adding}
+              style={{ width: `${typeSelectWidth}ch` }}
+            >
+              {typeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={draft.customType}
+              onChange={(e) =>
+                setDraft((current) => ({
+                  ...current,
+                  customType: e.target.value,
+                }))
+              }
+              placeholder="custom type"
+              disabled={adding}
+              style={{
+                width: `${Math.max(draft.customType.length || 0, 11) + 2}ch`,
+              }}
+            />
+          </span>
+
+          <label className="gray" htmlFor={`${idPrefix}Ref`}>
+            ref
+          </label>
+          <input
+            id={`${idPrefix}Ref`}
+            type="text"
+            value={draft.ref}
+            onChange={(e) =>
+              setDraft((current) => ({
+                ...current,
+                ref: e.target.value,
+              }))
+            }
+            placeholder="optional note"
+            disabled={adding}
+            style={{
+              width: `${Math.max(draft.ref.length || 0, 13) + 2}ch`,
+            }}
+          />
+        </div>
+        <div className="walletCoinConfirmBtns">
+          <button
+            type="button"
+            className="btn small bgGray"
+            onClick={onCancel}
+            disabled={adding}
+          >
+            cancel
+          </button>
+          <button type="submit" className="btn small bgCyan" disabled={adding}>
+            {adding ? "..." : "confirm"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function hasLoadedBalance(balance = {}) {
+  return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
+}
+
+export function getSelectedBalance(chainE, coin, selectedWalletEntry) {
+  if (!chainE || !coin || !selectedWalletEntry) return {};
+
+  const row = chainE.rows?.find(
+    (entry) =>
+      sameAddress(entry.address, selectedWalletEntry.address) ||
+      entry.name == selectedWalletEntry.name,
+  );
+
+  return row?.balances?.[coin] || {};
+}
+
+export function getCoinByAddress(chainE, address = "") {
+  const addressKey = getTokenAddressKey(chainE?.chain, address);
+  if (!addressKey) return "";
+
+  return (
+    getChainCoins(chainE).find(
+      (coin) =>
+        getTokenAddressKey(chainE?.chain, chainE?.coinInfoM?.[coin]?.address) ==
+        addressKey,
+    ) || ""
+  );
+}
+
+export function getCoinBalanceByAddress(
+  chainE,
+  coin = "",
+  address = "",
+  selectedWalletEntry,
+) {
+  const localCoin =
+    getCoinByAddress(chainE, address) || (chainE?.coinInfoM?.[coin] ? coin : "");
+
+  return localCoin
+    ? getSelectedBalance(chainE, localCoin, selectedWalletEntry)
+    : {};
 }
 
 export function TradePickerMenu({ className = "", children }) {

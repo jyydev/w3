@@ -3,9 +3,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
-import { scanners } from "@/sets";
-import { pc } from "@/fn/basic";
-import { YieldMarketPicker } from "./Client";
+import {
+  AprText,
+  LendCoinInfoCard,
+  MarketCoinBalance,
+  YieldMarketPicker,
+  getBalanceQty,
+  getCoinTypeOptions,
+  getInitialCookie,
+  getInitialYieldDefi,
+  getLendingMarkets,
+  getLockUntilMs,
+  getMarketCoinBalance,
+  getMarketLabel,
+  getMarketSupplyApr,
+  getProtocolCookie,
+  getSelectedBalance,
+  getTokenAddressKey,
+  getYieldMarketChains,
+  formatLockUntil,
+  hasLoadedBalance,
+  isUsdLikeYieldCoin,
+  isYieldProtocolSupportedForWallet,
+  useYieldAllMarkets,
+  useYieldDirectMarketBalance,
+  withClientTimeout,
+} from "./Client";
 import {
   buildHyperliquidAgentApproval,
   buildHyperliquidLendTxs,
@@ -15,7 +38,6 @@ import {
   executeHyperliquidSpotDeposit,
   executeHyperliquidSpotWithdraw,
   getHyperliquidLendPreview,
-  getHyperliquidSpotBridgeDiscovery,
   submitHyperliquidAgentApproval,
   submitHyperliquidLendSignature,
   submitHyperliquidSpotWithdrawSignature,
@@ -23,8 +45,14 @@ import {
 import HyperliquidClient, {
   HyperliquidChainSelect,
   HyperliquidCoinSelect,
-  getHyperliquidFeeEtaText,
-  getHyperliquidRouteText,
+  getFallbackHyperliquidCoinsForChain,
+  getHyperliquidAddedCoinsForChain,
+  getHyperliquidAllCoinsForChain,
+  getHyperliquidAgentCookie,
+  getInitialHyperliquidMode,
+  getInitialHyperliquidRouteCookie,
+  useHyperliquidBridgeDiscovery,
+  useHyperliquidBridgeSelection,
 } from "./hyperliquid/Client";
 import {
   buildSparkLendTxs,
@@ -53,13 +81,13 @@ import {
   cookieMaxAge,
   createTradeLoopResult,
   createTradeToast,
+  CustomCoinConfirmModal,
   emitTradeChainSelect,
   fmt,
   fmtPrice,
   fmtRate,
   formatComputedTradeQty,
   formatTradeQty,
-  getChainCoins,
   getBrowserEvmChainId,
   getQtyDecimals,
   getHyperliquidBrowserAgent,
@@ -91,516 +119,8 @@ import {
   toNum,
 } from "../clientShared";
 
-function isProtocolCoin(protocol, coin, coinE = {}) {
-  const text = `${coin} ${coinE.name || ""}`.toLowerCase();
-  if (protocol == "hyperliquid") return coinE.type == "vault";
-  if (protocol == "spark") {
-    return (
-      coinE.type == "yield" &&
-      (text.includes("spark") ||
-        text.includes("savings") ||
-        text.includes("susds") ||
-        /^sp[A-Z]/.test(coin))
-    );
-  }
-  if (protocol == "venusFlux") {
-    return (
-      !!coinE?.address &&
-      /^f[A-Z0-9]/.test(coin) &&
-      (text.includes("venus") ||
-        text.includes("fluid") ||
-        text.includes("flux"))
-    );
-  }
-
-  return false;
-}
-
-const sparkSupportedChains = new Set([
-  "Ethereum",
-  "Arbitrum",
-  "Avalanche",
-  "Base",
-  "Optimism",
-]);
-const hyperliquidBridgeCoinM = {
-  Arbitrum: new Set(["USDC"]),
-};
-const emptyHyperliquidBridgeE = {
-  deposit: { chains: [], tokens: [] },
-  withdraw: { chains: [], tokens: [] },
-  loading: false,
-  loaded: false,
-  error: "",
-};
-let hyperliquidBridgeCache = null;
-let hyperliquidBridgePromise = null;
-
-function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
-  if (walletType == "solana") return false;
-  if (option.value == "spark") return true;
-  if (option.value == "venusFlux") return true;
-  if (option.value == "hyperliquid") return true;
-
-  return false;
-}
-
-function getProtocolCookie(
-  base = "",
-  walletType = "evm",
-  defi = "",
-  chain = "",
-) {
-  return [getTradeModeCookie(base, walletType), defi || "defi", chain || ""]
-    .filter(Boolean)
-    .join("_");
-}
-
-function getInitialCookie(initialCookieM = {}, name = "") {
-  const value = initialCookieM?.[name];
-  return value === undefined ? undefined : String(value);
-}
-
-function getInitialYieldDefi(initialCookieM = {}, walletType = "evm") {
-  const savedDefi = getInitialCookie(
-    initialCookieM,
-    getTradeModeCookie(tradeYieldDefiCookie, walletType),
-  );
-  const options = lendingOptions.filter((option) =>
-    isYieldProtocolSupportedForWallet(option, walletType),
-  );
-
-  return options.some((entry) => entry.value == savedDefi)
-    ? savedDefi
-    : options[0]?.value || "";
-}
-
 function getInitialAutoApproval(initialCookieM = {}) {
   return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
-}
-
-function getInitialHyperliquidMode(initialCookieM = {}, walletType = "evm") {
-  const value = getInitialCookie(
-    initialCookieM,
-    getProtocolCookie(
-      tradeYieldHyperliquidModeCookie,
-      walletType,
-      "hyperliquid",
-    ),
-  );
-
-  return value == "deposit" ? "deposit" : "vault";
-}
-
-function getInitialHyperliquidRouteCookie(
-  initialCookieM = {},
-  walletType = "evm",
-  base = "",
-) {
-  return (
-    getInitialCookie(
-      initialCookieM,
-      getProtocolCookie(base, walletType, "hyperliquid"),
-    ) || ""
-  );
-}
-
-function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = "") {
-  const isHyperliquid = defi == "hyperliquid";
-
-  return chainList
-    .filter(
-      (chainE) =>
-        (isHyperliquid
-          ? chainE.chain == "Hyperliquid" && chainMarketsM[chainE.chain]?.length
-          : chainMarketsM[chainE.chain]?.length) ||
-        (defi == "spark" && sparkSupportedChains.has(chainE.chain)),
-    )
-    .map((chainE) => chainE.chain);
-}
-
-function getUnderlyingCoin(chainE, lendCoin) {
-  if (chainE?.chain == "Hyperliquid") return "USDC";
-
-  const coinInfoM = chainE?.coinInfoM || {};
-  const lendE = coinInfoM[lendCoin] || {};
-  const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
-  const savingsNameMatch = String(lendE.name || "").match(
-    /\bsavings\s+([a-z0-9.]+)/i,
-  );
-  if (savingsNameMatch?.[1]) return savingsNameMatch[1].toUpperCase();
-  if (/^sp[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(2);
-  if (/^f[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
-  if (/^s[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
-
-  const candidates = getChainCoins(chainE)
-    .filter((coin) => coin != lendCoin)
-    .filter((coin) => coinInfoM[coin]?.type != "lend")
-    .sort((a, b) => b.length - a.length);
-
-  return (
-    candidates.find((coin) => text.includes(coin.toLowerCase())) ||
-    candidates.find((coin) => ["USDT", "USDC", "DAI"].includes(coin)) ||
-    candidates[0] ||
-    ""
-  );
-}
-
-function getLendingMarkets(chainE, protocol) {
-  if (!chainE || !protocol) return [];
-
-  return getChainCoins(chainE)
-    .filter((coin) => isProtocolCoin(protocol, coin, chainE.coinInfoM?.[coin]))
-    .map((lendCoin) => {
-      const lendE = chainE.coinInfoM?.[lendCoin] || {};
-      const underlyingCoin = getUnderlyingCoin(chainE, lendCoin);
-
-      return {
-        value: lendCoin,
-        protocol,
-        lendCoin,
-        lendName: lendE.name || lendCoin,
-        underlyingCoin,
-      };
-    })
-    .filter((entry) => entry.underlyingCoin);
-}
-
-function getMarketLabel(entry = {}) {
-  if (entry.protocol == "hyperliquid") return entry.lendCoin || "vault";
-
-  return entry?.underlyingCoin
-    ? `${entry.underlyingCoin} (${entry.lendCoin})`
-    : "coin";
-}
-
-function formatApr(apr) {
-  const value = toNum(apr);
-  if (value <= 0) return "";
-  if (value < 0.01) return "<0.01%";
-  return `${fmt(value, value >= 10 ? 1 : 2)}%`;
-}
-
-function getLockUntilMs(value) {
-  const timestamp = Number(value);
-  if (!(timestamp > 0)) return 0;
-
-  return timestamp < 1e12 ? timestamp * 1000 : timestamp;
-}
-
-function formatLockUntil(value) {
-  const ms = getLockUntilMs(value);
-  if (!ms) return "";
-
-  return new Date(ms).toLocaleString();
-}
-
-function sameAddressText(a = "", b = "") {
-  return (
-    String(a || "")
-      .trim()
-      .toLowerCase() ==
-    String(b || "")
-      .trim()
-      .toLowerCase()
-  );
-}
-
-function getTokenAddressKey(chain = "", address = "") {
-  const value = String(address || "").trim();
-  if (!value) return "";
-
-  return chain == "Solana" ? value : value.toLowerCase();
-}
-
-function getHyperliquidAgentCookie(walletAddress = "", agentAddress = "") {
-  const walletKey = String(walletAddress || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-  const agentKey = String(agentAddress || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-
-  return `w3_hl_agent_${walletKey}_${agentKey}`;
-}
-
-function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
-  if (defi != "spark" && defi != "venusFlux") return 0;
-  if (marketE?.supplyApr) return toNum(marketE.supplyApr);
-
-  const lendAddress =
-    marketE?.lendAddress ||
-    chainE?.coinInfoM?.[marketE?.lendCoin]?.address ||
-    "";
-  const underlyingAddress =
-    marketE?.underlyingAddress ||
-    chainE?.coinInfoM?.[marketE?.underlyingCoin]?.address ||
-    "";
-  const match = rawMarkets.find(
-    (entry) =>
-      (lendAddress && sameAddressText(entry.lendAddress, lendAddress)) ||
-      (underlyingAddress &&
-        sameAddressText(entry.underlyingAddress, underlyingAddress)) ||
-      (entry.underlyingCoin == marketE?.underlyingCoin &&
-        entry.lendCoin == marketE?.lendCoin),
-  );
-
-  return toNum(match?.supplyApr);
-}
-
-function AprText({ apr, label = true }) {
-  const text = formatApr(apr);
-  return text ? (
-    <span className="lendApr">
-      {label && <span className="gray">apr: </span>}
-      {text}
-    </span>
-  ) : null;
-}
-
-function LendCoinInfoCard({ coin, name, lockedUntilTimestamp = 0 }) {
-  const cleanCoin = String(coin || "").trim();
-  const cleanName = String(name || "").trim();
-  const lockText = formatLockUntil(lockedUntilTimestamp);
-  if ((!cleanName || cleanName == cleanCoin) && !lockText) return null;
-
-  return (
-    <span className="infoCard">
-      <span className="infoCardTitle">{cleanCoin}</span>
-      {cleanName && cleanName != cleanCoin && <span>{cleanName}</span>}
-      {lockText && (
-        <span>
-          locked until <span className="gray">{lockText}</span>
-        </span>
-      )}
-    </span>
-  );
-}
-
-function getCoinTypeOptions(chainList = [], extraType = "") {
-  const types = new Set(["token"]);
-
-  for (const chainE of chainList || []) {
-    for (const coinE of Object.values(chainE?.coinInfoM || {})) {
-      if (coinE?.type) types.add(String(coinE.type));
-    }
-  }
-  if (extraType) types.add(String(extraType));
-
-  return [...types].sort((a, b) => a.localeCompare(b));
-}
-
-function withClientTimeout(promise, ms, message) {
-  let timer;
-
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
-function getSelectedBalance(chainE, coin, selectedWalletEntry) {
-  if (!chainE || !coin || !selectedWalletEntry) return {};
-
-  const row = chainE.rows?.find(
-    (entry) =>
-      sameAddress(entry.address, selectedWalletEntry.address) ||
-      entry.name == selectedWalletEntry.name,
-  );
-
-  return row?.balances?.[coin] || {};
-}
-
-function hasLoadedBalance(balance = {}) {
-  return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
-}
-
-function getCoinByAddress(chainE, address = "") {
-  const addressKey = getTokenAddressKey(chainE?.chain, address);
-  if (!addressKey) return "";
-
-  return (
-    Object.entries(chainE?.coinInfoM || {}).find(
-      ([, coinE]) => getTokenAddressKey(chainE?.chain, coinE?.address) == addressKey,
-    )?.[0] || ""
-  );
-}
-
-function getMarketCoinBalance(chainE, coin = "", address = "", selectedWalletEntry) {
-  const localCoin =
-    getCoinByAddress(chainE, address) || (chainE?.coinInfoM?.[coin] ? coin : "");
-  return localCoin ? getSelectedBalance(chainE, localCoin, selectedWalletEntry) : {};
-}
-
-function MarketCoinBalance({ balance = {} }) {
-  if (!hasLoadedBalance(balance)) return null;
-
-  return <span>{pc(balance.balance)}</span>;
-}
-
-function getBalanceQty(balance = {}) {
-  return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
-}
-
-function isHyperliquidDepositCoin(chain = "", coin = "", coinE = {}) {
-  const supportedCoins = hyperliquidBridgeCoinM[chain];
-  if (!supportedCoins?.has(coin)) return false;
-
-  const text = `${coin} ${coinE?.name || ""}`.toUpperCase();
-
-  return coinE?.type == "stable" && text.includes("USDC");
-}
-
-function getHyperliquidDepositCoins(chainE) {
-  const priority = ["USDC", "USDC.E", "USDT", "USDT.E", "USDE"];
-  const coinInfoM = chainE?.coinInfoM || {};
-  if (!hyperliquidBridgeCoinM[chainE?.chain]) return [];
-
-  return getChainCoins(chainE)
-    .filter((coin) =>
-      isHyperliquidDepositCoin(chainE.chain, coin, coinInfoM[coin]),
-    )
-    .sort((a, b) => {
-      const ai = priority.indexOf(a);
-      const bi = priority.indexOf(b);
-      if (ai >= 0 || bi >= 0) {
-        return (ai >= 0 ? ai : 999) - (bi >= 0 ? bi : 999);
-      }
-
-      return a.localeCompare(b);
-    });
-}
-
-function uniqueText(values = []) {
-  return [...new Set(values.filter(Boolean))];
-}
-
-function getHyperliquidBridgeTokens(discoveryE = {}, side = "deposit") {
-  return Array.isArray(discoveryE?.[side]?.tokens)
-    ? discoveryE[side].tokens
-    : [];
-}
-
-function getHyperliquidBridgeChains(discoveryE = {}, side = "deposit") {
-  return Array.isArray(discoveryE?.[side]?.chains)
-    ? discoveryE[side].chains
-    : [];
-}
-
-function getFallbackHyperliquidChains(chainList = []) {
-  return uniqueText(
-    chainList
-      .filter((chainE) => getHyperliquidDepositCoins(chainE).length)
-      .map((chainE) => chainE.chain),
-  );
-}
-
-function getHyperliquidAllChains({
-  discoveryE = {},
-  side = "deposit",
-  fallbackChains = [],
-} = {}) {
-  const chains = getHyperliquidBridgeChains(discoveryE, side).map(
-    (entry) => entry.chain,
-  );
-
-  return uniqueText(chains).length ? uniqueText(chains) : fallbackChains;
-}
-
-function getHyperliquidAddedChains({
-  chainList = [],
-  discoveryE = {},
-  side = "deposit",
-  fallbackChains = [],
-} = {}) {
-  const discoveryChains = new Set(
-    getHyperliquidBridgeChains(discoveryE, side).map((entry) => entry.chain),
-  );
-  const chains = chainList
-    .map((chainE) => chainE.chain)
-    .filter((chain) => !discoveryChains.size || discoveryChains.has(chain));
-
-  return uniqueText(chains).length ? uniqueText(chains) : fallbackChains;
-}
-
-function getFallbackHyperliquidCoinsForChain(chainE) {
-  return getHyperliquidDepositCoins(chainE);
-}
-
-function getHyperliquidChainEntry({
-  discoveryE = {},
-  side = "deposit",
-  chain = "",
-} = {}) {
-  return getHyperliquidBridgeChains(discoveryE, side).find(
-    (entry) => entry.chain == chain,
-  );
-}
-
-function getHyperliquidAllCoinsForChain({
-  discoveryE = {},
-  side = "deposit",
-  chain = "",
-  fallbackCoins = [],
-} = {}) {
-  const chainE = getHyperliquidChainEntry({ discoveryE, side, chain });
-  const coins = (chainE?.coins || []).map((entry) => entry.coin);
-
-  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
-}
-
-function getHyperliquidAddedCoinsForChain({
-  chainE,
-  discoveryE = {},
-  side = "deposit",
-  fallbackCoins = [],
-} = {}) {
-  const allCoins = new Set(
-    getHyperliquidAllCoinsForChain({
-      discoveryE,
-      side,
-      chain: chainE?.chain,
-      fallbackCoins: [],
-    }),
-  );
-  const coins = getChainCoins(chainE).filter(
-    (coin) => !allCoins.size || allCoins.has(coin),
-  );
-
-  return uniqueText(coins).length ? uniqueText(coins) : fallbackCoins;
-}
-
-function getHyperliquidCoinTokenEntries({
-  discoveryE = {},
-  side = "deposit",
-  chain = "",
-} = {}) {
-  const chainE = getHyperliquidChainEntry({ discoveryE, side, chain });
-  return Array.isArray(chainE?.coins) ? chainE.coins : [];
-}
-
-function getHyperliquidRouteToken({
-  discoveryE = {},
-  side = "deposit",
-  chain = "",
-  coin = "",
-} = {}) {
-  return getHyperliquidBridgeTokens(discoveryE, side).find(
-    (entry) => entry.chain == chain && entry.coin == coin,
-  );
-}
-
-function isUsdLikeYieldCoin(coin = "") {
-  return /USD/i.test(String(coin || ""));
-}
-
-function getExplorerAddressUrl(chain = "", address = "") {
-  const scanner = scanners?.[chain];
-  if (!scanner || !address) return "";
-
-  return `${String(scanner).replace(/\/+$/, "")}/address/${address}`;
 }
 
 export default function YieldPanel({
@@ -617,7 +137,11 @@ export default function YieldPanel({
   getLoopWalletEntries = () => [],
   onTxComplete = () => {},
 }) {
-  const initialDefi = getInitialYieldDefi(initialCookieM, walletType);
+  const initialDefi = getInitialYieldDefi(
+    initialCookieM,
+    walletType,
+    tradeYieldDefiCookie,
+  );
   const chainList = useMemo(
     () =>
       (Array.isArray(data) ? data : data ? [data] : [])
@@ -727,15 +251,6 @@ export default function YieldPanel({
   const [showMarketMenu, setShowMarketMenu] = useState(false);
   const [addedMarketSort, setAddedMarketSort] = useState("");
   const [allMarketSort, setAllMarketSort] = useState("");
-  const [sparkAllMarketM, setSparkAllMarketM] = useState({});
-  const [sparkAllLoadingM, setSparkAllLoadingM] = useState({});
-  const [sparkAllErrorM, setSparkAllErrorM] = useState({});
-  const [sparkAllRetryTick, setSparkAllRetryTick] = useState(0);
-  const [hyperliquidBridgeE, setHyperliquidBridgeE] = useState(
-    hyperliquidBridgeCache || emptyHyperliquidBridgeE,
-  );
-  const [hyperliquidBridgeRetryTick, setHyperliquidBridgeRetryTick] =
-    useState(0);
   const [showHyperliquidDepositCoinMenu, setShowHyperliquidDepositCoinMenu] =
     useState(false);
   const [showHyperliquidDepositChainMenu, setShowHyperliquidDepositChainMenu] =
@@ -746,8 +261,6 @@ export default function YieldPanel({
     showHyperliquidWithdrawChainMenu,
     setShowHyperliquidWithdrawChainMenu,
   ] = useState(false);
-  const [directBalanceM, setDirectBalanceM] = useState({});
-  const [directBalanceLoadingM, setDirectBalanceLoadingM] = useState({});
   const [customCoinPreview, setCustomCoinPreview] = useState(null);
   const [customCoinDraft, setCustomCoinDraft] = useState({
     coin: "",
@@ -792,186 +305,43 @@ export default function YieldPanel({
     chainList.find((entry) => entry.chain == activeChain) ||
     chainList.find((entry) => marketChains.includes(entry.chain)) ||
     chainList[0];
-  const fallbackHyperliquidDepositChains = useMemo(
-    () => getFallbackHyperliquidChains(chainList),
-    [chainList],
-  );
-  const hyperliquidDepositChains = useMemo(
-    () =>
-      getHyperliquidAllChains({
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        fallbackChains: fallbackHyperliquidDepositChains,
-      }),
-    [fallbackHyperliquidDepositChains, hyperliquidBridgeE],
-  );
-  const hyperliquidDepositAddedChains = useMemo(
-    () =>
-      getHyperliquidAddedChains({
-        chainList,
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        fallbackChains: fallbackHyperliquidDepositChains,
-      }),
-    [chainList, fallbackHyperliquidDepositChains, hyperliquidBridgeE],
-  );
-  const activeHyperliquidDepositChain = hyperliquidDepositChains.includes(
-    hyperliquidDepositChain,
-  )
-    ? hyperliquidDepositChain
-    : hyperliquidDepositAddedChains[0] || hyperliquidDepositChains[0] || "";
-  const hyperliquidDepositChainE = chainList.find(
-    (entry) => entry.chain == activeHyperliquidDepositChain,
-  );
-  const fallbackHyperliquidDepositCoins = useMemo(
-    () => getFallbackHyperliquidCoinsForChain(hyperliquidDepositChainE),
-    [hyperliquidDepositChainE],
-  );
-  const hyperliquidDepositCoins = useMemo(
-    () =>
-      getHyperliquidAllCoinsForChain({
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        chain: activeHyperliquidDepositChain,
-        fallbackCoins: fallbackHyperliquidDepositCoins,
-      }),
-    [
-      activeHyperliquidDepositChain,
-      fallbackHyperliquidDepositCoins,
-      hyperliquidBridgeE,
-    ],
-  );
-  const hyperliquidDepositAddedCoins = useMemo(
-    () =>
-      getHyperliquidAddedCoinsForChain({
-        chainE: hyperliquidDepositChainE,
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        fallbackCoins: fallbackHyperliquidDepositCoins,
-      }),
-    [
-      fallbackHyperliquidDepositCoins,
-      hyperliquidBridgeE,
-      hyperliquidDepositChainE,
-    ],
-  );
-  const activeHyperliquidDepositCoin = hyperliquidDepositCoins.includes(
-    hyperliquidDepositCoin,
-  )
-    ? hyperliquidDepositCoin
-    : hyperliquidDepositAddedCoins[0] || hyperliquidDepositCoins[0] || "";
-  const fallbackHyperliquidWithdrawChains = useMemo(
-    () => getFallbackHyperliquidChains(chainList),
-    [chainList],
-  );
-  const hyperliquidWithdrawChains = useMemo(
-    () =>
-      getHyperliquidAllChains({
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        fallbackChains: fallbackHyperliquidWithdrawChains,
-      }),
-    [fallbackHyperliquidWithdrawChains, hyperliquidBridgeE],
-  );
-  const hyperliquidWithdrawAddedChains = useMemo(
-    () =>
-      getHyperliquidAddedChains({
-        chainList,
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        fallbackChains: fallbackHyperliquidWithdrawChains,
-      }),
-    [chainList, fallbackHyperliquidWithdrawChains, hyperliquidBridgeE],
-  );
-  const activeHyperliquidWithdrawChain = hyperliquidWithdrawChains.includes(
-    hyperliquidWithdrawChain,
-  )
-    ? hyperliquidWithdrawChain
-    : hyperliquidWithdrawAddedChains[0] || hyperliquidWithdrawChains[0] || "";
-  const hyperliquidWithdrawChainE = chainList.find(
-    (entry) => entry.chain == activeHyperliquidWithdrawChain,
-  );
-  const fallbackHyperliquidWithdrawCoins = useMemo(
-    () => getFallbackHyperliquidCoinsForChain(hyperliquidWithdrawChainE),
-    [hyperliquidWithdrawChainE],
-  );
-  const hyperliquidWithdrawCoins = useMemo(
-    () =>
-      getHyperliquidAllCoinsForChain({
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        chain: activeHyperliquidWithdrawChain,
-        fallbackCoins: fallbackHyperliquidWithdrawCoins,
-      }),
-    [
-      activeHyperliquidWithdrawChain,
-      fallbackHyperliquidWithdrawCoins,
-      hyperliquidBridgeE,
-    ],
-  );
-  const hyperliquidWithdrawAddedCoins = useMemo(
-    () =>
-      getHyperliquidAddedCoinsForChain({
-        chainE: hyperliquidWithdrawChainE,
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        fallbackCoins: fallbackHyperliquidWithdrawCoins,
-      }),
-    [
-      fallbackHyperliquidWithdrawCoins,
-      hyperliquidBridgeE,
-      hyperliquidWithdrawChainE,
-    ],
-  );
-  const activeHyperliquidWithdrawCoin = hyperliquidWithdrawCoins.includes(
-    hyperliquidWithdrawCoin,
-  )
-    ? hyperliquidWithdrawCoin
-    : hyperliquidWithdrawAddedCoins[0] || hyperliquidWithdrawCoins[0] || "";
-  const hyperliquidDepositAllCoinEntries = useMemo(
-    () =>
-      getHyperliquidCoinTokenEntries({
-        discoveryE: hyperliquidBridgeE,
-        side: "deposit",
-        chain: activeHyperliquidDepositChain,
-      }),
-    [activeHyperliquidDepositChain, hyperliquidBridgeE],
-  );
-  const hyperliquidWithdrawAllCoinEntries = useMemo(
-    () =>
-      getHyperliquidCoinTokenEntries({
-        discoveryE: hyperliquidBridgeE,
-        side: "withdraw",
-        chain: activeHyperliquidWithdrawChain,
-      }),
-    [activeHyperliquidWithdrawChain, hyperliquidBridgeE],
-  );
-  const hyperliquidDepositRouteToken = getHyperliquidRouteToken({
-    discoveryE: hyperliquidBridgeE,
-    side: "deposit",
-    chain: activeHyperliquidDepositChain,
-    coin: activeHyperliquidDepositCoin,
-  });
-  const hyperliquidWithdrawRouteToken = getHyperliquidRouteToken({
-    discoveryE: hyperliquidBridgeE,
-    side: "withdraw",
-    chain: activeHyperliquidWithdrawChain,
-    coin: activeHyperliquidWithdrawCoin,
-  });
-  const hyperliquidDepositRouteText = getHyperliquidRouteText(
-    hyperliquidDepositRouteToken,
-  );
-  const hyperliquidWithdrawRouteText = getHyperliquidRouteText(
-    hyperliquidWithdrawRouteToken,
-  );
-  const hyperliquidDepositFeeEtaText = getHyperliquidFeeEtaText(
-    hyperliquidDepositRouteToken,
-  );
-  const hyperliquidWithdrawFeeEtaText = getHyperliquidFeeEtaText(
-    hyperliquidWithdrawRouteToken,
-  );
   const isHyperliquidDepositMode =
     isHyperliquid && hyperliquidMode == "deposit";
+  const {
+    bridgeE: hyperliquidBridgeE,
+    retryBridge: retryHyperliquidBridge,
+  } = useHyperliquidBridgeDiscovery({ enabled: isHyperliquidDepositMode });
+  const {
+    depositChains: hyperliquidDepositChains,
+    depositAddedChains: hyperliquidDepositAddedChains,
+    activeDepositChain: activeHyperliquidDepositChain,
+    depositChainE: hyperliquidDepositChainE,
+    depositCoins: hyperliquidDepositCoins,
+    depositAddedCoins: hyperliquidDepositAddedCoins,
+    activeDepositCoin: activeHyperliquidDepositCoin,
+    depositAllCoinEntries: hyperliquidDepositAllCoinEntries,
+    depositRouteToken: hyperliquidDepositRouteToken,
+    depositRouteText: hyperliquidDepositRouteText,
+    depositFeeEtaText: hyperliquidDepositFeeEtaText,
+    withdrawChains: hyperliquidWithdrawChains,
+    withdrawAddedChains: hyperliquidWithdrawAddedChains,
+    activeWithdrawChain: activeHyperliquidWithdrawChain,
+    withdrawChainE: hyperliquidWithdrawChainE,
+    withdrawCoins: hyperliquidWithdrawCoins,
+    withdrawAddedCoins: hyperliquidWithdrawAddedCoins,
+    activeWithdrawCoin: activeHyperliquidWithdrawCoin,
+    withdrawAllCoinEntries: hyperliquidWithdrawAllCoinEntries,
+    withdrawRouteToken: hyperliquidWithdrawRouteToken,
+    withdrawRouteText: hyperliquidWithdrawRouteText,
+    withdrawFeeEtaText: hyperliquidWithdrawFeeEtaText,
+  } = useHyperliquidBridgeSelection({
+    chainList,
+    bridgeE: hyperliquidBridgeE,
+    depositChain: hyperliquidDepositChain,
+    depositCoin: hyperliquidDepositCoin,
+    withdrawChain: hyperliquidWithdrawChain,
+    withdrawCoin: hyperliquidWithdrawCoin,
+  });
   const availableYieldOptions = useMemo(
     () =>
       lendingOptions.filter((option) =>
@@ -1002,7 +372,25 @@ export default function YieldPanel({
   }, [chainE?.chain, chainE?.coinInfoM]);
   const sparkAllKey = chainE?.chain || "";
   const allMarketCacheKey = `${defi}:${sparkAllKey}`;
-  const rawSparkAllMarkets = sparkAllMarketM[allMarketCacheKey] || [];
+  const allProtocolLabel = isHyperliquid
+    ? "Hyperliquid"
+    : isVenusFlux
+      ? "Venus Flux"
+      : "Spark";
+  const getAllYieldMarkets =
+    defi == "venusFlux" ? getVenusFluxAllMarkets : getSparkAllMarkets;
+  const {
+    markets: rawSparkAllMarkets,
+    loading: sparkAllLoading,
+    error: sparkAllError,
+    retry: retryAllMarkets,
+  } = useYieldAllMarkets({
+    enabled: defi == "spark" || defi == "venusFlux",
+    cacheKey: allMarketCacheKey,
+    chain: sparkAllKey,
+    protocolLabel: allProtocolLabel,
+    getAllMarkets: getAllYieldMarkets,
+  });
   const sparkAllMarkets = rawSparkAllMarkets
     .map((entry) => {
       const addressKey = getTokenAddressKey(chainE?.chain, entry.lendAddress);
@@ -1028,8 +416,6 @@ export default function YieldPanel({
       };
     })
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
-  const sparkAllLoading = !!sparkAllLoadingM[allMarketCacheKey];
-  const sparkAllError = sparkAllErrorM[allMarketCacheKey] || "";
   const visibleAddedMarkets = useMemo(() => {
     if (!rawSparkAllMarkets.length) return addedMarkets;
 
@@ -1074,11 +460,6 @@ export default function YieldPanel({
   const allLoading = isHyperliquid ? false : sparkAllLoading;
   const allError = isHyperliquid ? "" : sparkAllError;
   const hasProtocolAllMarkets = !isHyperliquid;
-  const allProtocolLabel = isHyperliquid
-    ? "Hyperliquid"
-    : isVenusFlux
-      ? "Venus Flux"
-      : "Spark";
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
@@ -1124,8 +505,6 @@ export default function YieldPanel({
         marketE.lendAddress,
       ].join(":")
     : "";
-  const directBalance = directBalanceM[directBalanceKey] || {};
-  const directBalanceLoading = !!directBalanceLoadingM[directBalanceKey];
   const localUnderlyingBalance = getSelectedBalance(
     chainE,
     underlyingCoin,
@@ -1140,6 +519,22 @@ export default function YieldPanel({
   const hasLocalReceiptBalance = hasLoadedBalance(localReceiptBalance);
   const needsDirectBalance =
     usesDirectMarket && (!hasLocalUnderlyingBalance || !hasLocalReceiptBalance);
+  const getYieldMarketBalance =
+    defi == "venusFlux" ? getVenusFluxMarketBalance : getSparkMarketBalance;
+  const { balance: directBalance, loading: directBalanceLoading } =
+    useYieldDirectMarketBalance({
+      enabled:
+        usesDirectMarket &&
+        needsDirectBalance &&
+        !!directBalanceKey &&
+        !!selectedWalletEntry?.address,
+      cacheKey: directBalanceKey,
+      walletAddress: selectedWalletEntry?.address,
+      chain: chainE?.chain,
+      marketE,
+      getMarketBalance: getYieldMarketBalance,
+      protocolLabel: allProtocolLabel,
+    });
   const underlyingBalance =
     !hasLocalUnderlyingBalance && directBalance.underlying
       ? directBalance.underlying
@@ -1327,10 +722,6 @@ export default function YieldPanel({
     return localBalance;
   }
 
-  function getYieldMarketBalanceAction() {
-    return defi == "venusFlux" ? getVenusFluxMarketBalance : getSparkMarketBalance;
-  }
-
   function getMarketCoinE(side = "underlying") {
     const coin = side == "lend" ? lendCoin : underlyingCoin;
     const info = chainE?.coinInfoM?.[coin] || {};
@@ -1357,7 +748,7 @@ export default function YieldPanel({
     if (usesDirectMarket && marketE?.underlyingAddress && marketE?.lendAddress) {
       const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
       const res = await withClientTimeout(
-        getYieldMarketBalanceAction()({
+        getYieldMarketBalance({
           walletAddress: walletEntry.address,
           chain: chainE.chain,
           underlyingAddress: marketE.underlyingAddress,
@@ -1635,178 +1026,6 @@ export default function YieldPanel({
       document.removeEventListener("mousedown", closeMarketMenu);
     };
   }, []);
-
-  useEffect(() => {
-    if (!isHyperliquidDepositMode) return;
-    if (hyperliquidBridgeCache && !hyperliquidBridgeRetryTick) {
-      setHyperliquidBridgeE(hyperliquidBridgeCache);
-      return;
-    }
-
-    let cancelled = false;
-    if (!hyperliquidBridgePromise || hyperliquidBridgeRetryTick) {
-      if (hyperliquidBridgeRetryTick) hyperliquidBridgeCache = null;
-      hyperliquidBridgePromise = getHyperliquidSpotBridgeDiscovery()
-        .then((res) => ({
-          ...(res || {}),
-          loading: false,
-          loaded: true,
-          error: res?.ok ? "" : res?.msg || "Hyperliquid routes failed",
-        }))
-        .catch((e) => ({
-          ...emptyHyperliquidBridgeE,
-          loading: false,
-          loaded: true,
-          error: e?.message || "Hyperliquid routes failed",
-        }))
-        .then((res) => {
-          hyperliquidBridgeCache = res;
-          return res;
-        })
-        .finally(() => {
-          hyperliquidBridgePromise = null;
-        });
-    }
-
-    setHyperliquidBridgeE((entry) => ({
-      ...entry,
-      loading: true,
-      error: "",
-    }));
-    hyperliquidBridgePromise.then((res) => {
-      if (!cancelled) {
-        setHyperliquidBridgeE(res);
-        setHyperliquidBridgeRetryTick(0);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hyperliquidBridgeRetryTick, isHyperliquidDepositMode]);
-
-  useEffect(() => {
-    if ((defi != "spark" && defi != "venusFlux") || !sparkAllKey) return;
-    if (
-      sparkAllMarketM[allMarketCacheKey] !== undefined ||
-      sparkAllLoadingM[allMarketCacheKey]
-    ) {
-      return;
-    }
-
-    const getAllMarkets =
-      defi == "venusFlux" ? getVenusFluxAllMarkets : getSparkAllMarkets;
-    const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
-
-    setSparkAllLoadingM((loadingM) => ({
-      ...loadingM,
-      [allMarketCacheKey]: true,
-    }));
-    setSparkAllErrorM((errorM) => ({ ...errorM, [allMarketCacheKey]: "" }));
-    withClientTimeout(
-      getAllMarkets({ chain: sparkAllKey }),
-      25000,
-      `${sparkAllKey} ${protocolLabel} loading timeout`,
-    )
-      .then((res) => {
-        if (!mountedRef.current) return;
-        setSparkAllMarketM((marketM) => ({
-          ...marketM,
-          [allMarketCacheKey]: Array.isArray(res?.markets) ? res.markets : [],
-        }));
-      })
-      .catch((e) => {
-        if (!mountedRef.current) return;
-        setSparkAllMarketM((marketM) => ({
-          ...marketM,
-          [allMarketCacheKey]: [],
-        }));
-        setSparkAllErrorM((errorM) => ({
-          ...errorM,
-          [allMarketCacheKey]: e?.message || `${protocolLabel} markets failed`,
-        }));
-      })
-      .finally(() => {
-        if (!mountedRef.current) return;
-        setSparkAllLoadingM((loadingM) => ({
-          ...loadingM,
-          [allMarketCacheKey]: false,
-        }));
-      });
-  }, [allMarketCacheKey, defi, sparkAllKey, sparkAllRetryTick]);
-
-  useEffect(() => {
-    if (
-      !usesDirectMarket ||
-      !needsDirectBalance ||
-      !directBalanceKey ||
-      !selectedWalletEntry?.address ||
-      directBalanceM[directBalanceKey] ||
-      directBalanceLoadingM[directBalanceKey]
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    const getMarketBalance =
-      defi == "venusFlux" ? getVenusFluxMarketBalance : getSparkMarketBalance;
-    const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
-    setDirectBalanceLoadingM((loadingM) => ({
-      ...loadingM,
-      [directBalanceKey]: true,
-    }));
-    withClientTimeout(
-      getMarketBalance({
-        walletAddress: selectedWalletEntry.address,
-        chain: chainE.chain,
-        underlyingAddress: marketE.underlyingAddress,
-        underlyingDecimals: marketE.underlyingDecimals,
-        lendAddress: marketE.lendAddress,
-        lendDecimals: marketE.lendDecimals,
-      }),
-      12000,
-      `${chainE.chain} ${protocolLabel} balance timeout`,
-    )
-      .then((res) => {
-        if (cancelled) return;
-        setDirectBalanceM((balanceM) => ({
-          ...balanceM,
-          [directBalanceKey]: {
-            underlying: res?.underlying || {},
-            lend: res?.lend || {},
-          },
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setDirectBalanceM((balanceM) => ({
-          ...balanceM,
-          [directBalanceKey]: { underlying: {}, lend: {} },
-        }));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setDirectBalanceLoadingM((loadingM) => ({
-          ...loadingM,
-          [directBalanceKey]: false,
-        }));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    chainE?.chain,
-    defi,
-    directBalanceKey,
-    marketE?.lendAddress,
-    marketE?.lendDecimals,
-    marketE?.underlyingAddress,
-    marketE?.underlyingDecimals,
-    needsDirectBalance,
-    selectedWalletEntry?.address,
-    usesDirectMarket,
-  ]);
 
   useEffect(() => {
     if (
@@ -2407,35 +1626,6 @@ export default function YieldPanel({
       lendQty: getBalanceQty(lendBalance),
       aprValue: toNum(entry.supplyApr),
     };
-  }
-
-  function retrySparkAllMarkets(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    setSparkAllMarketM((marketM) => {
-      const next = { ...marketM };
-      delete next[allMarketCacheKey];
-      return next;
-    });
-    setSparkAllErrorM((errorM) => ({ ...errorM, [allMarketCacheKey]: "" }));
-    setSparkAllLoadingM((loadingM) => ({
-      ...loadingM,
-      [allMarketCacheKey]: false,
-    }));
-    setSparkAllRetryTick((tick) => tick + 1);
-  }
-
-  function retryAllMarkets(e) {
-    retrySparkAllMarkets(e);
-  }
-
-  function retryHyperliquidBridge(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    hyperliquidBridgeCache = null;
-    hyperliquidBridgePromise = null;
-    setHyperliquidBridgeE(emptyHyperliquidBridgeE);
-    setHyperliquidBridgeRetryTick((tick) => tick + 1);
   }
 
   function clearCustomCoinPreview() {
@@ -3166,178 +2356,19 @@ export default function YieldPanel({
     return result;
   }
 
-  function CustomCoinConfirmModal() {
-    if (!customCoinPreview) return null;
-
-    const entry = customCoinPreview.entry || {};
-    const typeSelectWidth =
-      Math.max(...coinTypeOptions.map((type) => type.length), 5) + 2;
-    const addressUrl = getExplorerAddressUrl(
-      customCoinPreview.chain,
-      entry.address,
-    );
-
-    return (
-      <div className="walletCoinConfirmBackdrop">
-        <form
-          className="walletCoinConfirmCard"
-          onSubmit={(e) => {
-            e.preventDefault();
-            confirmCustomCoin();
-          }}
-        >
-          <div className="walletCoinConfirmTitle">Confirm coin</div>
-          <div className="walletCoinConfirmGrid">
-            <span className="gray">chain</span>
-            <span className="white">{customCoinPreview.chain}</span>
-
-            <span className="gray">address</span>
-            {addressUrl ? (
-              <a
-                className="walletCoinConfirmAddress"
-                href={addressUrl}
-                target="_blank"
-                rel="noreferrer"
-                title={entry.address}
-              >
-                {entry.address}
-              </a>
-            ) : (
-              <span className="walletCoinConfirmAddress" title={entry.address}>
-                {entry.address}
-              </span>
-            )}
-
-            <span className="gray">decimals</span>
-            <span className="white">{entry.decimals ?? "-"}</span>
-
-            <label className="gray" htmlFor="lendCoinConfirmKey">
-              coin
-            </label>
-            <input
-              id="lendCoinConfirmKey"
-              type="text"
-              value={customCoinDraft.coin}
-              onChange={(e) =>
-                setCustomCoinDraft((draft) => ({
-                  ...draft,
-                  coin: e.target.value,
-                }))
-              }
-              disabled={addingCoin}
-              style={{
-                width: `${Math.max(customCoinDraft.coin.length || 0, 5) + 2}ch`,
-              }}
-              autoFocus
-            />
-
-            <label className="gray" htmlFor="lendCoinConfirmName">
-              name
-            </label>
-            <input
-              id="lendCoinConfirmName"
-              type="text"
-              value={customCoinDraft.name}
-              onChange={(e) =>
-                setCustomCoinDraft((draft) => ({
-                  ...draft,
-                  name: e.target.value,
-                }))
-              }
-              disabled={addingCoin}
-              style={{
-                width: `${Math.max(customCoinDraft.name.length || 0, 10) + 2}ch`,
-              }}
-            />
-
-            <label className="gray" htmlFor="lendCoinConfirmType">
-              type
-            </label>
-            <span className="walletCoinConfirmTypeRow">
-              <select
-                id="lendCoinConfirmType"
-                value={customCoinDraft.type}
-                onChange={(e) =>
-                  setCustomCoinDraft((draft) => ({
-                    ...draft,
-                    type: e.target.value,
-                    customType: e.target.value,
-                  }))
-                }
-                disabled={addingCoin}
-                style={{ width: `${typeSelectWidth}ch` }}
-              >
-                {coinTypeOptions.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={customCoinDraft.customType}
-                onChange={(e) =>
-                  setCustomCoinDraft((draft) => ({
-                    ...draft,
-                    customType: e.target.value,
-                  }))
-                }
-                placeholder="custom type"
-                disabled={addingCoin}
-                style={{
-                  width: `${
-                    Math.max(customCoinDraft.customType.length || 0, 11) + 2
-                  }ch`,
-                }}
-              />
-            </span>
-
-            <label className="gray" htmlFor="yieldCoinConfirmRef">
-              ref
-            </label>
-            <input
-              id="yieldCoinConfirmRef"
-              type="text"
-              value={customCoinDraft.ref}
-              onChange={(e) =>
-                setCustomCoinDraft((draft) => ({
-                  ...draft,
-                  ref: e.target.value,
-                }))
-              }
-              placeholder="optional note"
-              disabled={addingCoin}
-              style={{
-                width: `${Math.max(customCoinDraft.ref.length || 0, 13) + 2}ch`,
-              }}
-            />
-          </div>
-          <div className="walletCoinConfirmBtns">
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={clearCustomCoinPreview}
-              disabled={addingCoin}
-            >
-              cancel
-            </button>
-            <button
-              type="submit"
-              className="btn small bgCyan"
-              disabled={addingCoin}
-            >
-              {addingCoin ? "..." : "confirm"}
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  }
-
   return (
     <ProtocolClient>
     <div className="tradePane swapPane lendPane">
-      {CustomCoinConfirmModal()}
+      <CustomCoinConfirmModal
+        preview={customCoinPreview}
+        draft={customCoinDraft}
+        setDraft={setCustomCoinDraft}
+        adding={addingCoin}
+        coinTypeOptions={coinTypeOptions}
+        idPrefix="yieldCoinConfirm"
+        onCancel={clearCustomCoinPreview}
+        onConfirm={confirmCustomCoin}
+      />
       <div className="flex tradePaneTop">
         <label htmlFor="tradeTypeLend">
           <select

@@ -1738,6 +1738,41 @@ function Wallet({
     );
   }
 
+  function getKnownWalletEntries(row) {
+    const knownEntry = getKnownWalletEntry(row);
+    const addressKey = getFavAddrKey(walletType, row?.address);
+    const walletName = String(knownEntry?.name || row?.name || "").trim();
+    const seen = new Set();
+    const entries = [];
+
+    function addEntry(entry) {
+      if (!entry) return;
+      const key = getWalletEntryKey(entry);
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push(entry);
+    }
+
+    for (const entry of mergedWalletEntries || []) {
+      const entryAddressKey = getFavAddrKey(walletType, entry?.address);
+      const nameMatches = walletName && entry?.name == walletName;
+      const addressMatches = addressKey && entryAddressKey == addressKey;
+
+      if (nameMatches && (!addressKey || addressMatches)) addEntry(entry);
+    }
+
+    addEntry(knownEntry);
+
+    return entries.sort((a, b) =>
+      String(a.source || "").localeCompare(String(b.source || "")),
+    );
+  }
+
+  function getWalletEntrySourcePath(entry) {
+    const source = String(entry?.source || "").trim();
+    return source ? `wallets/${walletType}/${source}.json` : "";
+  }
+
   function getRows() {
     const rowM = {};
 
@@ -2060,7 +2095,7 @@ function Wallet({
     );
   }
 
-  function WalletRefInput({ entry, compact = false }) {
+  function renderWalletRefInput(entry, compact = false) {
     if (!entry?.source) {
       return entry?.ref ? <span className="gray">{entry.ref}</span> : null;
     }
@@ -2211,7 +2246,7 @@ function Wallet({
                       />
                     </td>
                     <td>
-                      <WalletRefInput entry={entry} compact />
+                      {renderWalletRefInput(entry, true)}
                     </td>
                     <td>
                       <input
@@ -2344,10 +2379,11 @@ function Wallet({
     return { allCoins, balanceCoins, noPriceCoins };
   }
 
-  function AddressCell({ row }) {
+  function renderAddressCell(row) {
     if (!row.address) return <td></td>;
 
     const walletEntry = getKnownWalletEntry(row) || row;
+    const walletRefEntries = getKnownWalletEntries(row);
     const walletNote = walletNotes?.[row.name] || "";
     const isSolana = walletType == "solana";
     const solanaScanner = chainList.find(
@@ -2383,9 +2419,23 @@ function Wallet({
               {walletNote && <span className="gray">: {walletNote}</span>}
             </span>
             <CopyAddressRow address={row.address} />
-            {(walletEntry?.source || walletEntry?.ref) && (
-              <span>
-                ref: <WalletRefInput entry={walletEntry} compact />
+            {walletRefEntries.length > 0 && (
+              <span className="walletRefPathList">
+                {walletRefEntries.map((entry) => {
+                  const sourcePath = getWalletEntrySourcePath(entry);
+                  return (
+                    <span
+                      key={getWalletEntryKey(entry)}
+                      className="walletRefPathRow"
+                    >
+                      <span className="gray">ref:</span>
+                      {sourcePath && (
+                        <span className="gray">{`${sourcePath}:`}</span>
+                      )}
+                      {renderWalletRefInput(entry, true)}
+                    </span>
+                  );
+                })}
               </span>
             )}
             {profileUrl && (
@@ -3166,7 +3216,7 @@ function Wallet({
                   </>
                 )}
               </td>
-              <AddressCell row={row} />
+              {renderAddressCell(row)}
               <AssetCell row={row} />
               {visibleChainList.map((chainE) => {
                 const coins = getVisibleCoins(chainE);

@@ -921,7 +921,7 @@ span.chainIcon {
   border: 1px solid #333;
   border-radius: 3px;
   background: #111;
-  color: var(--orange);
+  color: inherit;
   font: inherit;
 }
 .walletRefInput.compact {
@@ -931,6 +931,16 @@ span.chainIcon {
 .walletRefInput:focus {
   outline: none;
   border-color: #22d3ee;
+}
+.walletRefPathList {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.walletRefPathRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .walletSettingsActionRow {
   display: inline-flex;

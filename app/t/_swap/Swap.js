@@ -3,15 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
-import { scanners } from "@/sets";
-import { SwapChainSelect, SwapCoinSelect } from "./Client";
+import {
+  SwapChainSelect,
+  SwapCoinSelect,
+  emptySwapSupportE,
+  getDexLabel,
+  useSwapSupport,
+} from "./Client";
 import {
   buildAcrossSwapTxs,
   executeAcrossSwap,
   getAcrossSupportedBridge,
   getAcrossSwapPreview,
 } from "./across/sv";
-import AcrossClient from "./across/Client";
+import AcrossClient, { isAcrossSupportedForChain } from "./across/Client";
 import {
   buildJupiterSwapTxs,
   executeJupiterSwap,
@@ -19,7 +24,9 @@ import {
   getJupiterSwapPreview,
   getJupiterTokenDiscovery,
 } from "./jupiter/sv";
-import JupiterSwapClient from "./jupiter/Client";
+import JupiterSwapClient, {
+  isJupiterSwapSupportedForChain,
+} from "./jupiter/Client";
 import {
   buildJumperSwapTxs,
   executeJumperSwap,
@@ -27,7 +34,7 @@ import {
   getJumperSwapPreview,
   getJumperTokenDiscovery,
 } from "./jumper/sv";
-import JumperClient from "./jumper/Client";
+import JumperClient, { isJumperSupportedForChain } from "./jumper/Client";
 import {
   buildRelaySwapSteps,
   executeRelaySwap,
@@ -35,14 +42,14 @@ import {
   getRelaySupportedBridge,
   getRelaySwapPreview,
 } from "./relay/sv";
-import RelayClient from "./relay/Client";
+import RelayClient, { isRelaySupportedForChain } from "./relay/Client";
 import {
   buildUniswapSwapTxs,
   executeUniswapSwap,
   getUniswapSupportedSwap,
   getUniswapSwapPreview,
 } from "./uniswap/sv";
-import UniswapClient from "./uniswap/Client";
+import UniswapClient, { isUniswapSupportedForChain } from "./uniswap/Client";
 import {
   getTradeCoinBalance,
   getTradeCoinPrice,
@@ -57,6 +64,7 @@ import {
   cookieMaxAge,
   createTradeLoopResult,
   createTradeToast,
+  CustomCoinConfirmModal,
   dexOptions,
   emitTradeChainSelect,
   fmt,
@@ -65,8 +73,13 @@ import {
   formatComputedTradeQty,
   formatTradeQty,
   getChainCoins,
+  getCoinBalanceByAddress,
+  getCoinTypeOptions,
+  getSelectedBalance as getWalletSelectedBalance,
+  getTokenAddressKey,
   getTradeModeCookie,
   getWalletOptions,
+  hasLoadedBalance,
   inputQty,
   limitQtyInputDecimals,
   nextValue,
@@ -92,29 +105,14 @@ import {
 } from "../clientShared";
 
 const walletBalancePatchEvent = "w3:walletBalancePatch";
-const chainDiscoveryDexs = ["relay", "jumper", "across", "uniswap", "jupiter"];
-const emptySwapSupportE = {
-  chains: [],
-  tokens: [],
-  loading: false,
-  loaded: false,
-  error: "",
-};
 const emptyTokenDiscoveryE = {
   tokens: [],
   loading: false,
   loaded: false,
   error: "",
 };
-const swapSupportTimeoutMs = 12000;
-const swapSupportCacheM = {};
-const swapSupportPromiseM = {};
 const relayCurrencyCacheM = {};
 const relayCurrencyPromiseM = {};
-
-function hasChainDiscovery(defi = "") {
-  return chainDiscoveryDexs.includes(defi);
-}
 
 function getSwapSupport(defi = "") {
   if (defi == "relay") return getRelaySupportedBridge();
@@ -125,96 +123,12 @@ function getSwapSupport(defi = "") {
   return Promise.resolve(emptySwapSupportE);
 }
 
-function getDexLabel(value = "") {
-  return dexOptions.find((entry) => entry.value == value)?.label || value || "DEX";
-}
-
-function getExplorerAddressUrl(chain = "", address = "") {
-  const scanner = scanners?.[chain];
-  if (!scanner || !address) return "";
-
-  return `${String(scanner).replace(/\/+$/, "")}/address/${address}`;
-}
-
-function getCoinTypeOptions(chainList = [], extraType = "") {
-  const types = new Set(["token"]);
-
-  for (const chainE of chainList || []) {
-    for (const coinE of Object.values(chainE?.coinInfoM || {})) {
-      if (coinE?.type) types.add(String(coinE.type));
-    }
-  }
-  if (extraType) types.add(String(extraType));
-
-  return [...types].sort((a, b) => a.localeCompare(b));
-}
-
-function normalizeSwapSupport(res = {}) {
-  return {
-    chains: Array.isArray(res?.chains) ? res.chains : [],
-    tokens: Array.isArray(res?.tokens) ? res.tokens : [],
-    loading: false,
-    loaded: true,
-    error: "",
-  };
-}
-
-function withTimeout(promise, timeoutMs = 0, message = "request timeout") {
-  if (!timeoutMs) return promise;
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-  });
-}
-
-function loadSwapSupport(defi = "") {
-  if (!hasChainDiscovery(defi)) {
-    return Promise.resolve({ ...emptySwapSupportE, loaded: true });
-  }
-  if (swapSupportCacheM[defi]) return Promise.resolve(swapSupportCacheM[defi]);
-
-  if (!swapSupportPromiseM[defi]) {
-    swapSupportPromiseM[defi] = withTimeout(
-      getSwapSupport(defi),
-      swapSupportTimeoutMs,
-      `${getDexLabel(defi)} discovery timeout`,
-    )
-      .then((res) => {
-        const support = normalizeSwapSupport(res);
-        swapSupportCacheM[defi] = support;
-        return support;
-      })
-      .catch((e) => {
-        delete swapSupportPromiseM[defi];
-        throw e;
-      });
-  }
-
-  return swapSupportPromiseM[defi];
-}
-
 function getRelayCurrencyKey(chain = "", term = "") {
   return `${chain}:${String(term || "").trim().toLowerCase()}`;
 }
 
 function getTokenDiscoveryKey(defi = "", chain = "", term = "") {
   return `${defi}:${getRelayCurrencyKey(chain, term)}`;
-}
-
-function getTokenAddressKey(chain = "", address = "") {
-  const value = String(address || "").trim();
-  if (!value) return "";
-
-  return chain == "Solana" ? value : value.toLowerCase();
 }
 
 function getDiscoveryTokenKey(entry = {}, index = "") {
@@ -252,10 +166,11 @@ function trimQtyToDecimals(value = "", decimals = 18) {
 
 function isDexSupportedForChain(option = {}, fromChain = "") {
   if (!fromChain) return true;
-  if (option.value == "jupiter") return fromChain == "Solana";
-  if (fromChain == "Solana") {
-    return ["relay", "jumper", "across", "jupiter"].includes(option.value);
-  }
+  if (option.value == "relay") return isRelaySupportedForChain(fromChain);
+  if (option.value == "jumper") return isJumperSupportedForChain(fromChain);
+  if (option.value == "across") return isAcrossSupportedForChain(fromChain);
+  if (option.value == "jupiter") return isJupiterSwapSupportedForChain(fromChain);
+  if (option.value == "uniswap") return isUniswapSupportedForChain(fromChain);
 
   return true;
 }
@@ -407,7 +322,6 @@ export default function SwapPanel({
     loading: false,
     error: "",
   });
-  const [swapSupportM, setSwapSupportM] = useState({});
   const [showFromChainMenu, setShowFromChainMenu] = useState(false);
   const [showToChainMenu, setShowToChainMenu] = useState(false);
   const [showFromCoinMenu, setShowFromCoinMenu] = useState(false);
@@ -471,8 +385,16 @@ export default function SwapPanel({
     !!toChain &&
     fromChain != toChain &&
     (fromChain == "Solana" || toChain == "Solana");
-  const fromBalance = getSelectedBalance(fromChainE, fromCoin);
-  const selectedToBalance = getSelectedBalance(toChainE, toCoin);
+  const fromBalance = getWalletSelectedBalance(
+    fromChainE,
+    fromCoin,
+    selectedWalletEntry,
+  );
+  const selectedToBalance = getWalletSelectedBalance(
+    toChainE,
+    toCoin,
+    selectedWalletEntry,
+  );
   const recipientBalanceKey = getRecipientBalanceKey();
   const recipientBalance =
     recipientBalanceE.key == recipientBalanceKey
@@ -564,8 +486,14 @@ export default function SwapPanel({
   );
   const selectedWalletMatchName =
     selectedWalletEntry?.savedName || selectedWalletEntry?.name || "";
-  const swapSupportE = swapSupportM[defi] || emptySwapSupportE;
-  const swapHasDiscovery = hasChainDiscovery(defi);
+  const {
+    support: swapSupportE,
+    hasDiscovery: swapHasDiscovery,
+    retry: retrySwapSupport,
+  } = useSwapSupport({
+    defi,
+    getSupport: getSwapSupport,
+  });
   const discoveryChainEntries = useMemo(() => {
     const seen = new Set();
     return (swapSupportE.chains || []).filter((entry) => {
@@ -722,10 +650,6 @@ export default function SwapPanel({
       setDefi("");
     }
   }, [availableDexOptions, defi]);
-
-  useEffect(() => {
-    requestSwapSupport(defi);
-  }, [defi]);
 
   useEffect(() => {
     function handlePointerDown(e) {
@@ -939,40 +863,15 @@ export default function SwapPanel({
     };
   }, [toChain, toCoin, toFallbackPrice, toListPrice, toPriceKey]);
 
-  function getSelectedBalance(chainE, coin) {
-    if (!chainE || !coin || !selectedWalletEntry) return {};
-
-    const row = chainE.rows?.find(
-      (entry) =>
-        sameAddress(entry.address, selectedWalletEntry.address) ||
-        entry.name == selectedWalletEntry.name,
-    );
-
-    return row?.balances?.[coin] || {};
-  }
-
-  function hasLoadedBalance(balance = {}) {
-    return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
-  }
-
-  function getCoinByAddress(chainE, address = "") {
-    const addressKey = getTokenAddressKey(chainE?.chain, address);
-    if (!addressKey) return "";
-
-    return (
-      Object.entries(chainE?.coinInfoM || {}).find(
-        ([, coinE]) =>
-          getTokenAddressKey(chainE?.chain, coinE?.address) == addressKey,
-      )?.[0] || ""
-    );
-  }
-
   function getSwapCoinBalance(chain = "", coin = "", address = "") {
     const chainE = chainList.find((entry) => entry.chain == chain);
-    const localCoin =
-      getCoinByAddress(chainE, address) || (chainE?.coinInfoM?.[coin] ? coin : "");
 
-    return localCoin ? getSelectedBalance(chainE, localCoin) : {};
+    return getCoinBalanceByAddress(
+      chainE,
+      coin,
+      address,
+      selectedWalletEntry,
+    );
   }
 
   function isRecipientBalanceMode() {
@@ -1611,51 +1510,6 @@ export default function SwapPanel({
     if (next) selectToChain(next);
   }
 
-  function requestSwapSupport(value = "", { force = false } = {}) {
-    if (!hasChainDiscovery(value)) return;
-    const current = swapSupportM[value] || emptySwapSupportE;
-    if (!force && (current.loading || current.loaded)) return;
-
-    if (!force && swapSupportCacheM[value]) {
-      setSwapSupportM((supportM) => ({
-        ...supportM,
-        [value]: swapSupportCacheM[value],
-      }));
-      return;
-    }
-
-    setSwapSupportM((supportM) => {
-      return {
-        ...supportM,
-        [value]: {
-          ...current,
-          loading: true,
-          loaded: false,
-          error: "",
-        },
-      };
-    });
-
-    loadSwapSupport(value)
-      .then((support) => {
-        setSwapSupportM((supportM) => ({
-          ...supportM,
-          [value]: support,
-        }));
-      })
-      .catch((e) => {
-        setSwapSupportM((supportM) => ({
-          ...supportM,
-          [value]: {
-            ...(supportM[value] || emptySwapSupportE),
-            loading: false,
-            loaded: true,
-            error: e?.message || `${getDexLabel(value)} discovery failed`,
-          },
-        }));
-      });
-  }
-
   function requestRelayCurrencies(chain = "", term = "", { force = false } = {}) {
     const currentDefi = defi;
     if (!chain || !["relay", "jumper", "jupiter"].includes(currentDefi)) return;
@@ -1742,19 +1596,6 @@ export default function SwapPanel({
         }));
         return entry;
       });
-  }
-
-  function retrySwapSupport(e) {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
-    if (!defi) return;
-    delete swapSupportCacheM[defi];
-    delete swapSupportPromiseM[defi];
-    setSwapSupportM((supportM) => ({
-      ...supportM,
-      [defi]: emptySwapSupportE,
-    }));
-    requestSwapSupport(defi, { force: true });
   }
 
   function changeRelayTokenSearch(side = "from", value = "") {
@@ -1971,170 +1812,6 @@ export default function SwapPanel({
     }
   }
 
-  function CustomCoinConfirmModal() {
-    if (!customCoinPreview) return null;
-
-    const entry = customCoinPreview.entry || {};
-    const typeSelectWidth =
-      Math.max(...coinTypeOptions.map((type) => type.length), 5) + 2;
-    const addressUrl = getExplorerAddressUrl(
-      customCoinPreview.chain,
-      entry.address,
-    );
-
-    return (
-      <div className="walletCoinConfirmBackdrop">
-        <form
-          className="walletCoinConfirmCard"
-          onSubmit={(e) => {
-            e.preventDefault();
-            confirmCustomCoin();
-          }}
-        >
-          <div className="walletCoinConfirmTitle">Confirm coin</div>
-          <div className="walletCoinConfirmGrid">
-            <span className="gray">chain</span>
-            <span className="white">{customCoinPreview.chain}</span>
-
-            <span className="gray">address</span>
-            {addressUrl ? (
-              <a
-                className="walletCoinConfirmAddress"
-                href={addressUrl}
-                target="_blank"
-                rel="noreferrer"
-                title={entry.address}
-              >
-                {entry.address}
-              </a>
-            ) : (
-              <span className="walletCoinConfirmAddress" title={entry.address}>
-                {entry.address}
-              </span>
-            )}
-
-            <span className="gray">decimals</span>
-            <span className="white">{entry.decimals ?? "-"}</span>
-
-            <label className="gray" htmlFor="swapCoinConfirmKey">
-              coin
-            </label>
-            <input
-              id="swapCoinConfirmKey"
-              type="text"
-              value={customCoinDraft.coin}
-              onChange={(e) =>
-                setCustomCoinDraft((draft) => ({
-                  ...draft,
-                  coin: e.target.value,
-                }))
-              }
-              disabled={addingCoin}
-              style={{
-                width: `${Math.max(customCoinDraft.coin.length || 0, 5) + 2}ch`,
-              }}
-              autoFocus
-            />
-
-            <label className="gray" htmlFor="swapCoinConfirmName">
-              name
-            </label>
-            <input
-              id="swapCoinConfirmName"
-              type="text"
-              value={customCoinDraft.name}
-              onChange={(e) =>
-                setCustomCoinDraft((draft) => ({
-                  ...draft,
-                  name: e.target.value,
-                }))
-              }
-              disabled={addingCoin}
-              style={{
-                width: `${Math.max(customCoinDraft.name.length || 0, 10) + 2}ch`,
-              }}
-            />
-
-            <label className="gray" htmlFor="swapCoinConfirmType">
-              type
-            </label>
-            <span className="walletCoinConfirmTypeRow">
-              <select
-                id="swapCoinConfirmType"
-                value={customCoinDraft.type}
-                onChange={(e) =>
-                  setCustomCoinDraft((draft) => ({
-                    ...draft,
-                    type: e.target.value,
-                    customType: e.target.value,
-                  }))
-                }
-                disabled={addingCoin}
-                style={{ width: `${typeSelectWidth}ch` }}
-              >
-                {coinTypeOptions.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={customCoinDraft.customType}
-                onChange={(e) =>
-                  setCustomCoinDraft((draft) => ({
-                    ...draft,
-                    customType: e.target.value,
-                  }))
-                }
-                placeholder="custom type"
-                disabled={addingCoin}
-                style={{
-                  width: `${
-                    Math.max(customCoinDraft.customType.length || 0, 11) + 2
-                  }ch`,
-                }}
-              />
-            </span>
-
-            <label className="gray" htmlFor="swapCoinConfirmRef">
-              ref
-            </label>
-            <input
-              id="swapCoinConfirmRef"
-              type="text"
-              value={customCoinDraft.ref}
-              onChange={(e) =>
-                setCustomCoinDraft((draft) => ({
-                  ...draft,
-                  ref: e.target.value,
-                }))
-              }
-              placeholder="optional note"
-              disabled={addingCoin}
-              style={{
-                width: `${Math.max(customCoinDraft.ref.length || 0, 13) + 2}ch`,
-              }}
-            />
-          </div>
-          <div className="walletCoinConfirmBtns">
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={clearCustomCoinPreview}
-              disabled={addingCoin}
-            >
-              cancel
-            </button>
-            <button type="submit" className="btn small bgCyan" disabled={addingCoin}>
-              {addingCoin ? "..." : "confirm"}
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  }
-
   function selectFromChain(chain) {
     setFromChain(chain);
     saveSwapChainCookie(tradeSwapFromChainCookie, chain);
@@ -2242,7 +1919,16 @@ export default function SwapPanel({
   return (
     <ProtocolClient>
       <div className="tradePane swapPane">
-      {CustomCoinConfirmModal()}
+      <CustomCoinConfirmModal
+        preview={customCoinPreview}
+        draft={customCoinDraft}
+        setDraft={setCustomCoinDraft}
+        adding={addingCoin}
+        coinTypeOptions={coinTypeOptions}
+        idPrefix="swapCoinConfirm"
+        onCancel={clearCustomCoinPreview}
+        onConfirm={confirmCustomCoin}
+      />
       <div className="flex tradePaneTop">
         <label htmlFor="tradeTypeSwap">
           <select

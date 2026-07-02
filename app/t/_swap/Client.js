@@ -1,14 +1,135 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { pc } from "@/fn/basic";
 import {
+  dexOptions,
   TradePickerColumn,
   TradePickerMenu,
   TradePickerSortHeader,
   TradePickerTable,
   sortTradePickerRows,
   toNum,
+  withClientTimeout,
 } from "../clientShared";
+
+const chainDiscoveryDexs = ["relay", "jumper", "across", "uniswap", "jupiter"];
+export const emptySwapSupportE = {
+  chains: [],
+  tokens: [],
+  loading: false,
+  loaded: false,
+  error: "",
+};
+const swapSupportTimeoutMs = 12000;
+const swapSupportCacheM = {};
+const swapSupportPromiseM = {};
+
+export function hasChainDiscovery(defi = "") {
+  return chainDiscoveryDexs.includes(defi);
+}
+
+export function getDexLabel(value = "") {
+  return dexOptions.find((entry) => entry.value == value)?.label || value || "DEX";
+}
+
+function normalizeSwapSupport(res = {}) {
+  return {
+    chains: Array.isArray(res?.chains) ? res.chains : [],
+    tokens: Array.isArray(res?.tokens) ? res.tokens : [],
+    loading: false,
+    loaded: true,
+    error: "",
+  };
+}
+
+export function useSwapSupport({
+  defi = "",
+  getSupport,
+} = {}) {
+  const [supportM, setSupportM] = useState({});
+  const support = supportM[defi] || emptySwapSupportE;
+  const hasDiscovery = hasChainDiscovery(defi);
+
+  function request(value = "", { force = false } = {}) {
+    if (!hasChainDiscovery(value)) return;
+    const current = supportM[value] || emptySwapSupportE;
+    if (!force && (current.loading || current.loaded)) return;
+
+    if (!force && swapSupportCacheM[value]) {
+      setSupportM((currentM) => ({
+        ...currentM,
+        [value]: swapSupportCacheM[value],
+      }));
+      return;
+    }
+
+    setSupportM((currentM) => ({
+      ...currentM,
+      [value]: {
+        ...current,
+        loading: true,
+        loaded: false,
+        error: "",
+      },
+    }));
+
+    if (!swapSupportPromiseM[value] || force) {
+      swapSupportPromiseM[value] = withClientTimeout(
+        getSupport?.(value) || Promise.resolve(emptySwapSupportE),
+        swapSupportTimeoutMs,
+        `${getDexLabel(value)} discovery timeout`,
+      )
+        .then((res) => {
+          const nextSupport = normalizeSwapSupport(res);
+          swapSupportCacheM[value] = nextSupport;
+          return nextSupport;
+        })
+        .catch((e) => {
+          delete swapSupportPromiseM[value];
+          throw e;
+        });
+    }
+
+    swapSupportPromiseM[value]
+      .then((nextSupport) => {
+        setSupportM((currentM) => ({
+          ...currentM,
+          [value]: nextSupport,
+        }));
+      })
+      .catch((e) => {
+        setSupportM((currentM) => ({
+          ...currentM,
+          [value]: {
+            ...(currentM[value] || emptySwapSupportE),
+            loading: false,
+            loaded: true,
+            error: e?.message || `${getDexLabel(value)} discovery failed`,
+          },
+        }));
+      });
+  }
+
+  useEffect(() => {
+    request(defi);
+  }, [defi, supportM]);
+
+  function retry(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (!defi) return;
+    delete swapSupportCacheM[defi];
+    delete swapSupportPromiseM[defi];
+    setSupportM((currentM) => ({
+      ...currentM,
+      [defi]: emptySwapSupportE,
+    }));
+    request(defi, { force: true });
+  }
+
+  return { support, hasDiscovery, retry };
+}
 
 function hasLoadedBalance(balance = {}) {
   return Object.prototype.hasOwnProperty.call(balance || {}, "balance");

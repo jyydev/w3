@@ -1,13 +1,310 @@
 "use client";
 
+import { pc } from "@/fn/basic";
 import {
+  fmt,
+  getChainCoins,
+  getCoinBalanceByAddress,
+  getCoinTypeOptions,
+  getExplorerAddressUrl,
+  getSelectedBalance,
+  getTokenAddressKey,
+  getTradeModeCookie,
+  hasLoadedBalance,
+  sameAddressText,
   TradePickerColumn,
   TradePickerMenu,
   TradePickerSortHeader,
   TradePickerTable,
   sortTradePickerRows,
   toggleTradePickerSort,
+  toNum,
+  useTradeAllMarkets,
+  useTradeDirectMarketBalance,
+  withClientTimeout,
+  yieldOptions,
 } from "../clientShared";
+import {
+  isHyperliquidChainAvailable,
+  isHyperliquidCoin,
+} from "./hyperliquid/Client";
+import {
+  isSparkChainAvailable,
+  isSparkCoin,
+} from "./spark/Client";
+import {
+  isVenusFluxChainAvailable,
+  isVenusFluxCoin,
+} from "./venusFlux/Client";
+
+export {
+  getCoinTypeOptions,
+  getExplorerAddressUrl,
+  getSelectedBalance,
+  getTokenAddressKey,
+  hasLoadedBalance,
+  sameAddressText,
+  withClientTimeout,
+};
+
+export function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
+  if (walletType == "solana") return false;
+  if (option.value == "spark") return true;
+  if (option.value == "venusFlux") return true;
+  if (option.value == "hyperliquid") return true;
+
+  return false;
+}
+
+export function getProtocolCookie(
+  base = "",
+  walletType = "evm",
+  defi = "",
+  chain = "",
+) {
+  return [getTradeModeCookie(base, walletType), defi || "defi", chain || ""]
+    .filter(Boolean)
+    .join("_");
+}
+
+export function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+export function getInitialYieldDefi(
+  initialCookieM = {},
+  walletType = "evm",
+  cookieName = "",
+) {
+  const savedDefi = getInitialCookie(
+    initialCookieM,
+    getTradeModeCookie(cookieName, walletType),
+  );
+  const options = yieldOptions.filter((option) =>
+    isYieldProtocolSupportedForWallet(option, walletType),
+  );
+
+  return options.some((entry) => entry.value == savedDefi)
+    ? savedDefi
+    : options[0]?.value || "";
+}
+
+export function useYieldAllMarkets({
+  enabled = false,
+  cacheKey = "",
+  chain = "",
+  protocolLabel = "Yield",
+  getAllMarkets,
+  timeoutMs = 25000,
+} = {}) {
+  return useTradeAllMarkets({
+    enabled,
+    cacheKey,
+    chain,
+    protocolLabel,
+    getAllMarkets,
+    timeoutMs,
+  });
+}
+
+export function useYieldDirectMarketBalance({
+  enabled = false,
+  cacheKey = "",
+  walletAddress = "",
+  chain = "",
+  marketE = {},
+  getMarketBalance,
+  protocolLabel = "Yield",
+  timeoutMs = 12000,
+} = {}) {
+  return useTradeDirectMarketBalance({
+    enabled,
+    cacheKey,
+    walletAddress,
+    chain,
+    marketE,
+    getMarketBalance,
+    protocolLabel,
+    timeoutMs,
+  });
+}
+
+export function getMarketSupplyApr({
+  chainE,
+  defi,
+  marketE,
+  rawMarkets = [],
+} = {}) {
+  if (defi != "spark" && defi != "venusFlux") return 0;
+  if (marketE?.supplyApr) return toNum(marketE.supplyApr);
+
+  const lendAddress =
+    marketE?.lendAddress ||
+    chainE?.coinInfoM?.[marketE?.lendCoin]?.address ||
+    "";
+  const underlyingAddress =
+    marketE?.underlyingAddress ||
+    chainE?.coinInfoM?.[marketE?.underlyingCoin]?.address ||
+    "";
+  const match = rawMarkets.find(
+    (entry) =>
+      (lendAddress && sameAddressText(entry.lendAddress, lendAddress)) ||
+      (underlyingAddress &&
+        sameAddressText(entry.underlyingAddress, underlyingAddress)) ||
+      (entry.underlyingCoin == marketE?.underlyingCoin &&
+        entry.lendCoin == marketE?.lendCoin),
+  );
+
+  return toNum(match?.supplyApr);
+}
+
+export function isUsdLikeYieldCoin(coin = "") {
+  return /USD/i.test(String(coin || ""));
+}
+
+export function isProtocolCoin(protocol, coin, coinE = {}) {
+  if (protocol == "hyperliquid") return isHyperliquidCoin(coin, coinE);
+  if (protocol == "spark") return isSparkCoin(coin, coinE);
+  if (protocol == "venusFlux") return isVenusFluxCoin(coin, coinE);
+
+  return false;
+}
+
+export function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = "") {
+  return chainList
+    .filter((chainE) => {
+      const chainMarkets = chainMarketsM[chainE.chain] || [];
+      if (defi == "hyperliquid") {
+        return isHyperliquidChainAvailable(chainE.chain, chainMarkets);
+      }
+      if (defi == "spark") {
+        return isSparkChainAvailable(chainE.chain, chainMarkets);
+      }
+
+      return isVenusFluxChainAvailable(chainE.chain, chainMarkets);
+    })
+    .map((chainE) => chainE.chain);
+}
+
+export function getUnderlyingCoin(chainE, lendCoin) {
+  if (chainE?.chain == "Hyperliquid") return "USDC";
+
+  const coinInfoM = chainE?.coinInfoM || {};
+  const lendE = coinInfoM[lendCoin] || {};
+  const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
+  const savingsNameMatch = String(lendE.name || "").match(
+    /\bsavings\s+([a-z0-9.]+)/i,
+  );
+  if (savingsNameMatch?.[1]) return savingsNameMatch[1].toUpperCase();
+  if (/^sp[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(2);
+  if (/^f[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
+  if (/^s[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
+
+  const candidates = getChainCoins(chainE)
+    .filter((coin) => coin != lendCoin)
+    .filter((coin) => coinInfoM[coin]?.type != "lend")
+    .sort((a, b) => b.length - a.length);
+
+  return (
+    candidates.find((coin) => text.includes(coin.toLowerCase())) ||
+    candidates.find((coin) => ["USDT", "USDC", "DAI"].includes(coin)) ||
+    candidates[0] ||
+    ""
+  );
+}
+
+export function getLendingMarkets(chainE, protocol) {
+  if (!chainE || !protocol) return [];
+
+  return getChainCoins(chainE)
+    .filter((coin) => isProtocolCoin(protocol, coin, chainE.coinInfoM?.[coin]))
+    .map((lendCoin) => {
+      const lendE = chainE.coinInfoM?.[lendCoin] || {};
+      const underlyingCoin = getUnderlyingCoin(chainE, lendCoin);
+
+      return {
+        value: lendCoin,
+        protocol,
+        lendCoin,
+        lendName: lendE.name || lendCoin,
+        underlyingCoin,
+      };
+    })
+    .filter((entry) => entry.underlyingCoin);
+}
+
+export function getMarketLabel(entry = {}) {
+  if (entry.protocol == "hyperliquid") return entry.lendCoin || "vault";
+
+  return entry?.underlyingCoin
+    ? `${entry.underlyingCoin} (${entry.lendCoin})`
+    : "coin";
+}
+
+export function formatApr(apr) {
+  const value = toNum(apr);
+  if (value <= 0) return "";
+  if (value < 0.01) return "<0.01%";
+  return `${fmt(value, value >= 10 ? 1 : 2)}%`;
+}
+
+export function getLockUntilMs(value) {
+  const timestamp = Number(value);
+  if (!(timestamp > 0)) return 0;
+
+  return timestamp < 1e12 ? timestamp * 1000 : timestamp;
+}
+
+export function formatLockUntil(value) {
+  const ms = getLockUntilMs(value);
+  if (!ms) return "";
+
+  return new Date(ms).toLocaleString();
+}
+
+export function AprText({ apr, label = true }) {
+  const text = formatApr(apr);
+  return text ? (
+    <span className="lendApr">
+      {label && <span className="gray">apr: </span>}
+      {text}
+    </span>
+  ) : null;
+}
+
+export function LendCoinInfoCard({ coin, name, lockedUntilTimestamp = 0 }) {
+  const cleanCoin = String(coin || "").trim();
+  const cleanName = String(name || "").trim();
+  const lockText = formatLockUntil(lockedUntilTimestamp);
+  if ((!cleanName || cleanName == cleanCoin) && !lockText) return null;
+
+  return (
+    <span className="infoCard">
+      <span className="infoCardTitle">{cleanCoin}</span>
+      {cleanName && cleanName != cleanCoin && <span>{cleanName}</span>}
+      {lockText && (
+        <span>
+          locked until <span className="gray">{lockText}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function getMarketCoinBalance(chainE, coin = "", address = "", selectedWalletEntry) {
+  return getCoinBalanceByAddress(chainE, coin, address, selectedWalletEntry);
+}
+
+export function MarketCoinBalance({ balance = {} }) {
+  if (!hasLoadedBalance(balance)) return null;
+
+  return <span>{pc(balance.balance)}</span>;
+}
+
+export function getBalanceQty(balance = {}) {
+  return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
+}
 
 function sortMarketRows(rows = [], key = "") {
   return sortTradePickerRows(
