@@ -2,8 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { pc } from "@/fn/basic";
+import { isAcrossSupportedForChain } from "./across/Client";
+import { isJumperSupportedForChain } from "./jumper/Client";
+import { isJupiterSwapSupportedForChain } from "./jupiter/Client";
+import { isRelaySupportedForChain } from "./relay/Client";
+import { isUniswapSupportedForChain } from "./uniswap/Client";
 import {
   dexOptions,
+  getInitialCookie,
+  getTokenAddressKey,
+  getTradeModeCookie,
+  inputQty,
+  tradeSwapDexCookie,
   TradePickerColumn,
   TradePickerMenu,
   TradePickerSortHeader,
@@ -24,6 +34,14 @@ export const emptySwapSupportE = {
 const swapSupportTimeoutMs = 12000;
 const swapSupportCacheM = {};
 const swapSupportPromiseM = {};
+export const emptyTokenDiscoveryE = {
+  tokens: [],
+  loading: false,
+  loaded: false,
+  error: "",
+};
+export const relayCurrencyCacheM = {};
+export const relayCurrencyPromiseM = {};
 
 export function hasChainDiscovery(defi = "") {
   return chainDiscoveryDexs.includes(defi);
@@ -31,6 +49,84 @@ export function hasChainDiscovery(defi = "") {
 
 export function getDexLabel(value = "") {
   return dexOptions.find((entry) => entry.value == value)?.label || value || "DEX";
+}
+
+export function isDexSupportedForChain(option = {}, fromChain = "") {
+  if (!fromChain) return true;
+  if (option.value == "relay") return isRelaySupportedForChain(fromChain);
+  if (option.value == "jumper") return isJumperSupportedForChain(fromChain);
+  if (option.value == "across") return isAcrossSupportedForChain(fromChain);
+  if (option.value == "jupiter") return isJupiterSwapSupportedForChain(fromChain);
+  if (option.value == "uniswap") return isUniswapSupportedForChain(fromChain);
+
+  return true;
+}
+
+export function getSwapRouteCookie(
+  base = "",
+  walletType = "evm",
+  defi = "",
+  chain = "",
+) {
+  return [
+    getTradeModeCookie(base, walletType),
+    defi || "dex",
+    chain || "",
+  ]
+    .filter(Boolean)
+    .join("_");
+}
+
+export function getInitialSwapDex(initialCookieM = {}, walletType = "evm") {
+  const savedDefi = getInitialCookie(
+    initialCookieM,
+    getTradeModeCookie(tradeSwapDexCookie, walletType),
+  );
+
+  return dexOptions.some((entry) => entry.value == savedDefi)
+    ? savedDefi
+    : dexOptions[0]?.value || "";
+}
+
+export function getRelayCurrencyKey(chain = "", term = "") {
+  return `${chain}:${String(term || "").trim().toLowerCase()}`;
+}
+
+export function getTokenDiscoveryKey(defi = "", chain = "", term = "") {
+  return `${defi}:${getRelayCurrencyKey(chain, term)}`;
+}
+
+export function getDiscoveryTokenKey(entry = {}, index = "") {
+  return [
+    entry.chain || "",
+    getTokenAddressKey(entry.chain, entry.address),
+    entry.symbol || "",
+    entry.name || "",
+    Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
+    index,
+  ].join(":");
+}
+
+export function getDiscoveryTokenDedupeKey(entry = {}) {
+  return [
+    entry.chain || "",
+    getTokenAddressKey(entry.chain, entry.address),
+    entry.symbol || "",
+    entry.name || "",
+    Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
+  ].join(":");
+}
+
+export function trimQtyToDecimals(value = "", decimals = 18) {
+  const text = String(value ?? "");
+  if (!text || !Number.isInteger(decimals) || decimals < 0) return text;
+  if (/e/i.test(text)) return trimQtyToDecimals(inputQty(Number(text)), decimals);
+
+  const parts = text.split(".");
+  if (parts.length < 2) return text;
+  if (decimals == 0) return parts[0] || "0";
+
+  return `${parts[0] || "0"}.${parts.slice(1).join("").slice(0, decimals)}`;
 }
 
 function normalizeSwapSupport(res = {}) {

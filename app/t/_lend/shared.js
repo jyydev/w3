@@ -2,52 +2,24 @@ import { ethers } from "ethers";
 import { Connection } from "@solana/web3.js";
 import coinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
+import {
+  cleanMarketSymbol,
+  sameEvmAddress,
+  withTimeout,
+} from "../sharedServer";
+
+export {
+  cleanMarketSymbol,
+  mapWithConcurrency,
+  sameEvmAddress,
+  withTimeout,
+} from "../sharedServer";
 
 const erc20MetaAbi = [
   "function name() view returns (string)",
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
 ];
-
-export function withTimeout(promise, ms, message) {
-  let timer;
-
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
-export function cleanMarketSymbol(symbol = "", address = "") {
-  const cleanAddress = String(address || "").replace(/^0x/i, "");
-  const clean = String(symbol || "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/[^\w.-]/g, "");
-
-  return clean || `TOKEN_${cleanAddress.slice(0, 6).toUpperCase()}`;
-}
-
-export function sameEvmAddress(a = "", b = "") {
-  return (
-    ethers.isAddress(a) &&
-    ethers.isAddress(b) &&
-    ethers.getAddress(a) == ethers.getAddress(b)
-  );
-}
-
-export async function mapWithConcurrency(items = [], limit = 3, fn) {
-  const results = [];
-
-  for (let i = 0; i < items.length; i += limit) {
-    const chunk = items.slice(i, i + limit);
-    results.push(...(await Promise.all(chunk.map(fn))));
-  }
-
-  return results;
-}
 
 export function getUsableChainRpcs(chain = "") {
   const chainRpcs = rpcs?.[chain] || [];

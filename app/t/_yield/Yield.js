@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import {
-  AprText,
-  LendCoinInfoCard,
   MarketCoinBalance,
   YieldMarketPicker,
   getBalanceQty,
@@ -89,9 +87,18 @@ import {
   formatComputedTradeQty,
   formatTradeQty,
   getBrowserEvmChainId,
+  getInitialAutoApproval,
   getQtyDecimals,
   getHyperliquidBrowserAgent,
+  getSignedTradeReceiptQty,
+  getSignedTradeUnderlyingQty,
+  getTradeEndDiffQty,
+  getTradeEndInputValue,
+  getTradeMarketCoinEntry,
   getTradeModeCookie,
+  getTradeReceiptQty,
+  getTradeUnderlyingQty,
+  getTradeWalletMarketBalance,
   limitQtyInputDecimals,
   yieldOptions as lendingOptions,
   nextValue,
@@ -102,8 +109,8 @@ import {
   qtyInputStyle,
   rangeQtyInput,
   runTradeWalletLoop,
-  sameAddress,
   sendBrowserTradeTx,
+  subtractTradeQtyText,
   signHyperliquidBrowserAgentTypedData,
   signBrowserTypedData,
   SwapTxLink,
@@ -120,10 +127,6 @@ import {
   useCustomCoinConfirm,
   useTradeFallbackPrice,
 } from "../clientShared";
-
-function getInitialAutoApproval(initialCookieM = {}) {
-  return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
-}
 
 export default function YieldPanel({
   data = [],
@@ -689,81 +692,54 @@ export default function YieldPanel({
   const signedRedeemLend = qtyInputSide == "redeem" && receiptQtyNum < 0;
   const isRedeem =
     signedLendRedeem || (qtyInputSide == "redeem" && !signedRedeemLend);
-  const underlyingQtyAbs = Math.abs(underlyingQty);
-  const receiptQtyAbs = Math.abs(receiptQtyNum);
   const lendSliderValue = Math.max(0, Math.min(underlyingQty, maxUnderlying));
   const redeemSliderValue = Math.max(0, Math.min(receiptQtyNum, withdrawMaxReceipt));
-  const underlyingEnd = isRedeem
-    ? maxUnderlying + underlyingQtyAbs
-    : Math.max(0, maxUnderlying - underlyingQtyAbs);
-  const receiptEnd = isRedeem
-    ? Math.max(0, maxReceipt - receiptQtyAbs)
-    : maxReceipt + receiptQtyAbs;
   const underlyingEndInputValue =
-    underlyingEndDraft || formatComputedTradeQty(underlyingEnd, underlyingQtyDecimals);
-  const receiptEndInputValue =
-    receiptEndDraft || formatComputedTradeQty(receiptEnd, receiptQtyDecimals);
-  function getWalletUnderlyingBalance(walletEntry = selectedWalletEntry) {
-    const selected =
-      sameAddress(walletEntry?.address, selectedWalletEntry?.address) ||
-      walletEntry?.value == selectedWalletEntry?.value ||
-      walletEntry?.name == selectedWalletEntry?.name;
-
-    const localBalance = getMarketCoinBalance(
-      chainE,
-      underlyingCoin,
-      marketE?.underlyingAddress,
-      walletEntry,
+    underlyingEndDraft ||
+    getTradeEndInputValue(
+      maxUnderlyingQty,
+      lendQty,
+      isRedeem,
+      underlyingQtyDecimals,
     );
-    if (selected) {
-      return [displayUnderlyingBalance, directBalance.underlying, localBalance]
-        .filter(hasLoadedBalance)
-        .sort((a, b) => toNum(b.balance) - toNum(a.balance))[0] || {};
-    }
-
-    if (hasLoadedBalance(localBalance)) return localBalance;
-
-    return localBalance;
+  const receiptEndInputValue =
+    receiptEndDraft ||
+    getTradeEndInputValue(
+      maxReceiptQty,
+      receiptQty,
+      !isRedeem,
+      receiptQtyDecimals,
+    );
+  function getWalletUnderlyingBalance(walletEntry = selectedWalletEntry) {
+    return getTradeWalletMarketBalance({
+      chainE,
+      coin: underlyingCoin,
+      address: marketE?.underlyingAddress,
+      walletEntry,
+      selectedWalletEntry,
+      selectedBalances: [displayUnderlyingBalance, directBalance.underlying],
+    });
   }
 
   function getWalletReceiptBalance(walletEntry = selectedWalletEntry) {
-    const selected =
-      sameAddress(walletEntry?.address, selectedWalletEntry?.address) ||
-      walletEntry?.value == selectedWalletEntry?.value ||
-      walletEntry?.name == selectedWalletEntry?.name;
-
-    const localBalance = getMarketCoinBalance(
+    return getTradeWalletMarketBalance({
       chainE,
-      lendCoin,
-      marketE?.lendAddress,
+      coin: lendCoin,
+      address: marketE?.lendAddress,
       walletEntry,
-    );
-    if (selected) {
-      return [displayReceiptBalance, directBalance.lend, localBalance]
-        .filter(hasLoadedBalance)
-        .sort((a, b) => toNum(b.balance) - toNum(a.balance))[0] || {};
-    }
-
-    if (hasLoadedBalance(localBalance)) return localBalance;
-
-    return localBalance;
+      selectedWalletEntry,
+      selectedBalances: [displayReceiptBalance, directBalance.lend],
+    });
   }
 
   function getMarketCoinE(side = "underlying") {
     const coin = side == "lend" ? lendCoin : underlyingCoin;
-    const info = chainE?.coinInfoM?.[coin] || {};
     const address =
       side == "lend" ? marketE?.lendAddress : marketE?.underlyingAddress;
     const decimals =
       side == "lend" ? marketE?.lendDecimals : marketE?.underlyingDecimals;
 
-    return {
-      ...(info || {}),
-      ...(address ? { address } : {}),
-      decimals: Number.isInteger(decimals)
-        ? decimals
-        : getQtyDecimals(info?.decimals),
-    };
+    return getTradeMarketCoinEntry({ chainE, coin, address, decimals });
   }
 
   async function queryWalletMarketBalance(
@@ -814,11 +790,25 @@ export default function YieldPanel({
   }
 
   function getLendEndTarget() {
-    return toNum(underlyingEndInputValue);
+    return toNum(getLendEndTargetText());
   }
 
   function getRedeemEndTarget() {
-    return toNum(receiptEndInputValue);
+    return toNum(getRedeemEndTargetText());
+  }
+
+  function getLendEndTargetText() {
+    return formatTradeQty(
+      underlyingEndDraft || underlyingEndInputValue,
+      underlyingQtyDecimals,
+    );
+  }
+
+  function getRedeemEndTargetText() {
+    return formatTradeQty(
+      receiptEndDraft || receiptEndInputValue,
+      receiptQtyDecimals,
+    );
   }
 
   async function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
@@ -828,7 +818,11 @@ export default function YieldPanel({
     if (!hasLoadedBalance(balance)) return null;
 
     return formatComputedTradeQty(
-      toNum(balance.balance) - getLendEndTarget(),
+      subtractTradeQtyText(
+        formatTradeQty(balance.balance, underlyingQtyDecimals),
+        getLendEndTargetText(),
+        underlyingQtyDecimals,
+      ),
       underlyingQtyDecimals,
     );
   }
@@ -840,7 +834,11 @@ export default function YieldPanel({
     if (!hasLoadedBalance(balance)) return null;
 
     return formatComputedTradeQty(
-      toNum(balance.balance) - getRedeemEndTarget(),
+      subtractTradeQtyText(
+        formatTradeQty(balance.balance, receiptQtyDecimals),
+        getRedeemEndTargetText(),
+        receiptQtyDecimals,
+      ),
       receiptQtyDecimals,
     );
   }
@@ -851,9 +849,11 @@ export default function YieldPanel({
     : 0;
   const receiptQtyUsd = receiptPrice ? receiptQtyNum * receiptPrice : 0;
   const underlyingEndUsd = underlyingPrice
-    ? underlyingEnd * underlyingPrice
+    ? toNum(underlyingEndInputValue) * underlyingPrice
     : 0;
-  const receiptEndUsd = receiptPrice ? receiptEnd * receiptPrice : 0;
+  const receiptEndUsd = receiptPrice
+    ? toNum(receiptEndInputValue) * receiptPrice
+    : 0;
   const priceLoading = underlyingPriceLoading || receiptPriceLoading;
   const noPriceCoins = [
     displayUnderlyingCoin && underlyingPrice <= 0 ? displayUnderlyingCoin : "",
@@ -1157,23 +1157,19 @@ export default function YieldPanel({
   }, [lendQty, qtyInputSide, receiptQty, receiptRate]);
 
   function getReceiptQty(value) {
-    return formatComputedTradeQty(toNum(value) * receiptRate, receiptQtyDecimals);
+    return getTradeReceiptQty(value, receiptRate, receiptQtyDecimals);
   }
 
   function getUnderlyingQty(value) {
-    return receiptRate > 0
-      ? formatComputedTradeQty(toNum(value) / receiptRate, underlyingQtyDecimals)
-      : "0";
+    return getTradeUnderlyingQty(value, receiptRate, underlyingQtyDecimals);
   }
 
   function getSignedReceiptQty(value) {
-    return formatComputedTradeQty(-toNum(value) * receiptRate, receiptQtyDecimals);
+    return getSignedTradeReceiptQty(value, receiptRate, receiptQtyDecimals);
   }
 
   function getSignedUnderlyingQty(value) {
-    return receiptRate > 0
-      ? formatComputedTradeQty(-toNum(value) / receiptRate, underlyingQtyDecimals)
-      : "0";
+    return getSignedTradeUnderlyingQty(value, receiptRate, underlyingQtyDecimals);
   }
 
   function updateLendQty(value) {
@@ -1208,7 +1204,7 @@ export default function YieldPanel({
       cleanTradeInput(value),
       underlyingQtyDecimals,
     );
-    const qty = formatComputedTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
+    const qty = getTradeEndDiffQty(maxUnderlyingQty, endQty, underlyingQtyDecimals);
     setUnderlyingEndDraft(endQty);
     setQtyInputSide("lend");
     setLendQty(qty);
@@ -1220,7 +1216,7 @@ export default function YieldPanel({
       cleanTradeInput(value),
       receiptQtyDecimals,
     );
-    const qty = formatComputedTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
+    const qty = getTradeEndDiffQty(maxReceiptQty, endQty, receiptQtyDecimals);
     setReceiptEndDraft(endQty);
     setQtyInputSide("redeem");
     setReceiptQty(qty);
@@ -1231,8 +1227,8 @@ export default function YieldPanel({
     setLendEndWith(checked);
     if (!checked) return;
 
-    const endQty = underlyingEndInputValue;
-    const qty = formatComputedTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
+    const endQty = getLendEndTargetText();
+    const qty = getTradeEndDiffQty(maxUnderlyingQty, endQty, underlyingQtyDecimals);
     setUnderlyingEndDraft(formatTradeQty(endQty, underlyingQtyDecimals));
     setQtyInputSide("lend");
     setLendQty(qty);
@@ -1243,8 +1239,8 @@ export default function YieldPanel({
     setRedeemEndWith(checked);
     if (!checked) return;
 
-    const endQty = receiptEndInputValue;
-    const qty = formatComputedTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
+    const endQty = getRedeemEndTargetText();
+    const qty = getTradeEndDiffQty(maxReceiptQty, endQty, receiptQtyDecimals);
     setReceiptEndDraft(formatTradeQty(endQty, receiptQtyDecimals));
     setQtyInputSide("redeem");
     setReceiptQty(qty);
@@ -2367,9 +2363,6 @@ export default function YieldPanel({
             getLockedUntil={(coin) =>
               chainE?.coinInfoM?.[coin]?.lockedUntilTimestamp
             }
-            MarketCoinBalance={MarketCoinBalance}
-            AprText={AprText}
-            LendCoinInfoCard={LendCoinInfoCard}
           />
         ) : !isHyperliquidDepositMode ? (
           <span className="selectCycle">

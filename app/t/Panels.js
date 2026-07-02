@@ -24,6 +24,7 @@ import { getTradeCoinBalance } from "./svShared";
 import {
   cookieMaxAge,
   findWalletEntryByAddress,
+  getInitialCookie,
   getWalletPrivateKeyFlag,
   getWalletOptions,
   sameAddress,
@@ -32,9 +33,8 @@ import {
   tradeRightPaneSelectCookie,
   shortAddress,
   tradeShowCookie,
+  walletBalancePatchEvent,
 } from "./clientShared";
-
-const walletBalancePatchEvent = "w3:walletBalancePatch";
 
 function getEntryKey(entry = {}) {
   return `${entry.source || ""}:${entry.name || ""}:${String(
@@ -64,11 +64,6 @@ function isReservedWalletSource(source = "") {
 
 function filterReservedWalletEntries(entries = []) {
   return entries.filter((entry) => !isReservedWalletSource(entry?.source));
-}
-
-function getInitialCookie(initialCookieM = {}, name = "") {
-  const value = initialCookieM?.[name];
-  return value === undefined ? undefined : String(value);
 }
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {

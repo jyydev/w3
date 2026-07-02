@@ -7,6 +7,7 @@ import { getHyperliquidSpotBridgeDiscovery } from "./sv";
 import {
   emitTradeChainSelect,
   getChainCoins,
+  getInitialCookie,
   getTradeModeCookie,
   TradePickerColumn,
   TradePickerMenu,
@@ -33,11 +34,6 @@ export function isHyperliquidCoin(_coin = "", coinE = {}) {
 
 export function isHyperliquidChainAvailable(chain = "", chainMarkets = []) {
   return chain == "Hyperliquid" && !!chainMarkets.length;
-}
-
-function getInitialCookie(initialCookieM = {}, name = "") {
-  const value = initialCookieM?.[name];
-  return value === undefined ? undefined : String(value);
 }
 
 function getHyperliquidProtocolCookie(base = "", walletType = "evm") {

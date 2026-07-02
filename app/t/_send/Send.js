@@ -11,6 +11,17 @@ import {
   getTradeCoinPrice,
 } from "./sv";
 import {
+  PickerSortHeader,
+  cycleWalletSelection,
+  getBalanceKey,
+  getChainCoinCookie,
+  getInitialCookie,
+  getSendSelectedBalance,
+  hasTableBalance,
+  shortTail,
+  walletBalancePatchEvent,
+} from "./Client";
+import {
   cleanTradeInput,
   cookieMaxAge,
   createTradeLoopResult,
@@ -22,12 +33,13 @@ import {
   formatTradeQty,
   getChainCoins,
   getQtyDecimals,
+  getTradeEndDiffQty,
+  getTradeEndInputValue,
   getTradeModeCookie,
   getWalletOptions,
   limitQtyInputDecimals,
   nextValue,
   normalizeSignedQtyInput,
-  priceKey,
   qtyInputSize,
   qtyInputStyle,
   rangeQtyInput,
@@ -35,29 +47,18 @@ import {
   sameAddress,
   sendBrowserTradeTx,
   shortAddress,
+  subtractTradeQtyText,
   SwapTxLink,
   TradePickerColumn,
   TradePickerMenu,
-  TradePickerSortHeader,
   TradePickerTable,
   sortTradePickerRows,
-  toggleTradePickerSort,
   tradeSendChainCookie,
   tradeSendCoinCookie,
   tradeSendToWalletCookie,
   toNum,
+  useTradeFallbackPrice,
 } from "../clientShared";
-
-const walletBalancePatchEvent = "w3:walletBalancePatch";
-
-function getChainCoinCookie(base = "", walletType = "evm", chain = "") {
-  return `${getTradeModeCookie(base, walletType)}_${chain}`;
-}
-
-function getInitialCookie(initialCookieM = {}, name = "") {
-  const value = initialCookieM?.[name];
-  return value === undefined ? undefined : String(value);
-}
 
 export default function SendPanel({
   data = [],
@@ -119,8 +120,6 @@ export default function SendPanel({
   const [fallbackBalanceM, setFallbackBalanceM] = useState({});
   const [balanceLoadingM, setBalanceLoadingM] = useState({});
   const [balanceErrorM, setBalanceErrorM] = useState({});
-  const [fallbackPriceM, setFallbackPriceM] = useState({});
-  const [priceLoadingM, setPriceLoadingM] = useState({});
   const [sendPending, setSendPending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
   const [showCoinMenu, setShowCoinMenu] = useState(false);
@@ -183,10 +182,20 @@ export default function SendPanel({
   const toBalanceKey = getBalanceKey(chain, coin, toEntry?.address);
   const fromHasTableBalance = hasTableBalance(chainE, coin, fromEntry);
   const toHasTableBalance = hasTableBalance(chainE, coin, toEntry);
-  const fromBalance = getSelectedBalance(chainE, coin, fromEntry);
-  const toBalance = getSelectedBalance(chainE, coin, toEntry);
-  const fromBalanceLoading = !!balanceLoadingM[fromBalanceKey];
-  const toBalanceLoading = !!balanceLoadingM[toBalanceKey];
+  const fromBalance = getSendSelectedBalance(
+    chainE,
+    coin,
+    fromEntry,
+    fallbackBalanceM,
+  );
+  const toBalance = getSendSelectedBalance(
+    chainE,
+    coin,
+    toEntry,
+    fallbackBalanceM,
+  );
+  const fromBalanceLoading = !!balanceLoadingM[fromBalanceKey] && !fromHasTableBalance;
+  const toBalanceLoading = !!balanceLoadingM[toBalanceKey] && !toHasTableBalance;
   const fromBalanceError = balanceErrorM[fromBalanceKey] || "";
   const toBalanceError = balanceErrorM[toBalanceKey] || "";
   const coinDecimals = getQtyDecimals(chainE?.coinInfoM?.[coin]?.decimals);
@@ -196,21 +205,26 @@ export default function SendPanel({
   const currentToQty = formatTradeQty(toBalance.balance, coinDecimals);
   const sendQty = toNum(qty);
   const sliderValue = Math.min(sendQty, maxSend);
-  const priceMKey = priceKey(chain, coin);
   const listPrice = toNum(fromBalance.price || toBalance.price);
-  const fallbackPrice = fallbackPriceM[priceMKey];
-  const priceLoading = !!priceLoadingM[priceMKey];
+  const { fallbackPrice, loading: priceLoading } = useTradeFallbackPrice({
+    cacheKey: `${chain}:${coin}`,
+    chain,
+    coin,
+    listPrice,
+    getPrice: getTradeCoinPrice,
+  });
   const price = listPrice || toNum(fallbackPrice);
   const fromUsd = price ? maxSend * price : 0;
   const toUsd = price ? currentToBal * price : 0;
-  const fromEnd = Math.max(0, maxSend - sendQty);
-  const toEnd = currentToBal + sendQty;
   const fromEndInputValue =
-    fromEndDraft || formatComputedTradeQty(fromEnd, coinDecimals);
-  const toEndInputValue = toEndDraft || formatComputedTradeQty(toEnd, coinDecimals);
+    fromEndDraft ||
+    getTradeEndInputValue(maxSendQty, qty, toNum(qty) < 0, coinDecimals);
+  const toEndInputValue =
+    toEndDraft ||
+    getTradeEndInputValue(currentToQty, qty, toNum(qty) >= 0, coinDecimals);
   const qtyUsd = price ? sendQty * price : 0;
-  const fromEndUsd = price ? fromEnd * price : 0;
-  const toEndUsd = price ? toEnd * price : 0;
+  const fromEndUsd = price ? toNum(fromEndInputValue) * price : 0;
+  const toEndUsd = price ? toNum(toEndInputValue) * price : 0;
   const priceStatus = priceLoading
     ? "querying price..."
     : coin && listPrice <= 0 && fallbackPrice === 0
@@ -406,34 +420,6 @@ export default function SendPanel({
   }, [chain, coin, toBalanceKey, toEntry?.address, toHasTableBalance]);
 
   useEffect(() => {
-    if (!chain || !coin || listPrice > 0) return;
-    if (fallbackPrice !== undefined) return;
-
-    let cancelled = false;
-    setPriceLoadingM((priceM) => ({ ...priceM, [priceMKey]: true }));
-    getTradeCoinPrice({ chain, coin })
-      .then((res) => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({
-          ...priceM,
-          [priceMKey]: toNum(res?.price),
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({ ...priceM, [priceMKey]: 0 }));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPriceLoadingM((priceM) => ({ ...priceM, [priceMKey]: false }));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [chain, coin, fallbackPrice, listPrice, priceMKey]);
-
-  useEffect(() => {
     function handleBalancePatch(e) {
       const patches = Array.isArray(e?.detail?.balances)
         ? e.detail.balances
@@ -463,47 +449,6 @@ export default function SendPanel({
       window.removeEventListener(walletBalancePatchEvent, handleBalancePatch);
     };
   }, [chain, coin]);
-
-  function getBalanceKey(selectedChain = "", selectedCoin = "", address = "") {
-    if (!selectedChain || !selectedCoin || !address) return "";
-
-    return `${selectedChain}:${selectedCoin}:${String(address).toLowerCase()}`;
-  }
-
-  function findBalanceRow(chainEntry, walletEntry) {
-    return chainEntry?.rows?.find(
-      (entry) =>
-        sameAddress(entry.address, walletEntry?.address) ||
-        entry.name == walletEntry?.name,
-    );
-  }
-
-  function hasTableBalance(chainEntry, selectedCoin, walletEntry) {
-    const row = findBalanceRow(chainEntry, walletEntry);
-    const balance = row?.balances?.[selectedCoin];
-
-    return !!(
-      row?.balances &&
-      Object.prototype.hasOwnProperty.call(row.balances, selectedCoin) &&
-      balance?.balance !== undefined &&
-      balance?.balance !== null
-    );
-  }
-
-  function getSelectedBalance(chainEntry, selectedCoin, walletEntry) {
-    if (!chainEntry || !selectedCoin || !walletEntry) return {};
-
-    const row = findBalanceRow(chainEntry, walletEntry);
-    if (hasTableBalance(chainEntry, selectedCoin, walletEntry)) {
-      return row.balances[selectedCoin] || {};
-    }
-
-    return (
-      fallbackBalanceM[
-        getBalanceKey(chainEntry.chain, selectedCoin, walletEntry.address)
-      ] || {}
-    );
-  }
 
   function nextChain() {
     const next = nextValue(chainNames, chain);
@@ -546,7 +491,12 @@ export default function SendPanel({
   }
 
   function CoinQty({ coinName = "" }) {
-    const balance = getSelectedBalance(chainE, coinName, fromEntry);
+    const balance = getSendSelectedBalance(
+      chainE,
+      coinName,
+      fromEntry,
+      fallbackBalanceM,
+    );
     if (!Object.prototype.hasOwnProperty.call(balance || {}, "balance")) {
       return null;
     }
@@ -555,39 +505,16 @@ export default function SendPanel({
   }
 
   function getCoinQty(coinName = "") {
-    const balance = getSelectedBalance(chainE, coinName, fromEntry);
+    const balance = getSendSelectedBalance(
+      chainE,
+      coinName,
+      fromEntry,
+      fallbackBalanceM,
+    );
 
     return Object.prototype.hasOwnProperty.call(balance || {}, "balance")
       ? toNum(balance.balance)
       : 0;
-  }
-
-  function PickerSortHeader({ activeSort = "", setSort, sortKey = "", children }) {
-    return (
-      <TradePickerSortHeader
-        activeSort={activeSort}
-        sortKey={sortKey}
-        onSort={() => toggleTradePickerSort(setSort, sortKey)}
-      >
-        {children}
-      </TradePickerSortHeader>
-    );
-  }
-
-  function cycleWalletSelection(list, value, direction = "next") {
-    if (!list.length) return "";
-    const index = list.findIndex((entry) => entry.value == value);
-    if (index < 0) {
-      return direction == "prev"
-        ? list[list.length - 1]?.value || ""
-        : list[0]?.value || "";
-    }
-    const nextIndex =
-      direction == "prev"
-        ? (index - 1 + list.length) % list.length
-        : (index + 1) % list.length;
-
-    return list[nextIndex]?.value || "";
   }
 
   function cycleFromWallet(direction) {
@@ -634,10 +561,6 @@ export default function SendPanel({
     if (nextToEntry?.value) selectToWallet(nextToEntry.value);
   }
 
-  function shortTail(address = "") {
-    return address ? `..${String(address).slice(-3)}` : "";
-  }
-
   function updateQty(value) {
     const qty = normalizeSignedQtyInput(value, maxSend, currentToBal, coinDecimals);
     setQty(qty);
@@ -650,26 +573,38 @@ export default function SendPanel({
   function updateFromEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
     setFromEndDraft(endQty);
-    updateQty(formatComputedTradeQty(maxSend - toNum(endQty), coinDecimals));
+    updateQty(getTradeEndDiffQty(maxSendQty, endQty, coinDecimals));
   }
 
   function updateToEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
     setToEndDraft(endQty);
-    updateQty(formatComputedTradeQty(toNum(endQty) - currentToBal, coinDecimals));
+    updateQty(
+      formatComputedTradeQty(
+        subtractTradeQtyText(endQty, currentToQty, coinDecimals),
+        coinDecimals,
+      ),
+    );
   }
 
   async function getSendQtyForWallet(walletEntry = fromEntry) {
     if (!fromEndWith && !toEndWith) return formatTradeQty(qty, coinDecimals);
 
     if (toEndWith) {
-      return formatComputedTradeQty(toNum(toEndDraft || toEndInputValue) - currentToBal, coinDecimals);
+      return formatComputedTradeQty(
+        subtractTradeQtyText(
+          toEndDraft || toEndInputValue,
+          currentToQty,
+          coinDecimals,
+        ),
+        coinDecimals,
+      );
     }
 
-    const targetEnd = toNum(fromEndDraft || fromEndInputValue);
+    const targetEnd = formatTradeQty(fromEndDraft || fromEndInputValue, coinDecimals);
     if (!walletEntry?.address) return "0";
     if (sameAddress(walletEntry.address, fromEntry?.address)) {
-      return formatComputedTradeQty(maxSend - targetEnd, coinDecimals);
+      return getTradeEndDiffQty(maxSendQty, targetEnd, coinDecimals);
     }
 
     const balance = await getTradeCoinBalance({
@@ -679,7 +614,11 @@ export default function SendPanel({
     });
 
     return formatComputedTradeQty(
-      toNum(balance?.balance) - targetEnd,
+      subtractTradeQtyText(
+        formatTradeQty(balance?.balance, coinDecimals),
+        targetEnd,
+        coinDecimals,
+      ),
       coinDecimals,
     );
   }

@@ -6,8 +6,18 @@ import toast from "react-hot-toast";
 import {
   SwapChainSelect,
   SwapCoinSelect,
+  emptyTokenDiscoveryE,
   emptySwapSupportE,
   getDexLabel,
+  getDiscoveryTokenDedupeKey,
+  getDiscoveryTokenKey,
+  getInitialSwapDex,
+  getTokenDiscoveryKey,
+  getSwapRouteCookie,
+  isDexSupportedForChain,
+  relayCurrencyCacheM,
+  relayCurrencyPromiseM,
+  trimQtyToDecimals,
   useSwapSupport,
 } from "./Client";
 import {
@@ -16,7 +26,7 @@ import {
   getAcrossSupportedBridge,
   getAcrossSwapPreview,
 } from "./across/sv";
-import AcrossClient, { isAcrossSupportedForChain } from "./across/Client";
+import AcrossClient from "./across/Client";
 import {
   buildJupiterSwapTxs,
   executeJupiterSwap,
@@ -24,9 +34,7 @@ import {
   getJupiterSwapPreview,
   getJupiterTokenDiscovery,
 } from "./jupiter/sv";
-import JupiterSwapClient, {
-  isJupiterSwapSupportedForChain,
-} from "./jupiter/Client";
+import JupiterSwapClient from "./jupiter/Client";
 import {
   buildJumperSwapTxs,
   executeJumperSwap,
@@ -34,7 +42,7 @@ import {
   getJumperSwapPreview,
   getJumperTokenDiscovery,
 } from "./jumper/sv";
-import JumperClient, { isJumperSupportedForChain } from "./jumper/Client";
+import JumperClient from "./jumper/Client";
 import {
   buildRelaySwapSteps,
   executeRelaySwap,
@@ -42,14 +50,14 @@ import {
   getRelaySupportedBridge,
   getRelaySwapPreview,
 } from "./relay/sv";
-import RelayClient, { isRelaySupportedForChain } from "./relay/Client";
+import RelayClient from "./relay/Client";
 import {
   buildUniswapSwapTxs,
   executeUniswapSwap,
   getUniswapSupportedSwap,
   getUniswapSwapPreview,
 } from "./uniswap/sv";
-import UniswapClient, { isUniswapSupportedForChain } from "./uniswap/Client";
+import UniswapClient from "./uniswap/Client";
 import {
   getTradeCoinBalance,
   getTradeCoinPrice,
@@ -75,8 +83,12 @@ import {
   getChainCoins,
   getCoinBalanceByAddress,
   getCoinTypeOptions,
+  getInitialCookie,
+  getInitialAutoApproval,
   getSelectedBalance as getWalletSelectedBalance,
   getTokenAddressKey,
+  getTradeEndDiffQty,
+  getTradeEndInputValue,
   getTradeModeCookie,
   getWalletOptions,
   hasLoadedBalance,
@@ -94,6 +106,7 @@ import {
   sendBrowserTradeTx,
   shortAddress,
   signBrowserRelayItem,
+  subtractTradeQtyText,
   SwapTxLink,
   tradeAutoApprovalCookie,
   tradeSwapDexCookie,
@@ -104,17 +117,8 @@ import {
   toNum,
   useCustomCoinConfirm,
   useTradeFallbackPrice,
+  walletBalancePatchEvent,
 } from "../clientShared";
-
-const walletBalancePatchEvent = "w3:walletBalancePatch";
-const emptyTokenDiscoveryE = {
-  tokens: [],
-  loading: false,
-  loaded: false,
-  error: "",
-};
-const relayCurrencyCacheM = {};
-const relayCurrencyPromiseM = {};
 
 function getSwapSupport(defi = "") {
   if (defi == "relay") return getRelaySupportedBridge();
@@ -123,93 +127,6 @@ function getSwapSupport(defi = "") {
   if (defi == "uniswap") return getUniswapSupportedSwap();
   if (defi == "jupiter") return getJupiterSupportedSwap();
   return Promise.resolve(emptySwapSupportE);
-}
-
-function getRelayCurrencyKey(chain = "", term = "") {
-  return `${chain}:${String(term || "").trim().toLowerCase()}`;
-}
-
-function getTokenDiscoveryKey(defi = "", chain = "", term = "") {
-  return `${defi}:${getRelayCurrencyKey(chain, term)}`;
-}
-
-function getDiscoveryTokenKey(entry = {}, index = "") {
-  return [
-    entry.chain || "",
-    getTokenAddressKey(entry.chain, entry.address),
-    entry.symbol || "",
-    entry.name || "",
-    Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
-    index,
-  ].join(":");
-}
-
-function getDiscoveryTokenDedupeKey(entry = {}) {
-  return [
-    entry.chain || "",
-    getTokenAddressKey(entry.chain, entry.address),
-    entry.symbol || "",
-    entry.name || "",
-    Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
-  ].join(":");
-}
-
-function trimQtyToDecimals(value = "", decimals = 18) {
-  const text = String(value ?? "");
-  if (!text || !Number.isInteger(decimals) || decimals < 0) return text;
-  if (/e/i.test(text)) return trimQtyToDecimals(inputQty(Number(text)), decimals);
-
-  const parts = text.split(".");
-  if (parts.length < 2) return text;
-  if (decimals == 0) return parts[0] || "0";
-
-  return `${parts[0] || "0"}.${parts.slice(1).join("").slice(0, decimals)}`;
-}
-
-function isDexSupportedForChain(option = {}, fromChain = "") {
-  if (!fromChain) return true;
-  if (option.value == "relay") return isRelaySupportedForChain(fromChain);
-  if (option.value == "jumper") return isJumperSupportedForChain(fromChain);
-  if (option.value == "across") return isAcrossSupportedForChain(fromChain);
-  if (option.value == "jupiter") return isJupiterSwapSupportedForChain(fromChain);
-  if (option.value == "uniswap") return isUniswapSupportedForChain(fromChain);
-
-  return true;
-}
-
-function getSwapRouteCookie(
-  base = "",
-  walletType = "evm",
-  defi = "",
-  chain = "",
-) {
-  return [
-    getTradeModeCookie(base, walletType),
-    defi || "dex",
-    chain || "",
-  ]
-    .filter(Boolean)
-    .join("_");
-}
-
-function getInitialCookie(initialCookieM = {}, name = "") {
-  const value = initialCookieM?.[name];
-  return value === undefined ? undefined : String(value);
-}
-
-function getInitialSwapDex(initialCookieM = {}, walletType = "evm") {
-  const savedDefi = getInitialCookie(
-    initialCookieM,
-    getTradeModeCookie(tradeSwapDexCookie, walletType),
-  );
-
-  return dexOptions.some((entry) => entry.value == savedDefi)
-    ? savedDefi
-    : dexOptions[0]?.value || "";
-}
-
-function getInitialAutoApproval(initialCookieM = {}) {
-  return getInitialCookie(initialCookieM, tradeAutoApprovalCookie) == "1";
 }
 
 export default function SwapPanel({
@@ -421,6 +338,7 @@ export default function SwapPanel({
   const maxSell = toNum(fromBalance.balance);
   const maxSellQty = formatTradeQty(fromBalance.balance, fromCoinDecimals);
   const maxBuy = toNum(toBalance.balance);
+  const maxBuyQty = formatTradeQty(toBalance.balance, toCoinDecimals);
   const sellQty = toNum(fromQty);
   const buyQty = toNum(toQty);
   const sellSliderValue = Math.min(toNum(fromQty), maxSell);
@@ -467,16 +385,26 @@ export default function SwapPanel({
     : noPriceCoins.length
       ? `price n/a: ${[...new Set(noPriceCoins)].join(", ")}`
       : "";
-  const sellEnd = Math.max(0, maxSell - sellQty);
-  const buyEnd = maxBuy + buyQty;
   const sellEndInputValue =
-    sellEndDraft || formatComputedTradeQty(sellEnd, fromCoinDecimals);
+    sellEndDraft ||
+    getTradeEndInputValue(
+      maxSellQty,
+      fromQty,
+      toNum(fromQty) < 0,
+      fromCoinDecimals,
+    );
   const buyEndInputValue =
-    buyEndDraft || formatComputedTradeQty(buyEnd, toCoinDecimals);
+    buyEndDraft ||
+    getTradeEndInputValue(
+      maxBuyQty,
+      toQty,
+      toNum(toQty) >= 0,
+      toCoinDecimals,
+    );
   const sellQtyUsd = fromPrice ? sellQty * fromPrice : 0;
-  const sellEndUsd = fromPrice ? sellEnd * fromPrice : 0;
+  const sellEndUsd = fromPrice ? toNum(sellEndInputValue) * fromPrice : 0;
   const buyQtyUsd = toPrice ? buyQty * toPrice : 0;
-  const buyEndUsd = toPrice ? buyEnd * toPrice : 0;
+  const buyEndUsd = toPrice ? toNum(buyEndInputValue) * toPrice : 0;
   const swapWalletLabel = selectedWalletEntry?.isBrowserWallet
     ? `${selectedWalletEntry.label || "connected wallet"} (${shortAddress(
         selectedWalletEntry.address,
@@ -1430,13 +1358,18 @@ export default function SwapPanel({
   function updateSellEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), fromCoinDecimals);
     setSellEndDraft(endQty);
-    updateSellQty(formatComputedTradeQty(maxSell - toNum(endQty), fromCoinDecimals));
+    updateSellQty(getTradeEndDiffQty(maxSellQty, endQty, fromCoinDecimals));
   }
 
   function updateBuyEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), toCoinDecimals);
     setBuyEndDraft(endQty);
-    updateBuyQty(formatComputedTradeQty(toNum(endQty) - maxBuy, toCoinDecimals));
+    updateBuyQty(
+      formatComputedTradeQty(
+        subtractTradeQtyText(endQty, maxBuyQty, toCoinDecimals),
+        toCoinDecimals,
+      ),
+    );
   }
 
   async function getSwapSellAmountForWallet(walletEntry = selectedWalletEntry) {
@@ -1445,10 +1378,10 @@ export default function SwapPanel({
     }
 
     if (sellEndWith) {
-      const targetEnd = toNum(sellEndInputValue);
+      const targetEnd = formatTradeQty(sellEndInputValue, fromCoinDecimals);
       if (!walletEntry?.address) return "0";
       if (sameAddress(walletEntry.address, selectedWalletEntry?.address)) {
-        return formatComputedTradeQty(maxSell - targetEnd, fromCoinDecimals);
+        return getTradeEndDiffQty(maxSellQty, targetEnd, fromCoinDecimals);
       }
 
       const balance = await getTradeCoinBalance({
@@ -1458,12 +1391,19 @@ export default function SwapPanel({
       });
 
       return formatComputedTradeQty(
-        toNum(balance?.balance) - targetEnd,
+        subtractTradeQtyText(
+          formatTradeQty(balance?.balance, fromCoinDecimals),
+          targetEnd,
+          fromCoinDecimals,
+        ),
         fromCoinDecimals,
       );
     }
 
-    const buyAmount = formatComputedTradeQty(toNum(buyEndInputValue) - maxBuy, toCoinDecimals);
+    const buyAmount = formatComputedTradeQty(
+      subtractTradeQtyText(buyEndInputValue, maxBuyQty, toCoinDecimals),
+      toCoinDecimals,
+    );
     return getSellQty(buyAmount);
   }
 

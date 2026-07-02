@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import toast from "react-hot-toast";
+import { pc } from "@/fn/basic";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
@@ -16,6 +17,7 @@ export const tradeShowCookie = "w3_trade_show";
 export const tradeRightPaneCookie = "w3_trade_right_pane";
 export const tradeLeftPaneCookie = "w3_trade_left_pane";
 export const tradeRightPaneSelectCookie = "w3_trade_right_pane_select";
+export const walletBalancePatchEvent = "w3:walletBalancePatch";
 export const tradeSwapDexCookie = "w3_trade_swap_dex";
 export const tradeSwapFromChainCookie = "w3_trade_swap_from_chain";
 export const tradeSwapFromCoinCookie = "w3_trade_swap_from_coin";
@@ -43,6 +45,26 @@ export const tradeSendCoinCookie = "w3_trade_send_coin";
 export const tradeSendToWalletCookie = "w3_trade_send_to_wallet";
 export const tradeChainSelectEvent = "w3:tradeChainSelect";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
+
+export function getInitialCookie(initialCookieM = {}, name = "") {
+  const value = initialCookieM?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+export function getInitialAutoApproval(initialCookieM = {}) {
+  return String(initialCookieM?.[tradeAutoApprovalCookie] ?? "") == "1";
+}
+
+export function getProtocolCookie(
+  base = "",
+  walletType = "evm",
+  defi = "",
+  chain = "",
+) {
+  return [getTradeModeCookie(base, walletType), defi || "defi", chain || ""]
+    .filter(Boolean)
+    .join("_");
+}
 const eip6963ProviderDetails = [];
 let eip6963Listening = false;
 const walletStandardWallets = [];
@@ -191,8 +213,6 @@ export function useTradeAllMarkets({
     chain,
     enabled,
     getAllMarkets,
-    loadingM,
-    marketM,
     protocolLabel,
     retryTick,
     timeoutMs,
@@ -288,14 +308,12 @@ export function useTradeDirectMarketBalance({
       cancelled = true;
     };
   }, [
-    balanceM,
     cacheKey,
     chain,
     enabled,
     getMarketBalance,
     lendAddress,
     lendDecimals,
-    loadingM,
     protocolLabel,
     timeoutMs,
     underlyingAddress,
@@ -826,6 +844,472 @@ export function TradePickerSortHeader({
     >
       {children}
     </button>
+  );
+}
+
+export function formatTradeMarketApr(apr) {
+  const value = toNum(apr);
+  if (value <= 0) return "";
+  if (value < 0.01) return "<0.01%";
+  return `${fmt(value, value >= 10 ? 1 : 2)}%`;
+}
+
+export function TradeMarketAprText({ apr, label = true }) {
+  const text = formatTradeMarketApr(apr);
+  return text ? (
+    <span className="lendApr">
+      {label && <span className="gray">apr: </span>}
+      {text}
+    </span>
+  ) : null;
+}
+
+export function TradeMarketCoinInfoCard({
+  coin,
+  name,
+  lockedUntilTimestamp = 0,
+  formatLockedUntil = () => "",
+}) {
+  const cleanCoin = String(coin || "").trim();
+  const cleanName = String(name || "").trim();
+  const lockText = formatLockedUntil(lockedUntilTimestamp);
+  if ((!cleanName || cleanName == cleanCoin) && !lockText) return null;
+
+  return (
+    <span className="infoCard">
+      <span className="infoCardTitle">{cleanCoin}</span>
+      {cleanName && cleanName != cleanCoin && <span>{cleanName}</span>}
+      {lockText && (
+        <span>
+          locked until <span className="gray">{lockText}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function getTradeMarketCoinBalance(
+  chainE,
+  coin = "",
+  address = "",
+  selectedWalletEntry,
+) {
+  return getCoinBalanceByAddress(chainE, coin, address, selectedWalletEntry);
+}
+
+export function TradeMarketCoinBalance({ balance = {} }) {
+  if (!hasLoadedBalance(balance)) return null;
+
+  return <span>{pc(balance.balance)}</span>;
+}
+
+export function getTradeMarketBalanceQty(balance = {}) {
+  return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
+}
+
+export function isSameTradeWalletEntry(entryA = {}, entryB = {}) {
+  return (
+    sameAddress(entryA?.address, entryB?.address) ||
+    entryA?.value == entryB?.value ||
+    entryA?.name == entryB?.name
+  );
+}
+
+export function getBestLoadedTradeBalance(balances = []) {
+  return (
+    balances
+      .filter(hasLoadedBalance)
+      .sort((a, b) => toNum(b.balance) - toNum(a.balance))[0] || {}
+  );
+}
+
+export function getTradeWalletMarketBalance({
+  chainE,
+  coin = "",
+  address = "",
+  walletEntry,
+  selectedWalletEntry,
+  selectedBalances = [],
+} = {}) {
+  const localBalance = getTradeMarketCoinBalance(
+    chainE,
+    coin,
+    address,
+    walletEntry,
+  );
+  const selected = isSameTradeWalletEntry(walletEntry, selectedWalletEntry);
+
+  if (selected) {
+    return getBestLoadedTradeBalance([...selectedBalances, localBalance]);
+  }
+
+  return localBalance;
+}
+
+export function getTradeMarketCoinEntry({
+  chainE,
+  coin = "",
+  address = "",
+  decimals,
+} = {}) {
+  const info = chainE?.coinInfoM?.[coin] || {};
+
+  return {
+    ...(info || {}),
+    ...(address ? { address } : {}),
+    decimals: Number.isInteger(decimals)
+      ? decimals
+      : getQtyDecimals(info?.decimals),
+  };
+}
+
+export function sortTradeMarketRows(rows = [], key = "") {
+  return sortTradePickerRows(
+    rows,
+    key,
+    {
+      underlyingCoin: (entry) => entry.underlyingCoin,
+      underlyingQty: (entry) => entry.underlyingQty,
+      lendCoin: (entry) => entry.lendCoin,
+      lendQty: (entry) => entry.lendQty,
+      apr: (entry) => entry.aprValue,
+    },
+    {
+      underlyingQty: "desc",
+      lendQty: "desc",
+      apr: "desc",
+    },
+  );
+}
+
+function defaultMarketSelectValue(entry = {}) {
+  return entry.addedValue || entry.value;
+}
+
+export function TradeMarketPicker({
+  marketPickerRef,
+  marketButtonWidth,
+  chainName = "",
+  defi = "",
+  market = "",
+  marketE,
+  getMarketLabel = () => "",
+  showMarketMenu = false,
+  setShowMarketMenu = () => {},
+  prevMarket = () => {},
+  nextMarket = () => {},
+  visibleAddedMarkets = [],
+  addedRows = [],
+  allRows = [],
+  allLoading = false,
+  allError = "",
+  allProtocolLabel = "",
+  retryAllMarkets = () => {},
+  addedMarketSort = "",
+  setAddedMarketSort = () => {},
+  allMarketSort = "",
+  setAllMarketSort = () => {},
+  selectMarket = () => {},
+  openProtocolCoinConfirm = () => {},
+  addingCoin = false,
+  marketSupplyApr = 0,
+  getLockedUntil = () => 0,
+  formatLockedUntil = () => "",
+  allEmptyText = "-",
+  showAllEmptyRetry = true,
+  showAllAddedOnError = false,
+  getAllMarketSelectValue = defaultMarketSelectValue,
+  MarketCoinBalance = TradeMarketCoinBalance,
+  AprText = TradeMarketAprText,
+  LendCoinInfoCard = TradeMarketCoinInfoCard,
+}) {
+  function toggleMarketSort(section = "added", key = "") {
+    const setter = section == "all" ? setAllMarketSort : setAddedMarketSort;
+    toggleTradePickerSort(setter, key);
+  }
+
+  function SortHeader({ section = "added", sortKey = "", children }) {
+    const current = section == "all" ? allMarketSort : addedMarketSort;
+
+    return (
+      <TradePickerSortHeader
+        activeSort={current}
+        sortKey={sortKey}
+        onSort={() => toggleMarketSort(section, sortKey)}
+      >
+        {children}
+      </TradePickerSortHeader>
+    );
+  }
+
+  const allErrorLooksAdded =
+    showAllAddedOnError && allError && visibleAddedMarkets.length > 0;
+
+  return (
+    <div className="selectCycle walletCycle lendMarketCycle">
+      <button
+        type="button"
+        className="btn small bgGray"
+        onClick={prevMarket}
+        disabled={visibleAddedMarkets.length < 2}
+      >
+        {"<"}
+      </button>
+      <div className="sendWalletPicker" ref={marketPickerRef}>
+        <button
+          type="button"
+          className="sendWalletPickerButton"
+          style={{ width: marketButtonWidth }}
+          disabled={!chainName}
+          onClick={() => setShowMarketMenu((show) => !show)}
+        >
+          {marketE ? getMarketLabel(marketE) : "no coin"}
+        </button>
+        {showMarketMenu && (
+          <TradePickerMenu className="lendMarketMenu">
+            <TradePickerColumn title="added">
+              <TradePickerTable
+                className="lendMarketAddedTable"
+                headers={[
+                  <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
+                  <SortHeader sortKey="underlyingQty">qty</SortHeader>,
+                  <SortHeader sortKey="lendCoin">coin</SortHeader>,
+                  <SortHeader sortKey="lendQty">qty</SortHeader>,
+                  <SortHeader sortKey="apr">apr</SortHeader>,
+                ]}
+              >
+                <tbody>
+                  {visibleAddedMarkets.length ? (
+                    sortTradeMarketRows(addedRows, addedMarketSort).map(
+                      (entry) => (
+                        <tr
+                          key={`wallet_${entry.value}`}
+                          className={
+                            entry.value == market
+                              ? "lendMarketRow on"
+                              : "lendMarketRow"
+                          }
+                          onClick={() => selectMarket(entry.value)}
+                        >
+                          <td>
+                            <span>{entry.underlyingCoin}</span>
+                          </td>
+                          <td>
+                            <MarketCoinBalance
+                              balance={entry.underlyingBalance}
+                            />
+                          </td>
+                          <td>
+                            <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
+                              <span className="gray">{entry.lendCoin}</span>
+                              <LendCoinInfoCard
+                                coin={entry.lendCoin}
+                                name={entry.lendName}
+                                lockedUntilTimestamp={getLockedUntil(
+                                  entry.lendCoin,
+                                )}
+                                formatLockedUntil={formatLockedUntil}
+                              />
+                            </span>
+                          </td>
+                          <td>
+                            <MarketCoinBalance balance={entry.lendBalance} />
+                          </td>
+                          <td>
+                            <AprText apr={entry.supplyApr} label={false} />
+                          </td>
+                        </tr>
+                      ),
+                    )
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="gray">
+                        -
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </TradePickerTable>
+            </TradePickerColumn>
+            <TradePickerColumn title="all">
+              <TradePickerTable
+                className="lendMarketAllTable"
+                headers={[
+                  <SortHeader section="all" sortKey="underlyingCoin">
+                    coin
+                  </SortHeader>,
+                  <SortHeader section="all" sortKey="underlyingQty">
+                    qty
+                  </SortHeader>,
+                  "add",
+                  <SortHeader section="all" sortKey="lendCoin">
+                    coin
+                  </SortHeader>,
+                  <SortHeader section="all" sortKey="lendQty">
+                    qty
+                  </SortHeader>,
+                  "add",
+                  <SortHeader section="all" sortKey="apr">
+                    apr
+                  </SortHeader>,
+                ]}
+              >
+                <tbody>
+                  {allLoading && (
+                    <tr>
+                      <td colSpan={7} className="gray">
+                        loading {allProtocolLabel}...
+                      </td>
+                    </tr>
+                  )}
+                  {!allLoading && allErrorLooksAdded && (
+                    <tr>
+                      <td colSpan={7} className="gray">
+                        all added
+                      </td>
+                    </tr>
+                  )}
+                  {!allLoading && allError && !allErrorLooksAdded && (
+                    <tr>
+                      <td colSpan={7}>
+                        <span className="red">{allError}</span>{" "}
+                        <button
+                          type="button"
+                          className="btn small bgGray"
+                          onClick={retryAllMarkets}
+                        >
+                          retry
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                  {!allLoading && !allError && !allRows.length && (
+                    <tr>
+                      <td colSpan={7}>
+                        <span className="gray">{allEmptyText}</span>
+                        {showAllEmptyRetry ? (
+                          <>
+                            {" "}
+                            <button
+                              type="button"
+                              className="btn small bgGray"
+                              onClick={retryAllMarkets}
+                            >
+                              retry
+                            </button>
+                          </>
+                        ) : null}
+                      </td>
+                    </tr>
+                  )}
+                  {!allLoading &&
+                    !allError &&
+                    sortTradeMarketRows(allRows, allMarketSort).map((entry) => {
+                      const selectedValue = getAllMarketSelectValue(entry);
+
+                      return (
+                        <tr
+                          key={`${defi}_${entry.value}`}
+                          className={
+                            selectedValue == market
+                              ? "lendMarketRow on"
+                              : "lendMarketRow"
+                          }
+                        >
+                          <td>
+                            <button
+                              type="button"
+                              className="lendMarketAllSelect"
+                              onClick={() => selectMarket(selectedValue)}
+                              title={entry.underlyingName}
+                            >
+                              <span>{entry.underlyingCoin}</span>
+                            </button>
+                          </td>
+                          <td>
+                            <MarketCoinBalance
+                              balance={entry.underlyingBalance}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className={
+                                entry.addedUnderlying
+                                  ? "btn small bgGray"
+                                  : "btn small bgCyan"
+                              }
+                              onClick={(e) =>
+                                openProtocolCoinConfirm(e, entry, "underlying")
+                              }
+                              disabled={entry.addedUnderlying || addingCoin}
+                              title={entry.underlyingName}
+                            >
+                              {entry.addedUnderlying ? "✓" : "+"}
+                            </button>
+                          </td>
+                          <td>
+                            <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
+                              <button
+                                type="button"
+                                className="lendMarketAllSelect lendMarketAllLendSelect"
+                                onClick={() => selectMarket(selectedValue)}
+                              >
+                                <span className="gray">{entry.lendCoin}</span>
+                              </button>
+                              <LendCoinInfoCard
+                                coin={entry.lendCoin}
+                                name={entry.lendName}
+                                lockedUntilTimestamp={getLockedUntil(
+                                  entry.lendCoin,
+                                )}
+                                formatLockedUntil={formatLockedUntil}
+                              />
+                            </span>
+                          </td>
+                          <td>
+                            <MarketCoinBalance balance={entry.lendBalance} />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className={
+                                entry.addedLend
+                                  ? "btn small bgGray"
+                                  : "btn small bgCyan"
+                              }
+                              onClick={(e) =>
+                                openProtocolCoinConfirm(e, entry)
+                              }
+                              disabled={entry.addedLend || addingCoin}
+                            >
+                              {entry.addedLend ? "✓" : "+"}
+                            </button>
+                          </td>
+                          <td>
+                            <AprText apr={entry.supplyApr} label={false} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </TradePickerTable>
+            </TradePickerColumn>
+          </TradePickerMenu>
+        )}
+      </div>
+      <button
+        type="button"
+        className="btn small bgGray"
+        onClick={nextMarket}
+        disabled={visibleAddedMarkets.length < 2}
+      >
+        {">"}
+      </button>
+      <span className="lendSelectedApr">
+        <AprText apr={marketSupplyApr} />
+      </span>
+    </div>
   );
 }
 
@@ -1521,6 +2005,93 @@ export function absTradeQty(value, decimals = 18) {
   return formatTradeQty(String(value ?? "").replace(/^-/, ""), decimals);
 }
 
+function tradeQtyToUnits(value, decimals = 18) {
+  const decimalLimit = getQtyDecimals(decimals);
+  const formatted = formatTradeQty(value, decimalLimit);
+  const negative = formatted.startsWith("-");
+  const clean = negative ? formatted.slice(1) : formatted;
+  const [whole = "0", fraction = ""] = clean.split(".");
+  const unitText = `${whole || "0"}${fraction.padEnd(decimalLimit, "0")}`;
+  const units = BigInt(unitText.replace(/^0+(?=\d)/, "") || "0");
+
+  return negative ? -units : units;
+}
+
+function tradeUnitsToQty(units, decimals = 18) {
+  const decimalLimit = getQtyDecimals(decimals);
+  const negative = units < 0n;
+  const absUnits = negative ? -units : units;
+  const scale = 10n ** BigInt(decimalLimit);
+  const whole = absUnits / scale;
+  const fraction = (absUnits % scale)
+    .toString()
+    .padStart(decimalLimit, "0")
+    .replace(/0+$/, "");
+  const text = fraction ? `${whole}.${fraction}` : whole.toString();
+
+  return negative && text != "0" ? `-${text}` : text;
+}
+
+export function addTradeQtyText(left, right, decimals = 18) {
+  return tradeUnitsToQty(
+    tradeQtyToUnits(left, decimals) + tradeQtyToUnits(right, decimals),
+    decimals,
+  );
+}
+
+export function subtractTradeQtyText(left, right, decimals = 18) {
+  return tradeUnitsToQty(
+    tradeQtyToUnits(left, decimals) - tradeQtyToUnits(right, decimals),
+    decimals,
+  );
+}
+
+export function getTradeEndInputValue(maxQty, qty, addQty, decimals = 18) {
+  const absQty = absTradeQty(qty, decimals);
+  if (toNum(absQty) <= 0) return formatTradeQty(maxQty, decimals);
+
+  const next = addQty
+    ? addTradeQtyText(maxQty, absQty, decimals)
+    : subtractTradeQtyText(maxQty, absQty, decimals);
+
+  return formatComputedTradeQty(next, decimals);
+}
+
+export function getTradeEndDiffQty(maxQty, endQty, decimals = 18) {
+  return formatComputedTradeQty(
+    subtractTradeQtyText(
+      formatTradeQty(maxQty, decimals),
+      formatTradeQty(endQty, decimals),
+      decimals,
+    ),
+    decimals,
+  );
+}
+
+export function getTradeReceiptQty(value, receiptRate = 1, decimals = 18) {
+  return formatComputedTradeQty(toNum(value) * receiptRate, decimals);
+}
+
+export function getTradeUnderlyingQty(value, receiptRate = 1, decimals = 18) {
+  return receiptRate > 0
+    ? formatComputedTradeQty(toNum(value) / receiptRate, decimals)
+    : "0";
+}
+
+export function getSignedTradeReceiptQty(value, receiptRate = 1, decimals = 18) {
+  return formatComputedTradeQty(-toNum(value) * receiptRate, decimals);
+}
+
+export function getSignedTradeUnderlyingQty(
+  value,
+  receiptRate = 1,
+  decimals = 18,
+) {
+  return receiptRate > 0
+    ? formatComputedTradeQty(-toNum(value) / receiptRate, decimals)
+    : "0";
+}
+
 export function qtyInputSize(value = "") {
   return Math.max(String(value ?? "").length + 1, 10);
 }
@@ -1535,8 +2106,12 @@ export function qtyInputStyle(value = "") {
 export function rangeQtyInput(value, maxValue, maxQty, decimals = 18) {
   const n = toNum(value);
   const maxN = toNum(maxValue);
+  const maxDiff = maxN - n;
+  const maxTolerance = Math.max(Math.abs(maxN) * 1e-12, 1e-12);
 
-  if (maxN > 0 && n >= maxN) return formatTradeQty(maxQty, decimals);
+  if (maxN > 0 && (n >= maxN || maxDiff <= maxTolerance)) {
+    return formatTradeQty(maxQty, decimals);
+  }
 
   return formatTradeQty(value, decimals);
 }
