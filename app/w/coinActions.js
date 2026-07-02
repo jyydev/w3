@@ -133,16 +133,13 @@ async function readCustomCoins(chain) {
   }
 }
 
-function normalizeCustomCoinM(input = {}) {
-  if (Array.isArray(input)) {
-    return Object.fromEntries(
-      input
-        .filter((entry) => entry && typeof entry == "object" && entry.coin)
-        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
-        .filter(([coin]) => coin),
-    );
-  }
-  return input && typeof input == "object" ? input : {};
+function normalizeCustomCoinM(input = []) {
+  return Object.fromEntries(
+    (Array.isArray(input) ? input : [])
+      .filter((entry) => entry && typeof entry == "object" && entry.coin)
+      .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+      .filter(([coin]) => coin),
+  );
 }
 
 function getWritableCustomCoinList(coins = {}) {

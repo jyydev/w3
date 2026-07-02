@@ -160,16 +160,13 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value == "object" && !Array.isArray(value);
 }
 
-function normalizeCoinM(input = {}) {
-  if (Array.isArray(input)) {
-    return Object.fromEntries(
-      input
-        .filter((entry) => entry && typeof entry == "object" && entry.coin)
-        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
-        .filter(([coin]) => coin),
-    );
-  }
-  return isPlainObject(input) ? input : {};
+function normalizeCoinM(input = []) {
+  return Object.fromEntries(
+    (Array.isArray(input) ? input : [])
+      .filter((entry) => entry && typeof entry == "object" && entry.coin)
+      .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+      .filter(([coin]) => coin),
+  );
 }
 
 function getWritableCoinList(coins = {}) {
@@ -183,10 +180,8 @@ async function appendGlobalCoins(chain, coins) {
   assertProjectFileWrites();
 
   const coinM = normalizeCoinM(coins);
-  const validEmpty =
-    (Array.isArray(coins) && !coins.length) ||
-    (isPlainObject(coins) && !Object.keys(coins).length);
-  if (!Object.keys(coinM).length && !validEmpty) {
+  const validEmpty = !Array.isArray(coins) || !coins.length;
+  if (Array.isArray(coins) && !Object.keys(coinM).length && !validEmpty) {
     throw new Error("Coin JSON must be an array of coin objects");
   }
 

@@ -171,16 +171,13 @@ function getRpcs(chainE) {
     .filter(Boolean);
 }
 
-function normalizeCustomCoinM(input = {}) {
-  if (Array.isArray(input)) {
-    return Object.fromEntries(
-      input
-        .filter((entry) => entry && typeof entry == "object" && entry.coin)
-        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
-        .filter(([coin]) => coin),
-    );
-  }
-  return input && typeof input == "object" ? input : {};
+function normalizeCustomCoinM(input = []) {
+  return Object.fromEntries(
+    (Array.isArray(input) ? input : [])
+      .filter((entry) => entry && typeof entry == "object" && entry.coin)
+      .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+      .filter(([coin]) => coin),
+  );
 }
 
 async function readCustomCoins(chain = "") {
@@ -566,28 +563,14 @@ export function parseWalletEntries(input = "", source = "") {
 
   if (typeof input == "string") {
     const txt = String(input || "").trim();
-    if (txt.startsWith("[") || txt.startsWith("{")) {
-      try {
-        rows = JSON.parse(txt || "[]");
-      } catch {
-        rows = input;
-      }
+    try {
+      rows = txt ? JSON.parse(txt) : [];
+    } catch {
+      rows = [];
     }
   }
 
-  const entries = Array.isArray(rows)
-    ? rows
-    : String(rows || "")
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line && !line.startsWith("#") && !line.startsWith("//"))
-        .map((line) => {
-          const [, wallet, address] =
-            line.match(/^([^:=\s]+)\s*[:=]\s*(\S+)$/) || [];
-          return { wallet, address, ref: "" };
-        });
-
-  return entries
+  return (Array.isArray(rows) ? rows : [])
     .map((entry) => {
       const wallet = String(entry?.wallet ?? entry?.name ?? "").trim();
       const address = String(entry?.address ?? "").trim();

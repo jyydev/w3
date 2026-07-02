@@ -22,27 +22,17 @@ function getWalletTypeLabel(type = "") {
 function parseWalletNames(input = "") {
   let rows = input;
   const text = String(input || "").trim();
-  if (text.startsWith("[") || text.startsWith("{")) {
-    try {
-      rows = JSON.parse(text || "[]");
-    } catch {
-      rows = input;
-    }
+  try {
+    rows = text ? JSON.parse(text) : [];
+  } catch {
+    rows = [];
   }
 
   const names = [];
   const seen = new Set();
   const entries = Array.isArray(rows)
     ? rows.map((entry) => String(entry?.wallet ?? entry?.name ?? "").trim())
-    : String(rows || "")
-        .split(/\r?\n/)
-        .map((rawLine) => {
-          const line = rawLine.trim();
-          if (!line || line.startsWith("#") || line.startsWith("//")) return "";
-
-          const [, name] = line.match(/^([^:=\s]+)\s*[:=]\s*(\S+)$/) || [];
-          return name || "";
-        });
+    : [];
 
   for (const name of entries) {
     if (!name || seen.has(name)) continue;

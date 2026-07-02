@@ -223,32 +223,18 @@ export function clearLocalEditorData(target = "ALL") {
   return { ok: 1, target: cleanTarget, removed };
 }
 
-function parseWalletLines(txt = "") {
-  return String(txt || "")
-    .split(/\r?\n/)
-    .map((line) => {
-      const [, wallet, address] =
-        line.match(/^\s*([^:=\s]+)\s*[:=]\s*(\S+)/) || [];
-      return { wallet, address, ref: "" };
-    })
-    .filter((entry) => entry.wallet && entry.address);
-}
-
 function normalizeLocalWalletEntries(input = []) {
   let rows = input;
   if (typeof input == "string") {
     const txt = String(input || "").trim();
-    if (txt.startsWith("[") || txt.startsWith("{")) {
-      try {
-        rows = JSON.parse(txt || "[]");
-      } catch {
-        rows = input;
-      }
+    try {
+      rows = txt ? JSON.parse(txt) : [];
+    } catch {
+      rows = [];
     }
   }
 
-  const entries = Array.isArray(rows) ? rows : parseWalletLines(rows);
-  return entries
+  return (Array.isArray(rows) ? rows : [])
     .map((entry) => {
       const wallet = String(entry?.wallet ?? entry?.name ?? "").trim();
       const address = String(entry?.address ?? "").trim();
@@ -421,22 +407,9 @@ function getLocalWalletPrefix(walletType = "evm") {
   return `wallets/${walletType == "solana" ? "solana" : "evm"}/`;
 }
 
-function getLegacyLocalWalletPrefix(walletType = "evm") {
-  return `wallet/${walletType == "solana" ? "solana" : "evm"}/`;
-}
-
-function getLocalWalletPrefixes(walletType = "evm") {
-  return [getLocalWalletPrefix(walletType), getLegacyLocalWalletPrefix(walletType)];
-}
-
 function getLocalWalletSource(file, walletType = "evm") {
-  const text = String(file || "");
-  const prefix = getLocalWalletPrefixes(walletType).find((prefix) =>
-    text.startsWith(prefix),
-  );
-
-  return text
-    .replace(prefix || getLocalWalletPrefix(walletType), "")
+  return String(file || "")
+    .replace(getLocalWalletPrefix(walletType), "")
     .replace(/\.(txt|json)$/i, "");
 }
 
@@ -455,46 +428,26 @@ function getLocalWalletFile(type = "evm", source = "") {
   return `wallets/${type == "solana" ? "solana" : "evm"}/${cleanSource}.json`;
 }
 
-function getLegacyLocalWalletFile(type = "evm", source = "") {
-  const cleanSource = String(source || "")
-    .trim()
-    .replace(/\.(txt|json)$/i, "")
-    .replace(/\/+$/, "");
-  return `wallet/${type == "solana" ? "solana" : "evm"}/${cleanSource}.txt`;
-}
-
 function getExistingLocalWalletFile(type = "evm", source = "") {
-  const file = getLocalWalletFile(type, source);
-  if (hasLocalEditorFile(file)) return file;
-  const legacy = getLegacyLocalWalletFile(type, source);
-  return hasLocalEditorFile(legacy) ? legacy : file;
+  return getLocalWalletFile(type, source);
 }
 
-function readLocalWalletFileEntries(file, type = "evm", source = "") {
-  const fallback = getLegacyLocalWalletFile(type, source);
-  if (!hasLocalEditorFile(file) && hasLocalEditorFile(fallback)) {
-    return normalizeLocalWalletEntries(readLocalEditorFile(fallback, ""));
-  }
+function readLocalWalletFileEntries(file) {
   return normalizeLocalWalletEntries(readLocalEditorFile(file, "[]"));
 }
 
 export function listLocalWalletFileRecords(walletType = "evm") {
   const type = walletType == "solana" ? "solana" : "evm";
-  const prefixes = getLocalWalletPrefixes(type);
+  const prefix = getLocalWalletPrefix(type);
   const files = readLocalEditorFiles();
   const recordM = new Map();
 
   for (const file of Object.keys(files)
-    .filter((file) =>
-      prefixes.some((prefix) => file.startsWith(prefix)) &&
-      (file.endsWith(".json") || file.endsWith(".txt")),
-    )
+    .filter((file) => file.startsWith(prefix) && file.endsWith(".json"))
   ) {
     const source = getLocalWalletSource(file, type);
     const content = String(files[file] ?? "");
     const entries = normalizeLocalWalletEntries(content);
-    const existing = recordM.get(source);
-    if (existing?.file?.endsWith(".json") && file.endsWith(".txt")) continue;
 
     recordM.set(source, {
       file,
@@ -582,23 +535,20 @@ export function getLocalCustomCoinM(chain = "") {
   }
 
   try {
-    const parsed = JSON.parse(readLocalEditorFile(`coins/${cleanChain}.json`, "{}") || "{}");
+    const parsed = JSON.parse(readLocalEditorFile(`coins/${cleanChain}.json`, "[]") || "[]");
     return normalizeLocalCustomCoinM(parsed);
   } catch {
     return {};
   }
 }
 
-function normalizeLocalCustomCoinM(input = {}) {
-  if (Array.isArray(input)) {
-    return Object.fromEntries(
-      input
-        .filter((entry) => entry && typeof entry == "object" && entry.coin)
-        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
-        .filter(([coin]) => coin),
-    );
-  }
-  return input && typeof input == "object" ? input : {};
+function normalizeLocalCustomCoinM(input = []) {
+  return Object.fromEntries(
+    (Array.isArray(input) ? input : [])
+      .filter((entry) => entry && typeof entry == "object" && entry.coin)
+      .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+      .filter(([coin]) => coin),
+  );
 }
 
 function getWritableLocalCustomCoinList(coins = {}) {
@@ -731,7 +681,7 @@ export function addLocalCustomCoin({ chain = "", coin = "", entry = {} } = {}) {
   let coins = {};
   try {
     coins = normalizeLocalCustomCoinM(
-      JSON.parse(readLocalEditorFile(file, "{}") || "{}"),
+      JSON.parse(readLocalEditorFile(file, "[]") || "[]"),
     );
   } catch {
     return { ok: 0, msg: `${file} has invalid JSON` };
@@ -777,7 +727,7 @@ export function deleteLocalCustomCoin({ chain = "", coin = "" } = {}) {
   let coins = {};
   try {
     coins = normalizeLocalCustomCoinM(
-      JSON.parse(readLocalEditorFile(file, "{}") || "{}"),
+      JSON.parse(readLocalEditorFile(file, "[]") || "[]"),
     );
   } catch {
     return { ok: 0, msg: `${file} has invalid JSON` };

@@ -54,42 +54,19 @@ function resolveWalletPath({ walletType, source, ext = "" }) {
   return filePath;
 }
 
-function parseWalletLine(line = "") {
-  const [, name, address] = line.match(/^\s*([^:=\s]+)\s*[:=]\s*(\S+)/) || [];
-  return { name, address };
-}
-
 function normalizeWalletEntries(input = []) {
-  if (Array.isArray(input)) {
-    return input
-      .map((entry) => ({
-        wallet: String(entry?.wallet ?? entry?.name ?? "").trim(),
-        address: String(entry?.address ?? "").trim(),
-        ref: String(entry?.ref ?? "").trim(),
-      }))
-      .filter((entry) => entry.wallet && entry.address);
-  }
-
-  return String(input || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#") && !line.startsWith("//"))
-    .map(parseWalletLine)
+  return (Array.isArray(input) ? input : [])
     .map((entry) => ({
-      wallet: String(entry.name || "").trim(),
-      address: String(entry.address || "").trim(),
-      ref: "",
+      wallet: String(entry?.wallet ?? entry?.name ?? "").trim(),
+      address: String(entry?.address ?? "").trim(),
+      ref: String(entry?.ref ?? "").trim(),
     }))
     .filter((entry) => entry.wallet && entry.address);
 }
 
 async function readWalletFileEntries(filePath) {
   const txt = await fs.readFile(filePath, "utf8");
-  if (path.extname(filePath).toLowerCase() == ".json") {
-    return normalizeWalletEntries(JSON.parse(txt || "[]"));
-  }
-
-  return normalizeWalletEntries(txt);
+  return normalizeWalletEntries(JSON.parse(txt || "[]"));
 }
 
 async function writeWalletFileEntries(filePath, entries) {

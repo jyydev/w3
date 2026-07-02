@@ -5,16 +5,13 @@ import coinM from "@/fn/coinM";
 
 const customCoinDir = path.join(process.cwd(), "data", "editor", "coins");
 
-function coinListToM(coins = {}) {
-  if (Array.isArray(coins)) {
-    return Object.fromEntries(
-      coins
-        .filter((entry) => entry && typeof entry == "object" && entry.coin)
-        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
-        .filter(([coin]) => coin),
-    );
-  }
-  return coins && typeof coins == "object" ? coins : {};
+function coinListToM(coins = []) {
+  return Object.fromEntries(
+    (Array.isArray(coins) ? coins : [])
+      .filter((entry) => entry && typeof entry == "object" && entry.coin)
+      .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+      .filter(([coin]) => coin),
+  );
 }
 
 function getCustomCoinM(chain) {
