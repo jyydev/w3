@@ -15,7 +15,7 @@ import {
   getWallet,
   nativeEvmAddress,
   relayChainIds,
-} from "../sharedServer";
+} from "../../sharedServer";
 
 const defaultSlippageBps = 50n;const uniswapFeeTiers = [100, 500, 3000, 10000];
 const uniswapV3M = {

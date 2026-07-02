@@ -21,11 +21,11 @@ import {
   getSolanaInstructionTx,
   getSolanaKeypair,
   getSolanaPublicKey,
-} from "../sharedServer";
+} from "../../sharedServer";
 import {
   getSolanaMultipleAccountsInfoFast,
   withTimeout,
-} from "./shared";
+} from "../shared";
 
 const jupiterLendProgramM = {
   main: {

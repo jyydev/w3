@@ -810,6 +810,68 @@ export function formatTradeQty(value, decimals = 18) {
   return negative && clean != "0" ? `-${clean}` : clean;
 }
 
+function incrementWholeText(whole = "0") {
+  try {
+    return (BigInt(whole || "0") + 1n).toString();
+  } catch {
+    return String(toNum(whole) + 1);
+  }
+}
+
+function incrementFractionPrefix(whole = "0", prefix = "") {
+  if (!prefix) return { whole: incrementWholeText(whole), fraction: "" };
+
+  const digits = prefix.split("");
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    if (digits[i] != "9") {
+      digits[i] = String(Number(digits[i]) + 1);
+      return { whole, fraction: digits.join("") };
+    }
+    digits[i] = "0";
+  }
+
+  return { whole: incrementWholeText(whole), fraction: digits.join("") };
+}
+
+function cleanComputedFraction(whole = "0", fraction = "") {
+  if (fraction.length < 13) return { whole, fraction };
+
+  let nextWhole = whole;
+  let nextFraction = fraction;
+  const zeroTail = nextFraction.match(/^(.*?[1-9])0{10,}\d{1,6}$/);
+  const allZeroDust = /^0{10,}\d{1,6}$/.test(nextFraction);
+
+  if (zeroTail) {
+    nextFraction = zeroTail[1];
+  } else if (nextWhole != "0" && allZeroDust) {
+    nextFraction = "";
+  } else {
+    const nineTail = nextFraction.match(/^(.*?)9{10,}\d{0,6}$/);
+    if (nineTail) {
+      ({ whole: nextWhole, fraction: nextFraction } = incrementFractionPrefix(
+        nextWhole,
+        nineTail[1],
+      ));
+    }
+  }
+
+  return {
+    whole: nextWhole,
+    fraction: nextFraction.replace(/0+$/, ""),
+  };
+}
+
+export function formatComputedTradeQty(value, decimals = 18) {
+  const formatted = formatTradeQty(value, decimals);
+  const negative = formatted.startsWith("-");
+  const clean = negative ? formatted.slice(1) : formatted;
+  const [whole = "0", fraction = ""] = clean.split(".");
+  const next = cleanComputedFraction(whole, fraction);
+  const text = next.fraction ? `${next.whole}.${next.fraction}` : next.whole;
+
+  return negative && text != "0" ? `-${text}` : text;
+}
+
 export function limitQtyInputDecimals(value, decimals = 18) {
   const decimalLimit = getQtyDecimals(decimals);
   const text = String(value ?? "");

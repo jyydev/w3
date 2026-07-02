@@ -8,8 +8,8 @@ import {
   getSolanaKeypair,
   getSolanaPublicKey,
   relayChainIds,
-} from "../sharedServer";
-import { getArrayPayload, getTimeoutSignal, parseJson } from "./shared";
+} from "../../sharedServer";
+import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
 const jupiterApiBase =
   process.env.JUPITER_API_BASE ||

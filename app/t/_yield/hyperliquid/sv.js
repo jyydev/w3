@@ -10,8 +10,8 @@ import {
   getUnsignedTx,
   getWallet,
   relayChainIds,
-} from "../sharedServer";
-import { fetchWithTimeout } from "./shared";
+} from "../../sharedServer";
+import { fetchWithTimeout } from "../shared";
 
 const hyperliquidApiBase =
   process.env.HYPERLIQUID_API_BASE ||

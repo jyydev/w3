@@ -5,6 +5,7 @@ import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import { pc } from "@/fn/basic";
+import { YieldMarketPicker } from "./Client";
 import {
   buildHyperliquidAgentApproval,
   buildHyperliquidLendTxs,
@@ -18,22 +19,30 @@ import {
   submitHyperliquidAgentApproval,
   submitHyperliquidLendSignature,
   submitHyperliquidSpotWithdrawSignature,
-} from "./svHyperliquid";
+} from "./hyperliquid/sv";
+import HyperliquidClient, {
+  HyperliquidChainSelect,
+  HyperliquidCoinSelect,
+  getHyperliquidFeeEtaText,
+  getHyperliquidRouteText,
+} from "./hyperliquid/Client";
 import {
   buildSparkLendTxs,
   executeSparkLend,
   getSparkAllMarkets,
   getSparkLendPreview,
   getSparkMarketBalance,
-} from "./svSpark";
+} from "./spark/sv";
+import SparkClient from "./spark/Client";
 import {
   buildVenusFluxLendTxs,
   executeVenusFluxLend,
   getVenusFluxAllMarkets,
   getVenusFluxLendPreview,
   getVenusFluxMarketBalance,
-} from "./svVenusFlux";
-import { getTradeCoinPrice } from "./sv";
+} from "./venusFlux/sv";
+import VenusFluxClient from "./venusFlux/Client";
+import { getTradeCoinBalance, getTradeCoinPrice } from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
@@ -48,6 +57,7 @@ import {
   fmt,
   fmtPrice,
   fmtRate,
+  formatComputedTradeQty,
   formatTradeQty,
   getChainCoins,
   getBrowserEvmChainId,
@@ -69,12 +79,6 @@ import {
   signHyperliquidBrowserAgentTypedData,
   signBrowserTypedData,
   SwapTxLink,
-  TradePickerColumn,
-  TradePickerMenu,
-  TradePickerSortHeader,
-  TradePickerTable,
-  sortTradePickerRows,
-  toggleTradePickerSort,
   tradeAutoApprovalCookie,
   tradeYieldChainCookie,
   tradeYieldDefiCookie,
@@ -588,42 +592,6 @@ function getHyperliquidRouteToken({
   );
 }
 
-function getHyperliquidRouteText(tokenE = {}) {
-  if (!tokenE) return "";
-  const parts = [];
-  const routeE = tokenE.actionSupported
-    ? tokenE.routes?.find(
-        (entry) => entry.label == tokenE.chain || entry.route == "arbitrum",
-      ) || tokenE.routes?.[0]
-    : tokenE.routes?.[0];
-  const route = routeE?.label || "";
-  if (route && route != tokenE.chain) parts.push(route);
-
-  return parts.join(" ");
-}
-
-function getHyperliquidFeeEtaText(tokenE = {}) {
-  if (!tokenE) return "";
-  const parts = [];
-
-  if (tokenE.fee !== undefined && tokenE.fee !== null && tokenE.fee !== "") {
-    parts.push(`fee:${pc(tokenE.fee)}`);
-  }
-  if (tokenE.eta) parts.push(`ETA:${tokenE.eta}`);
-
-  return parts.join(" ");
-}
-
-function getHyperliquidPickerWidth(values = [], selected = "", max = 18) {
-  const length = Math.max(
-    5,
-    String(selected || "").length,
-    ...values.map((value) => String(value || "").length),
-  );
-
-  return `${Math.min(length + 2, max)}ch`;
-}
-
 function isUsdLikeYieldCoin(coin = "") {
   return /USD/i.test(String(coin || ""));
 }
@@ -808,6 +776,11 @@ export default function YieldPanel({
   }, [chainList, defi]);
   const isHyperliquid = defi == "hyperliquid";
   const isVenusFlux = defi == "venusFlux";
+  const ProtocolClient = isHyperliquid
+    ? HyperliquidClient
+    : isVenusFlux
+      ? VenusFluxClient
+      : SparkClient;
   const marketChains = useMemo(
     () => getYieldMarketChains(chainList, chainMarketsM, defi),
     [chainList, chainMarketsM, defi],
@@ -1305,9 +1278,9 @@ export default function YieldPanel({
     ? Math.max(0, maxReceipt - receiptQtyAbs)
     : maxReceipt + receiptQtyAbs;
   const underlyingEndInputValue =
-    underlyingEndDraft || formatTradeQty(underlyingEnd, underlyingQtyDecimals);
+    underlyingEndDraft || formatComputedTradeQty(underlyingEnd, underlyingQtyDecimals);
   const receiptEndInputValue =
-    receiptEndDraft || formatTradeQty(receiptEnd, receiptQtyDecimals);
+    receiptEndDraft || formatComputedTradeQty(receiptEnd, receiptQtyDecimals);
   function getWalletUnderlyingBalance(walletEntry = selectedWalletEntry) {
     const selected =
       sameAddress(walletEntry?.address, selectedWalletEntry?.address) ||
@@ -1354,6 +1327,74 @@ export default function YieldPanel({
     return localBalance;
   }
 
+  function getYieldMarketBalanceAction() {
+    return defi == "venusFlux" ? getVenusFluxMarketBalance : getSparkMarketBalance;
+  }
+
+  function getMarketCoinE(side = "underlying") {
+    const coin = side == "lend" ? lendCoin : underlyingCoin;
+    const info = chainE?.coinInfoM?.[coin] || {};
+    const address =
+      side == "lend" ? marketE?.lendAddress : marketE?.underlyingAddress;
+    const decimals =
+      side == "lend" ? marketE?.lendDecimals : marketE?.underlyingDecimals;
+
+    return {
+      ...(info || {}),
+      ...(address ? { address } : {}),
+      decimals: Number.isInteger(decimals)
+        ? decimals
+        : getQtyDecimals(info?.decimals),
+    };
+  }
+
+  async function queryWalletMarketBalance(
+    walletEntry = selectedWalletEntry,
+    side = "underlying",
+  ) {
+    if (!walletEntry?.address || !chainE?.chain) return {};
+
+    if (usesDirectMarket && marketE?.underlyingAddress && marketE?.lendAddress) {
+      const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
+      const res = await withClientTimeout(
+        getYieldMarketBalanceAction()({
+          walletAddress: walletEntry.address,
+          chain: chainE.chain,
+          underlyingAddress: marketE.underlyingAddress,
+          underlyingDecimals: marketE.underlyingDecimals,
+          lendAddress: marketE.lendAddress,
+          lendDecimals: marketE.lendDecimals,
+        }),
+        12000,
+        `${walletEntry.name || walletEntry.label || "wallet"} ${protocolLabel} balance timeout`,
+      );
+
+      return side == "lend" ? res?.lend || {} : res?.underlying || {};
+    }
+
+    const coin = side == "lend" ? lendCoin : underlyingCoin;
+    return getTradeCoinBalance({
+      chain: chainE.chain,
+      coin,
+      address: walletEntry.address,
+      coinE: getMarketCoinE(side),
+    });
+  }
+
+  async function getWalletUnderlyingBalanceForEnd(walletEntry = selectedWalletEntry) {
+    const balance = getWalletUnderlyingBalance(walletEntry);
+    if (hasLoadedBalance(balance)) return balance;
+
+    return queryWalletMarketBalance(walletEntry, "underlying").catch(() => ({}));
+  }
+
+  async function getWalletReceiptBalanceForEnd(walletEntry = selectedWalletEntry) {
+    const balance = getWalletReceiptBalance(walletEntry);
+    if (hasLoadedBalance(balance)) return balance;
+
+    return queryWalletMarketBalance(walletEntry, "lend").catch(() => ({}));
+  }
+
   function getLendEndTarget() {
     return toNum(underlyingEndInputValue);
   }
@@ -1362,25 +1403,25 @@ export default function YieldPanel({
     return toNum(receiptEndInputValue);
   }
 
-  function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
     if (!lendEndWith) return formatTradeQty(lendQty, underlyingQtyDecimals);
 
-    const balance = getWalletUnderlyingBalance(walletEntry);
+    const balance = await getWalletUnderlyingBalanceForEnd(walletEntry);
     if (!hasLoadedBalance(balance)) return null;
 
-    return formatTradeQty(
+    return formatComputedTradeQty(
       toNum(balance.balance) - getLendEndTarget(),
       underlyingQtyDecimals,
     );
   }
 
-  function getRedeemQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getRedeemQtyForWallet(walletEntry = selectedWalletEntry) {
     if (!redeemEndWith) return formatTradeQty(receiptQty, receiptQtyDecimals);
 
-    const balance = getWalletReceiptBalance(walletEntry);
+    const balance = await getWalletReceiptBalanceForEnd(walletEntry);
     if (!hasLoadedBalance(balance)) return null;
 
-    return formatTradeQty(
+    return formatComputedTradeQty(
       toNum(balance.balance) - getRedeemEndTarget(),
       receiptQtyDecimals,
     );
@@ -1944,22 +1985,22 @@ export default function YieldPanel({
   ]);
 
   function getReceiptQty(value) {
-    return formatTradeQty(toNum(value) * receiptRate, receiptQtyDecimals);
+    return formatComputedTradeQty(toNum(value) * receiptRate, receiptQtyDecimals);
   }
 
   function getUnderlyingQty(value) {
     return receiptRate > 0
-      ? formatTradeQty(toNum(value) / receiptRate, underlyingQtyDecimals)
+      ? formatComputedTradeQty(toNum(value) / receiptRate, underlyingQtyDecimals)
       : "0";
   }
 
   function getSignedReceiptQty(value) {
-    return formatTradeQty(-toNum(value) * receiptRate, receiptQtyDecimals);
+    return formatComputedTradeQty(-toNum(value) * receiptRate, receiptQtyDecimals);
   }
 
   function getSignedUnderlyingQty(value) {
     return receiptRate > 0
-      ? formatTradeQty(-toNum(value) / receiptRate, underlyingQtyDecimals)
+      ? formatComputedTradeQty(-toNum(value) / receiptRate, underlyingQtyDecimals)
       : "0";
   }
 
@@ -1995,7 +2036,7 @@ export default function YieldPanel({
       cleanTradeInput(value),
       underlyingQtyDecimals,
     );
-    const qty = formatTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
+    const qty = formatComputedTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
     setUnderlyingEndDraft(endQty);
     setQtyInputSide("lend");
     setLendQty(qty);
@@ -2007,7 +2048,7 @@ export default function YieldPanel({
       cleanTradeInput(value),
       receiptQtyDecimals,
     );
-    const qty = formatTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
+    const qty = formatComputedTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
     setReceiptEndDraft(endQty);
     setQtyInputSide("redeem");
     setReceiptQty(qty);
@@ -2019,7 +2060,7 @@ export default function YieldPanel({
     if (!checked) return;
 
     const endQty = underlyingEndInputValue;
-    const qty = formatTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
+    const qty = formatComputedTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
     setUnderlyingEndDraft(formatTradeQty(endQty, underlyingQtyDecimals));
     setQtyInputSide("lend");
     setLendQty(qty);
@@ -2031,7 +2072,7 @@ export default function YieldPanel({
     if (!checked) return;
 
     const endQty = receiptEndInputValue;
-    const qty = formatTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
+    const qty = formatComputedTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
     setReceiptEndDraft(formatTradeQty(endQty, receiptQtyDecimals));
     setQtyInputSide("redeem");
     setReceiptQty(qty);
@@ -2368,44 +2409,6 @@ export default function YieldPanel({
     };
   }
 
-  function sortMarketRows(rows = [], key = "") {
-    return sortTradePickerRows(
-      rows,
-      key,
-      {
-        underlyingCoin: (entry) => entry.underlyingCoin,
-        underlyingQty: (entry) => entry.underlyingQty,
-        lendCoin: (entry) => entry.lendCoin,
-        lendQty: (entry) => entry.lendQty,
-        apr: (entry) => entry.aprValue,
-      },
-      {
-        underlyingQty: "desc",
-        lendQty: "desc",
-        apr: "desc",
-      },
-    );
-  }
-
-  function toggleMarketSort(section = "added", key = "") {
-    const setter = section == "all" ? setAllMarketSort : setAddedMarketSort;
-    toggleTradePickerSort(setter, key);
-  }
-
-  function SortHeader({ section = "added", sortKey = "", children }) {
-    const current = section == "all" ? allMarketSort : addedMarketSort;
-
-    return (
-      <TradePickerSortHeader
-        activeSort={current}
-        sortKey={sortKey}
-        onSort={() => toggleMarketSort(section, sortKey)}
-      >
-        {children}
-      </TradePickerSortHeader>
-    );
-  }
-
   function retrySparkAllMarkets(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -2433,444 +2436,6 @@ export default function YieldPanel({
     hyperliquidBridgePromise = null;
     setHyperliquidBridgeE(emptyHyperliquidBridgeE);
     setHyperliquidBridgeRetryTick((tick) => tick + 1);
-  }
-
-  function renderHyperliquidCoinMenu({
-    side = "deposit",
-    chain = "",
-    selectedCoin = "",
-    addedCoins = [],
-    allCoins = [],
-    allCoinEntries = [],
-    onSelect = () => {},
-  }) {
-    const entryM = Object.fromEntries(
-      allCoinEntries.map((entry) => [entry.coin, entry]),
-    );
-    const chainEForBalance = chainList.find((entry) => entry.chain == chain);
-    const getRouteCoinBalance = (coin = "") =>
-      getMarketCoinBalance(chainEForBalance, coin, "", selectedWalletEntry);
-
-    return (
-      <TradePickerMenu className="swapCoinMenu">
-        <TradePickerColumn title="added">
-          <TradePickerTable
-            className="swapCoinAddedTable"
-            headers={["coin", "qty", "on"]}
-          >
-            <tbody>
-              {addedCoins.length ? (
-                addedCoins.map((coin) => {
-                  const balance = getRouteCoinBalance(coin);
-                  const supported =
-                    !hyperliquidBridgeE.loaded || allCoins.includes(coin);
-                  return (
-                    <tr
-                      key={`hl_${side}_added_coin_${coin}`}
-                      className={[
-                        "lendMarketRow",
-                        coin == selectedCoin ? "on" : "",
-                        supported ? "" : "unsupported",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    >
-                      <td>
-                        <button
-                          type="button"
-                          className="lendMarketAllSelect swapCoinAllSelect"
-                          onClick={() =>
-                            supported
-                              ? onSelect(coin)
-                              : toast(`${coin} is not supported by Hyperliquid`)
-                          }
-                        >
-                          <span>{coin}</span>
-                        </button>
-                      </td>
-                      <td>
-                        <MarketCoinBalance balance={balance} />
-                      </td>
-                      <td>{!supported && <span className="gray">off</span>}</td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={3} className="gray">
-                    -
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </TradePickerTable>
-        </TradePickerColumn>
-        <TradePickerColumn title="all">
-          <TradePickerTable
-            className="swapCoinAllTable"
-            headers={["coin", "qty", "add"]}
-          >
-            <tbody>
-              {hyperliquidBridgeE.loading && (
-                <tr>
-                  <td colSpan={3} className="gray">
-                    loading Hyperliquid...
-                  </td>
-                </tr>
-              )}
-              {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
-                <tr>
-                  <td colSpan={2}>
-                    <span className="red">{hyperliquidBridgeE.error}</span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn small bgGray"
-                      onClick={retryHyperliquidBridge}
-                    >
-                      retry
-                    </button>
-                  </td>
-                </tr>
-              )}
-              {!hyperliquidBridgeE.loading &&
-                !hyperliquidBridgeE.error &&
-                !allCoins.length && (
-                  <tr>
-                    <td colSpan={2} className="gray">
-                      -
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn small bgGray"
-                        onClick={retryHyperliquidBridge}
-                      >
-                        retry
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              {!hyperliquidBridgeE.loading &&
-                !hyperliquidBridgeE.error &&
-                allCoins.map((coin) => {
-                  const added = addedCoins.includes(coin);
-                  const entry = entryM[coin] || {};
-                  const balance = getRouteCoinBalance(coin);
-                  const routeText = getHyperliquidRouteText(entry);
-                  return (
-                    <tr
-                      key={`hl_${side}_all_coin_${coin}`}
-                      className={
-                        coin == selectedCoin
-                          ? "lendMarketRow on"
-                          : "lendMarketRow"
-                      }
-                    >
-                      <td>
-                        <button
-                          type="button"
-                          className="lendMarketAllSelect swapCoinAllSelect"
-                          onClick={() => onSelect(coin)}
-                        >
-                          <span>{coin}</span>
-                          {routeText && (
-                            <span className="gray">{routeText}</span>
-                          )}
-                        </button>
-                      </td>
-                      <td>
-                        <MarketCoinBalance balance={balance} />
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className={
-                            added ? "btn small bgGray" : "btn small bgCyan"
-                          }
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (added) return;
-                            toast(
-                              `${
-                                chain ? `${chain} ` : ""
-                              }${coin}: add manually; Hyperliquid discovery has no contract address`,
-                            );
-                          }}
-                          disabled={added}
-                        >
-                          {added ? "✓" : "+"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </TradePickerTable>
-        </TradePickerColumn>
-      </TradePickerMenu>
-    );
-  }
-
-  function renderHyperliquidChainMenu({
-    side = "deposit",
-    selectedChain = "",
-    addedChains = [],
-    allChains = [],
-    onSelect = () => {},
-  }) {
-    return (
-      <TradePickerMenu className="swapChainMenu">
-        <TradePickerColumn title="added">
-          <TradePickerTable
-            className="swapChainAddedTable"
-            headers={["chain", "on"]}
-          >
-            <tbody>
-              {addedChains.length ? (
-                addedChains.map((chain) => {
-                  const supported =
-                    !hyperliquidBridgeE.loaded || allChains.includes(chain);
-                  return (
-                    <tr
-                      key={`hl_${side}_added_chain_${chain}`}
-                      className={[
-                        "lendMarketRow",
-                        chain == selectedChain ? "on" : "",
-                        supported ? "" : "unsupported",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    >
-                      <td>
-                        <button
-                          type="button"
-                          className="lendMarketAllSelect swapChainAllSelect"
-                          onClick={() =>
-                            supported
-                              ? onSelect(chain)
-                              : toast(`${chain} is not supported by Hyperliquid`)
-                          }
-                        >
-                          <span>{chain}</span>
-                        </button>
-                      </td>
-                      <td>{!supported && <span className="gray">off</span>}</td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={2} className="gray">
-                    -
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </TradePickerTable>
-        </TradePickerColumn>
-        <TradePickerColumn title="all">
-          <TradePickerTable
-            className="swapChainAllTable"
-            headers={["chain", "add"]}
-          >
-            <tbody>
-              {hyperliquidBridgeE.loading && (
-                <tr>
-                  <td colSpan={2} className="gray">
-                    loading Hyperliquid...
-                  </td>
-                </tr>
-              )}
-              {!hyperliquidBridgeE.loading && hyperliquidBridgeE.error && (
-                <tr>
-                  <td>
-                    <span className="red">{hyperliquidBridgeE.error}</span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn small bgGray"
-                      onClick={retryHyperliquidBridge}
-                    >
-                      retry
-                    </button>
-                  </td>
-                </tr>
-              )}
-              {!hyperliquidBridgeE.loading &&
-                !hyperliquidBridgeE.error &&
-                !allChains.length && (
-                  <tr>
-                    <td className="gray">-</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn small bgGray"
-                        onClick={retryHyperliquidBridge}
-                      >
-                        retry
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              {!hyperliquidBridgeE.loading &&
-                !hyperliquidBridgeE.error &&
-                allChains.map((chain) => {
-                  const added = addedChains.includes(chain);
-                  return (
-                    <tr
-                      key={`hl_${side}_all_chain_${chain}`}
-                      className={
-                        chain == selectedChain
-                          ? "lendMarketRow on"
-                          : "lendMarketRow"
-                      }
-                    >
-                      <td>
-                        <button
-                          type="button"
-                          className="lendMarketAllSelect swapChainAllSelect"
-                          onClick={() => onSelect(chain)}
-                        >
-                          <span>{chain}</span>
-                        </button>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className={
-                            added ? "btn small bgGray" : "btn small bgCyan"
-                          }
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (added) return;
-                            toast(
-                              `${chain}: add chain manually before using this route`,
-                            );
-                          }}
-                          disabled={added}
-                        >
-                          {added ? "✓" : "+"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </TradePickerTable>
-        </TradePickerColumn>
-      </TradePickerMenu>
-    );
-  }
-
-  function renderHyperliquidCoinSelect({
-    side = "deposit",
-    chain = "",
-    selectedCoin = "",
-    addedCoins = [],
-    allCoins = [],
-    allCoinEntries = [],
-    showMenu = false,
-    setShowMenu = () => {},
-    pickerRef,
-    onSelect = () => {},
-    onNext = () => {},
-  }) {
-    return (
-      <div className="selectCycle walletCycle swapCoinCycle">
-        <div className="sendWalletPicker" ref={pickerRef}>
-          <button
-            type="button"
-            className="sendWalletPickerButton"
-            style={{
-              width: getHyperliquidPickerWidth(
-                [...addedCoins, ...allCoins],
-                selectedCoin,
-              ),
-            }}
-            disabled={!allCoins.length}
-            onClick={() => setShowMenu((show) => !show)}
-          >
-            {selectedCoin || "no coin"}
-          </button>
-          {showMenu &&
-            renderHyperliquidCoinMenu({
-              side,
-              chain,
-              selectedCoin,
-              addedCoins,
-              allCoins,
-              allCoinEntries,
-              onSelect,
-            })}
-        </div>
-        <button
-          type="button"
-          className="btn small bgGray"
-          onClick={onNext}
-          disabled={addedCoins.length < 2 && allCoins.length < 2}
-        >
-          {">"}
-        </button>
-      </div>
-    );
-  }
-
-  function renderHyperliquidChainSelect({
-    side = "deposit",
-    selectedChain = "",
-    addedChains = [],
-    allChains = [],
-    showMenu = false,
-    setShowMenu = () => {},
-    pickerRef,
-    onSelect = () => {},
-    onNext = () => {},
-  }) {
-    return (
-      <div className="selectCycle walletCycle swapChainCycle">
-        <div className="sendWalletPicker" ref={pickerRef}>
-          <button
-            type="button"
-            className="sendWalletPickerButton"
-            style={{
-              width: getHyperliquidPickerWidth(
-                [...addedChains, ...allChains],
-                selectedChain,
-              ),
-            }}
-            disabled={!allChains.length}
-            onClick={() => {
-              if (selectedChain) emitTradeChainSelect(selectedChain);
-              setShowMenu((show) => !show);
-            }}
-            onFocus={() => selectedChain && emitTradeChainSelect(selectedChain)}
-          >
-            {selectedChain || "no chain"}
-          </button>
-          {showMenu &&
-            renderHyperliquidChainMenu({
-              side,
-              selectedChain,
-              addedChains,
-              allChains,
-              onSelect,
-            })}
-        </div>
-        <button
-          type="button"
-          className="btn small bgGray"
-          onClick={onNext}
-          disabled={addedChains.length < 2 && allChains.length < 2}
-        >
-          {">"}
-        </button>
-      </div>
-    );
   }
 
   function clearCustomCoinPreview() {
@@ -3253,8 +2818,8 @@ export default function YieldPanel({
 
     const redeem = action == "redeem";
     const signedQty = redeem
-      ? getRedeemQtyForWallet(walletEntry)
-      : getLendQtyForWallet(walletEntry);
+      ? await getRedeemQtyForWallet(walletEntry)
+      : await getLendQtyForWallet(walletEntry);
     if (signedQty === null) {
       const errorResult = {
         ok: false,
@@ -3277,11 +2842,11 @@ export default function YieldPanel({
     const signedQtyAbs = Math.abs(signedQtyNum);
     const qty = redeem
       ? submitRedeem
-        ? formatTradeQty(signedQty, receiptQtyDecimals).replace(/^-/, "")
+        ? formatComputedTradeQty(signedQty, receiptQtyDecimals).replace(/^-/, "")
         : getUnderlyingQty(signedQtyAbs)
       : submitRedeem
         ? getReceiptQty(signedQtyAbs)
-        : formatTradeQty(signedQty, underlyingQtyDecimals).replace(/^-/, "");
+        : formatComputedTradeQty(signedQty, underlyingQtyDecimals).replace(/^-/, "");
     const autoApprovalAmount =
       !submitRedeem && !isHyperliquidAction && autoApproval ? qty : "";
     const getApprovalAmount = (approvalNeeded) => {
@@ -3770,6 +3335,7 @@ export default function YieldPanel({
   }
 
   return (
+    <ProtocolClient>
     <div className="tradePane swapPane lendPane">
       {CustomCoinConfirmModal()}
       <div className="flex tradePaneTop">
@@ -3863,295 +3429,40 @@ export default function YieldPanel({
           </span>
         )}
         {!isHyperliquidDepositMode && hasProtocolAllMarkets ? (
-          <div className="selectCycle walletCycle lendMarketCycle">
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={prevMarket}
-              disabled={visibleAddedMarkets.length < 2}
-            >
-              {"<"}
-            </button>
-            <div className="sendWalletPicker" ref={marketPickerRef}>
-              <button
-                type="button"
-                className="sendWalletPickerButton"
-                style={{ width: marketButtonWidth }}
-                disabled={!chainE?.chain}
-                onClick={() => setShowMarketMenu((show) => !show)}
-              >
-                {marketE ? getMarketLabel(marketE) : "no coin"}
-              </button>
-              {showMarketMenu && (
-                <TradePickerMenu className="lendMarketMenu">
-                  <TradePickerColumn title="added">
-                    <TradePickerTable
-                      className="lendMarketAddedTable"
-                      headers={[
-                        <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
-                        <SortHeader sortKey="underlyingQty">qty</SortHeader>,
-                        <SortHeader sortKey="lendCoin">coin</SortHeader>,
-                        <SortHeader sortKey="lendQty">qty</SortHeader>,
-                        <SortHeader sortKey="apr">apr</SortHeader>,
-                      ]}
-                    >
-                      <tbody>
-                        {visibleAddedMarkets.length ? (
-                          sortMarketRows(
-                            visibleAddedMarkets.map(getMarketTableRow),
-                            addedMarketSort,
-                          ).map((entry) => (
-                            <tr
-                              key={`wallet_${entry.value}`}
-                              className={
-                                entry.value == market
-                                  ? "lendMarketRow on"
-                                  : "lendMarketRow"
-                              }
-                              onClick={() => selectMarket(entry.value)}
-                            >
-                              <td>
-                                <span>{entry.underlyingCoin}</span>
-                              </td>
-                              <td>
-                                <MarketCoinBalance
-                                  balance={entry.underlyingBalance}
-                                />
-                              </td>
-                              <td>
-                                <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
-                                  <span className="gray">{entry.lendCoin}</span>
-                                  <LendCoinInfoCard
-                                    coin={entry.lendCoin}
-                                    name={entry.lendName}
-                                    lockedUntilTimestamp={
-                                      chainE?.coinInfoM?.[entry.lendCoin]
-                                        ?.lockedUntilTimestamp
-                                    }
-                                  />
-                                </span>
-                              </td>
-                              <td>
-                                <MarketCoinBalance
-                                  balance={entry.lendBalance}
-                                />
-                              </td>
-                              <td>
-                                <AprText apr={entry.supplyApr} label={false} />
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="gray">
-                              -
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </TradePickerTable>
-                  </TradePickerColumn>
-                  <TradePickerColumn title="all">
-                    <TradePickerTable
-                      className="lendMarketAllTable"
-                      headers={[
-                        <SortHeader section="all" sortKey="underlyingCoin">
-                          coin
-                        </SortHeader>,
-                        <SortHeader section="all" sortKey="underlyingQty">
-                          qty
-                        </SortHeader>,
-                        "add",
-                        <SortHeader section="all" sortKey="lendCoin">
-                          coin
-                        </SortHeader>,
-                        <SortHeader section="all" sortKey="lendQty">
-                          qty
-                        </SortHeader>,
-                        "add",
-                        <SortHeader section="all" sortKey="apr">
-                          apr
-                        </SortHeader>,
-                      ]}
-                    >
-                      <tbody>
-                        {allLoading && (
-                          <tr>
-                            <td colSpan={7} className="gray">
-                              loading {allProtocolLabel}...
-                            </td>
-                          </tr>
-                        )}
-                        {!allLoading &&
-                          allError &&
-                          visibleAddedMarkets.length > 0 && (
-                            <tr>
-                              <td colSpan={7} className="gray">
-                                all added
-                              </td>
-                            </tr>
-                          )}
-                        {!allLoading &&
-                          allError &&
-                          !visibleAddedMarkets.length && (
-                            <tr>
-                              <td colSpan={6}>
-                                <span className="red">{allError}</span>
-                              </td>
-                              <td>
-                                <button
-                                  type="button"
-                                  className="btn small bgGray"
-                                  onClick={retryAllMarkets}
-                                >
-                                  retry
-                                </button>
-                              </td>
-                            </tr>
-                          )}
-                        {!allLoading && !allError && !allMarkets.length && (
-                          <tr>
-                            <td colSpan={6} className="gray">
-                              {visibleAddedMarkets.length ? "all added" : "-"}
-                            </td>
-                            <td>
-                              {!visibleAddedMarkets.length && (
-                                <button
-                                  type="button"
-                                  className="btn small bgGray"
-                                  onClick={retryAllMarkets}
-                                >
-                                  retry
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        )}
-                        {!allLoading &&
-                          !allError &&
-                          sortMarketRows(
-                            allMarkets.map(getMarketTableRow),
-                            allMarketSort,
-                          ).map((entry) => (
-                            <tr
-                              key={`${defi}_${entry.value}`}
-                              className={
-                                entry.addedValue == market
-                                  ? "lendMarketRow on"
-                                  : "lendMarketRow"
-                              }
-                            >
-                              <td>
-                                <button
-                                  type="button"
-                                  className="lendMarketAllSelect"
-                                  onClick={() =>
-                                    selectMarket(
-                                      entry.addedValue || entry.value,
-                                    )
-                                  }
-                                  title={entry.underlyingName}
-                                >
-                                  <span>{entry.underlyingCoin}</span>
-                                </button>
-                              </td>
-                              <td>
-                                <MarketCoinBalance
-                                  balance={entry.underlyingBalance}
-                                />
-                              </td>
-                              <td>
-                                <button
-                                  type="button"
-                                  className={
-                                    entry.addedUnderlying
-                                      ? "btn small bgGray"
-                                      : "btn small bgCyan"
-                                  }
-                                  onClick={(e) =>
-                                    openProtocolCoinConfirm(
-                                      e,
-                                      entry,
-                                      "underlying",
-                                    )
-                                  }
-                                  disabled={
-                                    entry.addedUnderlying || addingCoin
-                                  }
-                                  title={entry.underlyingName}
-                                >
-                                  {entry.addedUnderlying ? "✓" : "+"}
-                                </button>
-                              </td>
-                              <td>
-                                <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
-                                  <button
-                                    type="button"
-                                    className="lendMarketAllSelect lendMarketAllLendSelect"
-                                    onClick={() =>
-                                      selectMarket(
-                                        entry.addedValue || entry.value,
-                                      )
-                                    }
-                                  >
-                                    <span className="gray">
-                                      {entry.lendCoin}
-                                    </span>
-                                  </button>
-                                  <LendCoinInfoCard
-                                    coin={entry.lendCoin}
-                                    name={entry.lendName}
-                                    lockedUntilTimestamp={
-                                      chainE?.coinInfoM?.[entry.lendCoin]
-                                        ?.lockedUntilTimestamp
-                                    }
-                                  />
-                                </span>
-                              </td>
-                              <td>
-                                <MarketCoinBalance
-                                  balance={entry.lendBalance}
-                                />
-                              </td>
-                              <td>
-                                <button
-                                  type="button"
-                                  className={
-                                    entry.addedLend
-                                      ? "btn small bgGray"
-                                      : "btn small bgCyan"
-                                  }
-                                  onClick={(e) =>
-                                    openProtocolCoinConfirm(e, entry)
-                                  }
-                                  disabled={entry.addedLend || addingCoin}
-                                >
-                                  {entry.addedLend ? "✓" : "+"}
-                                </button>
-                              </td>
-                              <td>
-                                <AprText apr={entry.supplyApr} label={false} />
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </TradePickerTable>
-                  </TradePickerColumn>
-                </TradePickerMenu>
-              )}
-            </div>
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={nextMarket}
-              disabled={visibleAddedMarkets.length < 2}
-            >
-              {">"}
-            </button>
-            <span className="lendSelectedApr">
-              <AprText apr={marketSupplyApr} />
-            </span>
-          </div>
+          <YieldMarketPicker
+            marketPickerRef={marketPickerRef}
+            marketButtonWidth={marketButtonWidth}
+            chainName={chainE?.chain}
+            defi={defi}
+            market={market}
+            marketE={marketE}
+            getMarketLabel={getMarketLabel}
+            showMarketMenu={showMarketMenu}
+            setShowMarketMenu={setShowMarketMenu}
+            prevMarket={prevMarket}
+            nextMarket={nextMarket}
+            visibleAddedMarkets={visibleAddedMarkets}
+            addedRows={visibleAddedMarkets.map(getMarketTableRow)}
+            allRows={allMarkets.map(getMarketTableRow)}
+            allLoading={allLoading}
+            allError={allError}
+            allProtocolLabel={allProtocolLabel}
+            retryAllMarkets={retryAllMarkets}
+            addedMarketSort={addedMarketSort}
+            setAddedMarketSort={setAddedMarketSort}
+            allMarketSort={allMarketSort}
+            setAllMarketSort={setAllMarketSort}
+            selectMarket={selectMarket}
+            openProtocolCoinConfirm={openProtocolCoinConfirm}
+            addingCoin={addingCoin}
+            marketSupplyApr={marketSupplyApr}
+            getLockedUntil={(coin) =>
+              chainE?.coinInfoM?.[coin]?.lockedUntilTimestamp
+            }
+            MarketCoinBalance={MarketCoinBalance}
+            AprText={AprText}
+            LendCoinInfoCard={LendCoinInfoCard}
+          />
         ) : !isHyperliquidDepositMode ? (
           <span className="selectCycle">
             <select
@@ -4184,30 +3495,43 @@ export default function YieldPanel({
             {isHyperliquidDepositMode ? (
               <>
                 <span className="gray">wallet</span>
-                {renderHyperliquidChainSelect({
-                  side: "deposit",
-                  selectedChain: activeHyperliquidDepositChain,
-                  addedChains: hyperliquidDepositAddedChains,
-                  allChains: hyperliquidDepositChains,
-                  showMenu: showHyperliquidDepositChainMenu,
-                  setShowMenu: setShowHyperliquidDepositChainMenu,
-                  pickerRef: hyperliquidDepositChainPickerRef,
-                  onSelect: selectHyperliquidDepositChain,
-                  onNext: nextHyperliquidDepositChain,
-                })}
-                {renderHyperliquidCoinSelect({
-                  side: "deposit",
-                  chain: activeHyperliquidDepositChain,
-                  selectedCoin: activeHyperliquidDepositCoin,
-                  addedCoins: hyperliquidDepositAddedCoins,
-                  allCoins: hyperliquidDepositCoins,
-                  allCoinEntries: hyperliquidDepositAllCoinEntries,
-                  showMenu: showHyperliquidDepositCoinMenu,
-                  setShowMenu: setShowHyperliquidDepositCoinMenu,
-                  pickerRef: hyperliquidDepositCoinPickerRef,
-                  onSelect: selectHyperliquidDepositCoin,
-                  onNext: nextHyperliquidDepositCoin,
-                })}
+                <HyperliquidChainSelect
+                  side="deposit"
+                  selectedChain={activeHyperliquidDepositChain}
+                  addedChains={hyperliquidDepositAddedChains}
+                  allChains={hyperliquidDepositChains}
+                  bridgeE={hyperliquidBridgeE}
+                  showMenu={showHyperliquidDepositChainMenu}
+                  setShowMenu={setShowHyperliquidDepositChainMenu}
+                  pickerRef={hyperliquidDepositChainPickerRef}
+                  onSelect={selectHyperliquidDepositChain}
+                  onNext={nextHyperliquidDepositChain}
+                  onRetry={retryHyperliquidBridge}
+                />
+                <HyperliquidCoinSelect
+                  side="deposit"
+                  chain={activeHyperliquidDepositChain}
+                  selectedCoin={activeHyperliquidDepositCoin}
+                  addedCoins={hyperliquidDepositAddedCoins}
+                  allCoins={hyperliquidDepositCoins}
+                  allCoinEntries={hyperliquidDepositAllCoinEntries}
+                  bridgeE={hyperliquidBridgeE}
+                  showMenu={showHyperliquidDepositCoinMenu}
+                  setShowMenu={setShowHyperliquidDepositCoinMenu}
+                  pickerRef={hyperliquidDepositCoinPickerRef}
+                  onSelect={selectHyperliquidDepositCoin}
+                  onNext={nextHyperliquidDepositCoin}
+                  onRetry={retryHyperliquidBridge}
+                  getBalance={(coin) =>
+                    getMarketCoinBalance(
+                      hyperliquidDepositChainE,
+                      coin,
+                      "",
+                      selectedWalletEntry,
+                    )
+                  }
+                  MarketCoinBalance={MarketCoinBalance}
+                />
                 {hyperliquidDepositRouteText && (
                   <span className="gray">{hyperliquidDepositRouteText}</span>
                 )}
@@ -4378,30 +3702,43 @@ export default function YieldPanel({
             {isHyperliquidDepositMode ? (
               <>
                 <span className="gray">spot</span>
-                {renderHyperliquidChainSelect({
-                  side: "withdraw",
-                  selectedChain: activeHyperliquidWithdrawChain,
-                  addedChains: hyperliquidWithdrawAddedChains,
-                  allChains: hyperliquidWithdrawChains,
-                  showMenu: showHyperliquidWithdrawChainMenu,
-                  setShowMenu: setShowHyperliquidWithdrawChainMenu,
-                  pickerRef: hyperliquidWithdrawChainPickerRef,
-                  onSelect: selectHyperliquidWithdrawChain,
-                  onNext: nextHyperliquidWithdrawChain,
-                })}
-                {renderHyperliquidCoinSelect({
-                  side: "withdraw",
-                  chain: activeHyperliquidWithdrawChain,
-                  selectedCoin: activeHyperliquidWithdrawCoin,
-                  addedCoins: hyperliquidWithdrawAddedCoins,
-                  allCoins: hyperliquidWithdrawCoins,
-                  allCoinEntries: hyperliquidWithdrawAllCoinEntries,
-                  showMenu: showHyperliquidWithdrawCoinMenu,
-                  setShowMenu: setShowHyperliquidWithdrawCoinMenu,
-                  pickerRef: hyperliquidWithdrawCoinPickerRef,
-                  onSelect: selectHyperliquidWithdrawCoin,
-                  onNext: nextHyperliquidWithdrawCoin,
-                })}
+                <HyperliquidChainSelect
+                  side="withdraw"
+                  selectedChain={activeHyperliquidWithdrawChain}
+                  addedChains={hyperliquidWithdrawAddedChains}
+                  allChains={hyperliquidWithdrawChains}
+                  bridgeE={hyperliquidBridgeE}
+                  showMenu={showHyperliquidWithdrawChainMenu}
+                  setShowMenu={setShowHyperliquidWithdrawChainMenu}
+                  pickerRef={hyperliquidWithdrawChainPickerRef}
+                  onSelect={selectHyperliquidWithdrawChain}
+                  onNext={nextHyperliquidWithdrawChain}
+                  onRetry={retryHyperliquidBridge}
+                />
+                <HyperliquidCoinSelect
+                  side="withdraw"
+                  chain={activeHyperliquidWithdrawChain}
+                  selectedCoin={activeHyperliquidWithdrawCoin}
+                  addedCoins={hyperliquidWithdrawAddedCoins}
+                  allCoins={hyperliquidWithdrawCoins}
+                  allCoinEntries={hyperliquidWithdrawAllCoinEntries}
+                  bridgeE={hyperliquidBridgeE}
+                  showMenu={showHyperliquidWithdrawCoinMenu}
+                  setShowMenu={setShowHyperliquidWithdrawCoinMenu}
+                  pickerRef={hyperliquidWithdrawCoinPickerRef}
+                  onSelect={selectHyperliquidWithdrawCoin}
+                  onNext={nextHyperliquidWithdrawCoin}
+                  onRetry={retryHyperliquidBridge}
+                  getBalance={(coin) =>
+                    getMarketCoinBalance(
+                      hyperliquidWithdrawChainE,
+                      coin,
+                      "",
+                      selectedWalletEntry,
+                    )
+                  }
+                  MarketCoinBalance={MarketCoinBalance}
+                />
                 {hyperliquidWithdrawRouteText && (
                   <span className="gray">{hyperliquidWithdrawRouteText}</span>
                 )}
@@ -4562,5 +3899,6 @@ export default function YieldPanel({
         </div>
       )}
     </div>
+    </ProtocolClient>
   );
 }

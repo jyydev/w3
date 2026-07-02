@@ -15,14 +15,14 @@ import {
   getUsableChainRpc,
   getWallet,
   relayChainIds,
-} from "../sharedServer";
+} from "../../sharedServer";
 import {
   getCoinByAddress,
   getTokenMeta,
   getUsableChainRpcs,
   mapWithConcurrency,
   withTimeout,
-} from "./shared";
+} from "../shared";
 
 const morphoApiBase =
   process.env.MORPHO_API_BASE ||

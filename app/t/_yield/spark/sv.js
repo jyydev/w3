@@ -16,13 +16,13 @@ import {
   getUsableChainRpc,
   getWallet,
   relayChainIds,
-} from "../sharedServer";
+} from "../../sharedServer";
 import {
   cleanMarketSymbol,
   mapWithConcurrency,
   sameEvmAddress,
   withTimeout,
-} from "./shared";
+} from "../shared";
 
 const erc20MetaAbi = [
   "function name() view returns (string)",

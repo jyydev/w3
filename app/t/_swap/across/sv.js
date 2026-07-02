@@ -20,8 +20,8 @@ import {
   nativeEvmAddress,
   relayChainById,
   relayChainIds,
-} from "../sharedServer";
-import { getArrayPayload, getTimeoutSignal, parseJson } from "./shared";
+} from "../../sharedServer";
+import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
 const acrossApiBase = "https://app.across.to/api";const nativeSolanaAddress = "11111111111111111111111111111111";
 const acrossChainIds = {

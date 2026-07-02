@@ -18,6 +18,7 @@ import {
   emitTradeChainSelect,
   fmt,
   fmtPrice,
+  formatComputedTradeQty,
   formatTradeQty,
   getChainCoins,
   getQtyDecimals,
@@ -205,8 +206,8 @@ export default function SendPanel({
   const fromEnd = Math.max(0, maxSend - sendQty);
   const toEnd = currentToBal + sendQty;
   const fromEndInputValue =
-    fromEndDraft || formatTradeQty(fromEnd, coinDecimals);
-  const toEndInputValue = toEndDraft || formatTradeQty(toEnd, coinDecimals);
+    fromEndDraft || formatComputedTradeQty(fromEnd, coinDecimals);
+  const toEndInputValue = toEndDraft || formatComputedTradeQty(toEnd, coinDecimals);
   const qtyUsd = price ? sendQty * price : 0;
   const fromEndUsd = price ? fromEnd * price : 0;
   const toEndUsd = price ? toEnd * price : 0;
@@ -649,26 +650,26 @@ export default function SendPanel({
   function updateFromEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
     setFromEndDraft(endQty);
-    updateQty(formatTradeQty(maxSend - toNum(endQty), coinDecimals));
+    updateQty(formatComputedTradeQty(maxSend - toNum(endQty), coinDecimals));
   }
 
   function updateToEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
     setToEndDraft(endQty);
-    updateQty(formatTradeQty(toNum(endQty) - currentToBal, coinDecimals));
+    updateQty(formatComputedTradeQty(toNum(endQty) - currentToBal, coinDecimals));
   }
 
   async function getSendQtyForWallet(walletEntry = fromEntry) {
     if (!fromEndWith && !toEndWith) return formatTradeQty(qty, coinDecimals);
 
     if (toEndWith) {
-      return formatTradeQty(toNum(toEndDraft || toEndInputValue) - currentToBal, coinDecimals);
+      return formatComputedTradeQty(toNum(toEndDraft || toEndInputValue) - currentToBal, coinDecimals);
     }
 
     const targetEnd = toNum(fromEndDraft || fromEndInputValue);
     if (!walletEntry?.address) return "0";
     if (sameAddress(walletEntry.address, fromEntry?.address)) {
-      return formatTradeQty(maxSend - targetEnd, coinDecimals);
+      return formatComputedTradeQty(maxSend - targetEnd, coinDecimals);
     }
 
     const balance = await getTradeCoinBalance({
@@ -677,7 +678,7 @@ export default function SendPanel({
       address: walletEntry.address,
     });
 
-    return formatTradeQty(
+    return formatComputedTradeQty(
       toNum(balance?.balance) - targetEnd,
       coinDecimals,
     );

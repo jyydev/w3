@@ -17,8 +17,8 @@ import {
   nativeEvmAddress,
   relayChainById,
   relayChainIds,
-} from "../sharedServer";
-import { getArrayPayload, getTimeoutSignal, parseJson } from "./shared";
+} from "../../sharedServer";
+import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
 const jumperApiBase =
   process.env.LIFI_API_BASE ||

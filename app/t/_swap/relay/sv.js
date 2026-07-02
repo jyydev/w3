@@ -24,8 +24,8 @@ import {
   nativeEvmAddress,
   relayChainById,
   relayChainIds,
-} from "../sharedServer";
-import { getArrayPayload, getTimeoutSignal, parseJson } from "./shared";
+} from "../../sharedServer";
+import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
 const relayApiBase = "https://api.relay.link";const nativeSolanaAddress = "11111111111111111111111111111111";
 const relayChainNameM = {

@@ -5,35 +5,41 @@ import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { scanners } from "@/sets";
 import { pc } from "@/fn/basic";
+import { LendMarketPicker } from "./Client";
 import {
   buildAaveLendTxs,
   executeAaveLend,
   getAaveAllMarkets,
   getAaveLendPreview,
   getAaveMarketBalance,
-} from "./svAave";
+} from "./aave/sv";
+import AaveClient from "./aave/Client";
 import {
   buildJupiterLendTxs,
   executeJupiterLend,
   getJupiterAllMarkets,
   getJupiterLendPreview,
   getJupiterMarketBalance,
-} from "./svJupiter";
+} from "./jupiter/sv";
+import JupiterLendClient from "./jupiter/Client";
 import {
   buildMorphoLendTxs,
   executeMorphoLend,
   getMorphoAllMarkets,
   getMorphoLendPreview,
   getMorphoMarketBalance,
-} from "./svMorpho";
+} from "./morpho/sv";
+import MorphoClient from "./morpho/Client";
 import {
   buildVenusLendTxs,
   executeVenusLend,
   getVenusAllMarkets,
   getVenusLendPreview,
   getVenusMarketBalance,
-} from "./svVenus";
+} from "./venus/sv";
+import VenusClient from "./venus/Client";
 import {
+  getTradeCoinBalance,
   getTradeCoinPrice,
 } from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
@@ -51,6 +57,7 @@ import {
   fmt,
   fmtPrice,
   fmtRate,
+  formatComputedTradeQty,
   formatTradeQty,
   getChainCoins,
   getQtyDecimals,
@@ -68,12 +75,6 @@ import {
   sameAddress,
   sendBrowserTradeTx,
   SwapTxLink,
-  TradePickerColumn,
-  TradePickerMenu,
-  TradePickerSortHeader,
-  TradePickerTable,
-  sortTradePickerRows,
-  toggleTradePickerSort,
   tradeAutoApprovalCookie,
   tradeLendChainCookie,
   tradeLendDefiCookie,
@@ -591,6 +592,14 @@ export default function LendPanel({
   );
   const lendingE =
     availableLendingOptions.find((entry) => entry.value == defi) || noLending;
+  const ProtocolClient =
+    defi == "venus"
+      ? VenusClient
+      : defi == "jupiter"
+        ? JupiterLendClient
+        : defi == "morpho"
+          ? MorphoClient
+          : AaveClient;
   const markets = chainMarketsM[chainE?.chain] || [];
   const addedMarkets = markets;
   const addedMarketAddressM = useMemo(() => {
@@ -1017,9 +1026,9 @@ export default function LendPanel({
     ? Math.max(0, maxReceipt - receiptQtyAbs)
     : maxReceipt + receiptQtyAbs;
   const underlyingEndInputValue =
-    underlyingEndDraft || formatTradeQty(underlyingEnd, underlyingQtyDecimals);
+    underlyingEndDraft || formatComputedTradeQty(underlyingEnd, underlyingQtyDecimals);
   const receiptEndInputValue =
-    receiptEndDraft || formatTradeQty(receiptEnd, receiptQtyDecimals);
+    receiptEndDraft || formatComputedTradeQty(receiptEnd, receiptQtyDecimals);
   function getWalletUnderlyingBalance(walletEntry = selectedWalletEntry) {
     const selected =
       sameAddress(walletEntry?.address, selectedWalletEntry?.address) ||
@@ -1066,6 +1075,76 @@ export default function LendPanel({
     return localBalance;
   }
 
+  function getProtocolMarketBalance() {
+    if (defi == "venus") return getVenusMarketBalance;
+    if (defi == "jupiter") return getJupiterMarketBalance;
+    if (defi == "morpho") return getMorphoMarketBalance;
+    return getAaveMarketBalance;
+  }
+
+  function getMarketCoinE(side = "underlying") {
+    const coin = side == "lend" ? lendCoin : underlyingCoin;
+    const info = chainE?.coinInfoM?.[coin] || {};
+    const address =
+      side == "lend" ? marketE?.lendAddress : marketE?.underlyingAddress;
+    const decimals =
+      side == "lend" ? marketE?.lendDecimals : marketE?.underlyingDecimals;
+
+    return {
+      ...(info || {}),
+      ...(address ? { address } : {}),
+      decimals: Number.isInteger(decimals)
+        ? decimals
+        : getQtyDecimals(info?.decimals),
+    };
+  }
+
+  async function queryWalletMarketBalance(
+    walletEntry = selectedWalletEntry,
+    side = "underlying",
+  ) {
+    if (!walletEntry?.address || !chainE?.chain) return {};
+
+    if (usesDirectMarket && marketE?.underlyingAddress && marketE?.lendAddress) {
+      const res = await withClientTimeout(
+        getProtocolMarketBalance()({
+          walletAddress: walletEntry.address,
+          chain: chainE.chain,
+          underlyingAddress: marketE.underlyingAddress,
+          underlyingDecimals: marketE.underlyingDecimals,
+          lendAddress: marketE.lendAddress,
+          lendDecimals: marketE.lendDecimals,
+        }),
+        12000,
+        `${walletEntry.name || walletEntry.label || "wallet"} ${allProtocolLabel} balance timeout`,
+      );
+
+      return side == "lend" ? res?.lend || {} : res?.underlying || {};
+    }
+
+    const coin = side == "lend" ? lendCoin : underlyingCoin;
+    return getTradeCoinBalance({
+      chain: chainE.chain,
+      coin,
+      address: walletEntry.address,
+      coinE: getMarketCoinE(side),
+    });
+  }
+
+  async function getWalletUnderlyingBalanceForEnd(walletEntry = selectedWalletEntry) {
+    const balance = getWalletUnderlyingBalance(walletEntry);
+    if (hasLoadedBalance(balance)) return balance;
+
+    return queryWalletMarketBalance(walletEntry, "underlying").catch(() => ({}));
+  }
+
+  async function getWalletReceiptBalanceForEnd(walletEntry = selectedWalletEntry) {
+    const balance = getWalletReceiptBalance(walletEntry);
+    if (hasLoadedBalance(balance)) return balance;
+
+    return queryWalletMarketBalance(walletEntry, "lend").catch(() => ({}));
+  }
+
   function getLendEndTarget() {
     return toNum(
       underlyingEndDraft || formatTradeQty(underlyingEnd, underlyingQtyDecimals),
@@ -1078,34 +1157,34 @@ export default function LendPanel({
     );
   }
 
-  function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
     if (!lendEndWith) return formatTradeQty(lendQty, underlyingQtyDecimals);
 
-    const balance = getWalletUnderlyingBalance(walletEntry);
+    const balance = await getWalletUnderlyingBalanceForEnd(walletEntry);
     if (!hasLoadedBalance(balance)) return null;
 
-    return formatTradeQty(
+    return formatComputedTradeQty(
       toNum(balance.balance) - getLendEndTarget(),
       underlyingQtyDecimals,
     );
   }
 
-  function getRedeemQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getRedeemQtyForWallet(walletEntry = selectedWalletEntry) {
     if (!redeemEndWith) return formatTradeQty(receiptQty, receiptQtyDecimals);
 
-    const balance = getWalletReceiptBalance(walletEntry);
+    const balance = await getWalletReceiptBalanceForEnd(walletEntry);
     if (!hasLoadedBalance(balance)) return null;
 
-    return formatTradeQty(
+    return formatComputedTradeQty(
       toNum(balance.balance) - getRedeemEndTarget(),
       receiptQtyDecimals,
     );
   }
 
-  function shouldAaveWithdrawAll(walletEntry = selectedWalletEntry, qty = "") {
+  async function shouldAaveWithdrawAll(walletEntry = selectedWalletEntry, qty = "") {
     if (defi != "aave") return false;
 
-    const balance = getWalletReceiptBalance(walletEntry);
+    const balance = await getWalletReceiptBalanceForEnd(walletEntry);
     if (!hasLoadedBalance(balance)) return false;
 
     const balanceQty = toNum(balance.balance);
@@ -1662,22 +1741,22 @@ export default function LendPanel({
   ]);
 
   function getReceiptQty(value) {
-    return formatTradeQty(toNum(value) * receiptRate, receiptQtyDecimals);
+    return formatComputedTradeQty(toNum(value) * receiptRate, receiptQtyDecimals);
   }
 
   function getUnderlyingQty(value) {
     return receiptRate > 0
-      ? formatTradeQty(toNum(value) / receiptRate, underlyingQtyDecimals)
+      ? formatComputedTradeQty(toNum(value) / receiptRate, underlyingQtyDecimals)
       : "0";
   }
 
   function getSignedReceiptQty(value) {
-    return formatTradeQty(-toNum(value) * receiptRate, receiptQtyDecimals);
+    return formatComputedTradeQty(-toNum(value) * receiptRate, receiptQtyDecimals);
   }
 
   function getSignedUnderlyingQty(value) {
     return receiptRate > 0
-      ? formatTradeQty(-toNum(value) / receiptRate, underlyingQtyDecimals)
+      ? formatComputedTradeQty(-toNum(value) / receiptRate, underlyingQtyDecimals)
       : "0";
   }
 
@@ -1712,7 +1791,7 @@ export default function LendPanel({
       cleanTradeInput(value),
       underlyingQtyDecimals,
     );
-    const qty = formatTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
+    const qty = formatComputedTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
     setUnderlyingEndDraft(endQty);
     setQtyInputSide("lend");
     setLendQty(qty);
@@ -1724,7 +1803,7 @@ export default function LendPanel({
       cleanTradeInput(value),
       receiptQtyDecimals,
     );
-    const qty = formatTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
+    const qty = formatComputedTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
     setReceiptEndDraft(endQty);
     setQtyInputSide("redeem");
     setReceiptQty(qty);
@@ -1736,8 +1815,8 @@ export default function LendPanel({
     if (!checked) return;
 
     const endQty =
-      underlyingEndDraft || formatTradeQty(underlyingEnd, underlyingQtyDecimals);
-    const qty = formatTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
+      underlyingEndDraft || formatComputedTradeQty(underlyingEnd, underlyingQtyDecimals);
+    const qty = formatComputedTradeQty(maxUnderlying - toNum(endQty), underlyingQtyDecimals);
     setUnderlyingEndDraft(formatTradeQty(endQty, underlyingQtyDecimals));
     setQtyInputSide("lend");
     setLendQty(qty);
@@ -1749,8 +1828,8 @@ export default function LendPanel({
     if (!checked) return;
 
     const endQty =
-      receiptEndDraft || formatTradeQty(receiptEnd, receiptQtyDecimals);
-    const qty = formatTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
+      receiptEndDraft || formatComputedTradeQty(receiptEnd, receiptQtyDecimals);
+    const qty = formatComputedTradeQty(maxReceipt - toNum(endQty), receiptQtyDecimals);
     setReceiptEndDraft(formatTradeQty(endQty, receiptQtyDecimals));
     setQtyInputSide("redeem");
     setReceiptQty(qty);
@@ -1872,44 +1951,6 @@ export default function LendPanel({
       lendQty: getBalanceQty(lendBalance),
       aprValue: toNum(entry.supplyApr),
     };
-  }
-
-  function sortMarketRows(rows = [], key = "") {
-    return sortTradePickerRows(
-      rows,
-      key,
-      {
-        underlyingCoin: (entry) => entry.underlyingCoin,
-        underlyingQty: (entry) => entry.underlyingQty,
-        lendCoin: (entry) => entry.lendCoin,
-        lendQty: (entry) => entry.lendQty,
-        apr: (entry) => entry.aprValue,
-      },
-      {
-        underlyingQty: "desc",
-        lendQty: "desc",
-        apr: "desc",
-      },
-    );
-  }
-
-  function toggleMarketSort(section = "added", key = "") {
-    const setter = section == "all" ? setAllMarketSort : setAddedMarketSort;
-    toggleTradePickerSort(setter, key);
-  }
-
-  function SortHeader({ section = "added", sortKey = "", children }) {
-    const current = section == "all" ? allMarketSort : addedMarketSort;
-
-    return (
-      <TradePickerSortHeader
-        activeSort={current}
-        sortKey={sortKey}
-        onSort={() => toggleMarketSort(section, sortKey)}
-      >
-        {children}
-      </TradePickerSortHeader>
-    );
   }
 
   function getAllMarketSelectValue(entry = {}) {
@@ -2156,8 +2197,8 @@ export default function LendPanel({
 
     const redeem = action == "redeem";
     const signedQty = redeem
-      ? getRedeemQtyForWallet(walletEntry)
-      : getLendQtyForWallet(walletEntry);
+      ? await getRedeemQtyForWallet(walletEntry)
+      : await getLendQtyForWallet(walletEntry);
     if (signedQty === null) {
       const errorResult = {
         ok: false,
@@ -2197,7 +2238,7 @@ export default function LendPanel({
       return;
     }
     const withdrawAll =
-      isAave && submitRedeem && shouldAaveWithdrawAll(walletEntry, qty);
+      isAave && submitRedeem && await shouldAaveWithdrawAll(walletEntry, qty);
 
     const useBrowserWallet = !!walletEntry?.isBrowserWallet;
     const buildTxs = isVenus
@@ -2575,7 +2616,8 @@ export default function LendPanel({
   }
 
   return (
-    <div className="tradePane swapPane lendPane">
+    <ProtocolClient>
+      <div className="tradePane swapPane lendPane">
       {CustomCoinConfirmModal()}
       <div className="flex tradePaneTop">
         <label htmlFor="tradeTypeLend">
@@ -2649,286 +2691,42 @@ export default function LendPanel({
           </button>
         </span>
         {hasProtocolAllMarkets ? (
-          <div className="selectCycle walletCycle lendMarketCycle">
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={prevMarket}
-              disabled={visibleAddedMarkets.length < 2}
-            >
-              {"<"}
-            </button>
-            <div className="sendWalletPicker" ref={marketPickerRef}>
-              <button
-                type="button"
-                className="sendWalletPickerButton"
-                style={{ width: marketButtonWidth }}
-                disabled={!chainE?.chain}
-                onClick={() => setShowMarketMenu((show) => !show)}
-              >
-                {marketE ? getMarketLabel(marketE) : "no coin"}
-              </button>
-              {showMarketMenu && (
-                <TradePickerMenu className="lendMarketMenu">
-                  <TradePickerColumn title="added">
-                    <TradePickerTable
-                      className="lendMarketAddedTable"
-                      headers={[
-                        <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
-                        <SortHeader sortKey="underlyingQty">qty</SortHeader>,
-                        <SortHeader sortKey="lendCoin">coin</SortHeader>,
-                        <SortHeader sortKey="lendQty">qty</SortHeader>,
-                        <SortHeader sortKey="apr">apr</SortHeader>,
-                      ]}
-                    >
-                      <tbody>
-                        {visibleAddedMarkets.length ? (
-                          sortMarketRows(
-                            visibleAddedMarkets.map(getMarketTableRow),
-                            addedMarketSort,
-                          ).map((entry) => (
-                              <tr
-                                key={`wallet_${entry.value}`}
-                                className={
-                                  entry.value == market
-                                    ? "lendMarketRow on"
-                                    : "lendMarketRow"
-                                }
-                                onClick={() => selectMarket(entry.value)}
-                              >
-                                <td>
-                                  <span>{entry.underlyingCoin}</span>
-                                </td>
-                                <td>
-                                  <MarketCoinBalance
-                                    balance={entry.underlyingBalance}
-                                  />
-                                </td>
-                                <td>
-                                  <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
-                                    <span>
-                                      <span className="gray">{entry.lendCoin}</span>
-                                    </span>
-                                    <LendCoinInfoCard
-                                      coin={entry.lendCoin}
-                                      name={entry.lendName}
-                                    />
-                                  </span>
-                                </td>
-                                <td>
-                                  <MarketCoinBalance balance={entry.lendBalance} />
-                                </td>
-                                <td>
-                                  <AprText
-                                    apr={entry.supplyApr}
-                                    label={false}
-                                  />
-                                </td>
-                              </tr>
-                            ))
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="gray">
-                              -
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </TradePickerTable>
-                  </TradePickerColumn>
-                  <TradePickerColumn title="all">
-                    <TradePickerTable
-                      className="lendMarketAllTable"
-                      headers={[
-                        <SortHeader section="all" sortKey="underlyingCoin">
-                          coin
-                        </SortHeader>,
-                        <SortHeader section="all" sortKey="underlyingQty">
-                          qty
-                        </SortHeader>,
-                        "add",
-                        <SortHeader section="all" sortKey="lendCoin">
-                          coin
-                        </SortHeader>,
-                        <SortHeader section="all" sortKey="lendQty">
-                          qty
-                        </SortHeader>,
-                        "add",
-                        <SortHeader section="all" sortKey="apr">
-                          apr
-                        </SortHeader>,
-                      ]}
-                    >
-                      <tbody>
-                        {allLoading && (
-                          <tr>
-                            <td colSpan={7} className="gray">
-                              loading {allProtocolLabel}...
-                            </td>
-                          </tr>
-                        )}
-                        {!allLoading && allError && (
-                          <tr>
-                            <td colSpan={7}>
-                              <span className="red">{allError}</span>{" "}
-                              <button
-                                type="button"
-                                className="btn small bgGray"
-                                onClick={retryAllMarkets}
-                              >
-                                retry
-                              </button>
-                            </td>
-                          </tr>
-                        )}
-                        {!allLoading && !allError && !allMarkets.length && (
-                          <tr>
-                            <td colSpan={7}>
-                              <span className="gray">
-                                {defi == "jupiter" && !jupiterAllKey
-                                  ? "Solana not loaded"
-                                  : rawAllMarkets.length
-                                    ? "all added"
-                                    : "-"}
-                              </span>
-                              {!rawAllMarkets.length &&
-                              (defi != "jupiter" || jupiterAllKey) ? (
-                                <>
-                                  {" "}
-                                  <button
-                                    type="button"
-                                    className="btn small bgGray"
-                                    onClick={retryAllMarkets}
-                                  >
-                                    retry
-                                  </button>
-                                </>
-                              ) : null}
-                            </td>
-                          </tr>
-                        )}
-                        {!allLoading &&
-                          !allError &&
-                          sortMarketRows(
-                            allMarkets.map(getMarketTableRow),
-                            allMarketSort,
-                          ).map((entry) => (
-                              <tr
-                                key={`${defi}_${entry.value}`}
-                                className={
-                                  getAllMarketSelectValue(entry) == market
-                                    ? "lendMarketRow on"
-                                    : "lendMarketRow"
-                                }
-                              >
-                                <td>
-                                  <button
-                                    type="button"
-                                    className="lendMarketAllSelect"
-                                    onClick={() =>
-                                      selectMarket(
-                                        getAllMarketSelectValue(entry),
-                                      )
-                                    }
-                                    title={entry.underlyingName}
-                                  >
-                                    <span>{entry.underlyingCoin}</span>
-                                  </button>
-                                </td>
-                                <td>
-                                  <MarketCoinBalance
-                                    balance={entry.underlyingBalance}
-                                  />
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    className={
-                                      entry.addedUnderlying
-                                        ? "btn small bgGray"
-                                        : "btn small bgCyan"
-                                    }
-                                    onClick={(e) =>
-                                      openProtocolCoinConfirm(
-                                        e,
-                                        entry,
-                                        "underlying",
-                                      )
-                                    }
-                                    disabled={
-                                      entry.addedUnderlying || addingCoin
-                                    }
-                                    title={entry.underlyingName}
-                                  >
-                                    {entry.addedUnderlying ? "✓" : "+"}
-                                  </button>
-                                </td>
-                                <td>
-                                  <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
-                                    <button
-                                      type="button"
-                                      className="lendMarketAllSelect lendMarketAllLendSelect"
-                                      onClick={() =>
-                                        selectMarket(
-                                          getAllMarketSelectValue(entry),
-                                        )
-                                      }
-                                    >
-                                      <span className="gray">
-                                        {entry.lendCoin}
-                                      </span>
-                                    </button>
-                                    <LendCoinInfoCard
-                                      coin={entry.lendCoin}
-                                      name={entry.lendName}
-                                    />
-                                  </span>
-                                </td>
-                                <td>
-                                  <MarketCoinBalance balance={entry.lendBalance} />
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    className={
-                                      entry.addedLend
-                                        ? "btn small bgGray"
-                                        : "btn small bgCyan"
-                                    }
-                                    onClick={(e) =>
-                                      openProtocolCoinConfirm(e, entry)
-                                    }
-                                    disabled={entry.addedLend || addingCoin}
-                                  >
-                                    {entry.addedLend ? "✓" : "+"}
-                                  </button>
-                                </td>
-                                <td>
-                                  <AprText
-                                    apr={entry.supplyApr}
-                                    label={false}
-                                  />
-                                </td>
-                              </tr>
-                            ))}
-                      </tbody>
-                    </TradePickerTable>
-                  </TradePickerColumn>
-                </TradePickerMenu>
-              )}
-            </div>
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={nextMarket}
-              disabled={visibleAddedMarkets.length < 2}
-            >
-              {">"}
-            </button>
-            <span className="lendSelectedApr">
-              <AprText apr={marketSupplyApr} />
-            </span>
-          </div>
+          <LendMarketPicker
+            marketPickerRef={marketPickerRef}
+            marketButtonWidth={marketButtonWidth}
+            chainName={chainE?.chain}
+            defi={defi}
+            market={market}
+            marketE={marketE}
+            getMarketLabel={getMarketLabel}
+            showMarketMenu={showMarketMenu}
+            setShowMarketMenu={setShowMarketMenu}
+            prevMarket={prevMarket}
+            nextMarket={nextMarket}
+            visibleAddedMarkets={visibleAddedMarkets}
+            addedRows={visibleAddedMarkets.map(getMarketTableRow)}
+            allRows={allMarkets.map(getMarketTableRow)}
+            rawAllMarkets={rawAllMarkets}
+            allLoading={allLoading}
+            allError={allError}
+            allProtocolLabel={allProtocolLabel}
+            retryAllMarkets={retryAllMarkets}
+            jupiterAllKey={jupiterAllKey}
+            addedMarketSort={addedMarketSort}
+            setAddedMarketSort={setAddedMarketSort}
+            allMarketSort={allMarketSort}
+            setAllMarketSort={setAllMarketSort}
+            selectMarket={selectMarket}
+            openProtocolCoinConfirm={openProtocolCoinConfirm}
+            addingCoin={addingCoin}
+            marketSupplyApr={marketSupplyApr}
+            getLockedUntil={(coin) =>
+              chainE?.coinInfoM?.[coin]?.lockedUntilTimestamp
+            }
+            MarketCoinBalance={MarketCoinBalance}
+            AprText={AprText}
+            LendCoinInfoCard={LendCoinInfoCard}
+          />
         ) : (
           <span className="selectCycle">
             <select
@@ -3207,6 +3005,7 @@ export default function LendPanel({
           )}
         </div>
       )}
-    </div>
+      </div>
+    </ProtocolClient>
   );
 }
