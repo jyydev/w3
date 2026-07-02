@@ -748,23 +748,23 @@ span.chainIcon {
   right: 0;
   height: 8px;
 }
-.infoHover:hover .infoCard,
-.infoHover:focus-within .infoCard,
-.infoHover.infoOpen .infoCard {
+.infoHover:hover > .infoCard,
+.infoHover:focus-within > .infoCard,
+.infoHover.infoOpen > .infoCard {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.infoHover.clickInfo:hover .infoCard,
-.infoHover.clickInfo:focus-within .infoCard {
+.infoHover.clickInfo:hover > .infoCard,
+.infoHover.clickInfo:focus-within > .infoCard {
   display: none;
 }
-.infoHover.clickInfo.infoOpen .infoCard {
+.infoHover.clickInfo.infoOpen > .infoCard {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.infoHover.hoverOnlyInfo:not(:hover):focus-within .infoCard {
+.infoHover.hoverOnlyInfo:not(:hover):focus-within > .infoCard {
   display: none;
 }
 .infoHover:hover,
@@ -947,6 +947,14 @@ span.chainIcon {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+.walletSettingInfo {
+  line-height: 1;
+}
+.walletSettingInfo .infoIcon {
+  width: 13px;
+  height: 13px;
+  font-size: 9px;
 }
 .coinSettingsSymbolCell {
   display: inline-flex;

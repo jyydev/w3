@@ -400,7 +400,19 @@ function WalletSettings({
                   <td>{defaultShowGasAuto ? "on" : "off"}</td>
                 </tr>
                 <tr>
-                  <td>clear cookies</td>
+                  <td>
+                    <span className="walletSettingName">
+                      clear cookies
+                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
+                        <span className="infoIcon">i</span>
+                        <span className="infoCard">
+                          <span>Clears browser cookies only.</span>
+                          <span>ALL clears every visible cookie for this site.</span>
+                          <span>app clears cookies with the app prefix.</span>
+                        </span>
+                      </span>
+                    </span>
+                  </td>
                   <td>
                     <span className="walletSettingsActionRow">
                       <select
@@ -421,7 +433,19 @@ function WalletSettings({
                   <td>browser</td>
                 </tr>
                 <tr>
-                  <td>clear data</td>
+                  <td>
+                    <span className="walletSettingName">
+                      clear data
+                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
+                        <span className="infoIcon">i</span>
+                        <span className="infoCard">
+                          <span>Clears data/editor style files.</span>
+                          <span>On Vercel this means localStorage editor files.</span>
+                          <span>On local dev this means server project files.</span>
+                        </span>
+                      </span>
+                    </span>
+                  </td>
                   <td>
                     <span className="walletSettingsActionRow">
                       <select
