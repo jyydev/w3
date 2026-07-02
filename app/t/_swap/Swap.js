@@ -102,6 +102,8 @@ import {
   tradeSwapToChainCookie,
   tradeSwapToCoinCookie,
   toNum,
+  useCustomCoinConfirm,
+  useTradeFallbackPrice,
 } from "../clientShared";
 
 const walletBalancePatchEvent = "w3:walletBalancePatch";
@@ -303,8 +305,6 @@ export default function SwapPanel({
   const [sellEndWith, setSellEndWith] = useState(false);
   const [buyEndWith, setBuyEndWith] = useState(false);
   const [qtyInputSide, setQtyInputSide] = useState("sell");
-  const [fallbackPriceM, setFallbackPriceM] = useState({});
-  const [priceLoadingM, setPriceLoadingM] = useState({});
   const [swapPending, setSwapPending] = useState(false);
   const [swapResult, setSwapResult] = useState(null);
   const [recipient, setRecipient] = useState(
@@ -332,16 +332,23 @@ export default function SwapPanel({
   const fromCoinPickerRef = useRef(null);
   const toCoinPickerRef = useRef(null);
   const useLocalEditorStore = useLocalStorageEditor();
-  const [addingCoin, setAddingCoin] = useState(false);
-  const [customCoinPreview, setCustomCoinPreview] = useState(null);
-  const [customCoinDraft, setCustomCoinDraft] = useState({
-    coin: "",
-    name: "",
-    type: "",
-    customType: "",
-    ref: "",
-  });
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
+  const {
+    customCoinPreview,
+    customCoinDraft,
+    setCustomCoinDraft,
+    addingCoin,
+    setAddingCoin,
+    clearCustomCoinPreview,
+    setCustomCoinPreviewData,
+    confirmCustomCoin,
+  } = useCustomCoinConfirm({
+    useLocalEditorStore,
+    addLocalCustomCoinAction: addLocalCustomCoin,
+    addCustomCoinAction: addCustomCoin,
+    setLocallyAddedAddressM,
+    onTxComplete,
+  });
   const [relayCurrencyM, setRelayCurrencyM] = useState({});
   const [relayTokenSearchM, setRelayTokenSearchM] = useState({
     from: "",
@@ -421,10 +428,26 @@ export default function SwapPanel({
   const toPriceKey = priceKey(toChain, toCoin);
   const fromListPrice = toNum(fromBalance.price);
   const toListPrice = toNum(toBalance.price);
-  const fromFallbackPrice = fallbackPriceM[fromPriceKey];
-  const toFallbackPrice = fallbackPriceM[toPriceKey];
-  const fromPriceLoading = !!priceLoadingM[fromPriceKey];
-  const toPriceLoading = !!priceLoadingM[toPriceKey];
+  const {
+    fallbackPrice: fromFallbackPrice,
+    loading: fromPriceLoading,
+  } = useTradeFallbackPrice({
+    cacheKey: fromPriceKey,
+    chain: fromChain,
+    coin: fromCoin,
+    listPrice: fromListPrice,
+    getPrice: getTradeCoinPrice,
+  });
+  const {
+    fallbackPrice: toFallbackPrice,
+    loading: toPriceLoading,
+  } = useTradeFallbackPrice({
+    cacheKey: toPriceKey,
+    chain: toChain,
+    coin: toCoin,
+    listPrice: toListPrice,
+    getPrice: getTradeCoinPrice,
+  });
   const fromPrice = fromListPrice || toNum(fromFallbackPrice);
   const toPrice = toListPrice || toNum(toFallbackPrice);
   const fromUsd = fromPrice ? maxSell * fromPrice : 0;
@@ -806,62 +829,6 @@ export default function SwapPanel({
       window.removeEventListener(walletBalancePatchEvent, handleBalancePatch);
     };
   }, [recipient, toChain, toCoin]);
-
-  useEffect(() => {
-    if (!fromChain || !fromCoin || fromListPrice > 0) return;
-    if (fromFallbackPrice !== undefined) return;
-
-    let cancelled = false;
-    setPriceLoadingM((priceM) => ({ ...priceM, [fromPriceKey]: true }));
-    getTradeCoinPrice({ chain: fromChain, coin: fromCoin })
-      .then((res) => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({
-          ...priceM,
-          [fromPriceKey]: toNum(res?.price),
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({ ...priceM, [fromPriceKey]: 0 }));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPriceLoadingM((priceM) => ({ ...priceM, [fromPriceKey]: false }));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fromChain, fromCoin, fromFallbackPrice, fromListPrice, fromPriceKey]);
-
-  useEffect(() => {
-    if (!toChain || !toCoin || toListPrice > 0) return;
-    if (toFallbackPrice !== undefined) return;
-
-    let cancelled = false;
-    setPriceLoadingM((priceM) => ({ ...priceM, [toPriceKey]: true }));
-    getTradeCoinPrice({ chain: toChain, coin: toCoin })
-      .then((res) => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({
-          ...priceM,
-          [toPriceKey]: toNum(res?.price),
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({ ...priceM, [toPriceKey]: 0 }));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPriceLoadingM((priceM) => ({ ...priceM, [toPriceKey]: false }));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [toChain, toCoin, toFallbackPrice, toListPrice, toPriceKey]);
 
   function getSwapCoinBalance(chain = "", coin = "", address = "") {
     const chainE = chainList.find((entry) => entry.chain == chain);
@@ -1714,22 +1681,6 @@ export default function SwapPanel({
     }
   }
 
-  function clearCustomCoinPreview() {
-    setCustomCoinPreview(null);
-    setCustomCoinDraft({ coin: "", name: "", type: "", customType: "", ref: "" });
-  }
-
-  function setCustomCoinPreviewData(res) {
-    setCustomCoinPreview(res);
-    setCustomCoinDraft({
-      coin: res.coin || "",
-      name: res.entry?.name || "",
-      type: res.entry?.type || "token",
-      customType: res.entry?.type || "token",
-      ref: res.entry?.ref || "",
-    });
-  }
-
   async function openDiscoveryCoinConfirm(e, chain = "", entry = {}) {
     e.preventDefault();
     e.stopPropagation();
@@ -1751,60 +1702,6 @@ export default function SwapPanel({
       }
 
       setCustomCoinPreviewData(res);
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setAddingCoin(false);
-    }
-  }
-
-  async function confirmCustomCoin() {
-    if (!customCoinPreview || addingCoin) return;
-
-    setAddingCoin(true);
-    try {
-      const coin = String(customCoinDraft.coin || customCoinPreview.coin || "").trim();
-      const entry = {
-        address: customCoinPreview.entry?.address,
-        decimals: customCoinPreview.entry?.decimals,
-        name: customCoinDraft.name || customCoinPreview.entry?.name || coin,
-        type:
-          customCoinDraft.customType.trim() ||
-          customCoinDraft.type ||
-          customCoinPreview.entry?.type ||
-          "token",
-      };
-      if (customCoinDraft.ref.trim()) entry.ref = customCoinDraft.ref.trim();
-      const res = useLocalEditorStore
-        ? addLocalCustomCoin({
-            chain: customCoinPreview.chain,
-            coin,
-            entry,
-          })
-        : await addCustomCoin({
-            chain: customCoinPreview.chain,
-            address: entry.address,
-            coin,
-            name: entry.name,
-            type: entry.type,
-            ref: entry.ref || "",
-          });
-
-      if (!res.ok) throw new Error(res.msg || "add coin failed");
-      if (res.exists) {
-        toast(`${res.chain} ${res.coin} exists`);
-        clearCustomCoinPreview();
-        return;
-      }
-
-      const addressKey = getTokenAddressKey(customCoinPreview.chain, entry.address);
-      setLocallyAddedAddressM((addressM) => ({
-        ...addressM,
-        [`${customCoinPreview.chain}:${addressKey}`]: true,
-      }));
-      toast.success(`${res.chain} ${res.coin} added`);
-      clearCustomCoinPreview();
-      onTxComplete({ ok: true, type: "addCoin", chain: customCoinPreview.chain });
     } catch (e) {
       toast.error(e.message);
     } finally {

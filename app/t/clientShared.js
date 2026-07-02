@@ -315,6 +315,79 @@ export function useTradeDirectMarketBalance({
   return { balance, loading, clear };
 }
 
+const tradeFallbackPriceCacheM = {};
+const tradeFallbackPricePromiseM = {};
+
+export function useTradeFallbackPrice({
+  enabled = true,
+  cacheKey = "",
+  chain = "",
+  coin = "",
+  listPrice = 0,
+  getPrice,
+} = {}) {
+  const [fallbackPriceE, setFallbackPriceE] = useState({
+    cacheKey,
+    price: cacheKey ? tradeFallbackPriceCacheM[cacheKey] : undefined,
+  });
+  const [loading, setLoading] = useState(false);
+  const fallbackPrice =
+    fallbackPriceE.cacheKey == cacheKey ? fallbackPriceE.price : undefined;
+
+  useEffect(() => {
+    if (!enabled || !cacheKey || !chain || !coin || toNum(listPrice) > 0) return;
+    if (fallbackPrice !== undefined) return;
+    if (tradeFallbackPriceCacheM[cacheKey] !== undefined) {
+      setFallbackPriceE({
+        cacheKey,
+        price: tradeFallbackPriceCacheM[cacheKey],
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    if (!tradeFallbackPricePromiseM[cacheKey]) {
+      tradeFallbackPricePromiseM[cacheKey] = getPrice({ chain, coin })
+        .then((res) => {
+          const price = toNum(res?.price);
+          tradeFallbackPriceCacheM[cacheKey] = price;
+          return price;
+        })
+        .catch(() => {
+          tradeFallbackPriceCacheM[cacheKey] = 0;
+          return 0;
+        })
+        .finally(() => {
+          delete tradeFallbackPricePromiseM[cacheKey];
+        });
+    }
+
+    tradeFallbackPricePromiseM[cacheKey]
+      .then((price) => {
+        if (!cancelled) setFallbackPriceE({ cacheKey, price });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cacheKey,
+    chain,
+    coin,
+    enabled,
+    fallbackPrice,
+    getPrice,
+    listPrice,
+  ]);
+
+  return { fallbackPrice, loading };
+}
+
 export function getExplorerAddressUrl(chain = "", address = "") {
   const scanner = scanners?.[chain];
   if (!scanner || !address) return "";
@@ -488,6 +561,110 @@ export function CustomCoinConfirmModal({
       </form>
     </div>
   );
+}
+
+const customCoinInitialDraft = {
+  coin: "",
+  name: "",
+  type: "",
+  customType: "",
+  ref: "",
+};
+
+export function useCustomCoinConfirm({
+  useLocalEditorStore = false,
+  addLocalCustomCoinAction,
+  addCustomCoinAction,
+  setLocallyAddedAddressM = () => {},
+  onTxComplete = () => {},
+} = {}) {
+  const [customCoinPreview, setCustomCoinPreview] = useState(null);
+  const [customCoinDraft, setCustomCoinDraft] = useState(customCoinInitialDraft);
+  const [addingCoin, setAddingCoin] = useState(false);
+
+  function clearCustomCoinPreview() {
+    setCustomCoinPreview(null);
+    setCustomCoinDraft(customCoinInitialDraft);
+  }
+
+  function setCustomCoinPreviewData(res = {}) {
+    setCustomCoinPreview(res);
+    setCustomCoinDraft({
+      coin: res.coin || "",
+      name: res.entry?.name || "",
+      type: res.entry?.type || "token",
+      customType: res.entry?.type || "token",
+      ref: res.entry?.ref || "",
+    });
+  }
+
+  async function confirmCustomCoin() {
+    if (!customCoinPreview || addingCoin) return;
+
+    setAddingCoin(true);
+    try {
+      const coin = String(
+        customCoinDraft.coin || customCoinPreview.coin || "",
+      ).trim();
+      const entry = {
+        address: customCoinPreview.entry?.address,
+        decimals: customCoinPreview.entry?.decimals,
+        name: customCoinDraft.name || customCoinPreview.entry?.name || coin,
+        type:
+          customCoinDraft.customType.trim() ||
+          customCoinDraft.type ||
+          customCoinPreview.entry?.type ||
+          "token",
+      };
+      if (customCoinDraft.ref.trim()) entry.ref = customCoinDraft.ref.trim();
+
+      const res = useLocalEditorStore
+        ? addLocalCustomCoinAction?.({
+            chain: customCoinPreview.chain,
+            coin,
+            entry,
+          })
+        : await addCustomCoinAction?.({
+            chain: customCoinPreview.chain,
+            address: entry.address,
+            coin,
+            name: entry.name,
+            type: entry.type,
+            ref: entry.ref || "",
+          });
+
+      if (!res?.ok) throw new Error(res?.msg || "add coin failed");
+      if (res.exists) {
+        toast(`${res.chain} ${res.coin} exists`);
+        clearCustomCoinPreview();
+        return;
+      }
+
+      const addressKey = getTokenAddressKey(customCoinPreview.chain, entry.address);
+      setLocallyAddedAddressM((addressM) => ({
+        ...addressM,
+        [`${customCoinPreview.chain}:${addressKey}`]: true,
+      }));
+      toast.success(`${res.chain} ${res.coin} added`);
+      clearCustomCoinPreview();
+      onTxComplete({ ok: true, type: "addCoin", chain: customCoinPreview.chain });
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setAddingCoin(false);
+    }
+  }
+
+  return {
+    customCoinPreview,
+    customCoinDraft,
+    setCustomCoinDraft,
+    addingCoin,
+    setAddingCoin,
+    clearCustomCoinPreview,
+    setCustomCoinPreviewData,
+    confirmCustomCoin,
+  };
 }
 
 export function hasLoadedBalance(balance = {}) {

@@ -100,6 +100,8 @@ import {
   tradeLendDefiCookie,
   tradeLendMarketCookie,
   toNum,
+  useCustomCoinConfirm,
+  useTradeFallbackPrice,
 } from "../clientShared";
 
 const withdrawAllTolerance = 0.999999999999;
@@ -183,8 +185,6 @@ export default function LendPanel({
   const [lendEndWith, setLendEndWith] = useState(false);
   const [redeemEndWith, setRedeemEndWith] = useState(false);
   const [qtyInputSide, setQtyInputSide] = useState("lend");
-  const [fallbackPriceM, setFallbackPriceM] = useState({});
-  const [priceLoadingM, setPriceLoadingM] = useState({});
   const [marketPreviewM, setMarketPreviewM] = useState({});
   const [marketLoadingM, setMarketLoadingM] = useState({});
   const [lendPending, setLendPending] = useState(false);
@@ -194,20 +194,27 @@ export default function LendPanel({
     getInitialAutoApproval(initialCookieM),
   );
   const [showMarketMenu, setShowMarketMenu] = useState(false);
-  const [customCoinPreview, setCustomCoinPreview] = useState(null);
-  const [customCoinDraft, setCustomCoinDraft] = useState({
-    coin: "",
-    name: "",
-    type: "",
-    customType: "",
-    ref: "",
-  });
-  const [addingCoin, setAddingCoin] = useState(false);
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
   const [addedMarketSort, setAddedMarketSort] = useState("");
   const [allMarketSort, setAllMarketSort] = useState("");
   const marketPickerRef = useRef(null);
   const useLocalEditorStore = useLocalStorageEditor();
+  const {
+    customCoinPreview,
+    customCoinDraft,
+    setCustomCoinDraft,
+    addingCoin,
+    setAddingCoin,
+    clearCustomCoinPreview,
+    setCustomCoinPreviewData,
+    confirmCustomCoin,
+  } = useCustomCoinConfirm({
+    useLocalEditorStore,
+    addLocalCustomCoinAction: addLocalCustomCoin,
+    addCustomCoinAction: addCustomCoin,
+    setLocallyAddedAddressM,
+    onTxComplete,
+  });
   const chainMarketsM = useMemo(() => {
     return Object.fromEntries(
       chainList.map((chainE) => [chainE.chain, getLendingMarkets(chainE, defi)]),
@@ -515,8 +522,26 @@ export default function LendPanel({
       : 0;
   const underlyingListPrice = toNum(underlyingBalance.price);
   const receiptListPrice = toNum(receiptBalance.price);
-  const underlyingFallbackPrice = fallbackPriceM[underlyingPriceKey];
-  const receiptFallbackPrice = fallbackPriceM[receiptPriceKey];
+  const {
+    fallbackPrice: underlyingFallbackPrice,
+    loading: underlyingPriceLoading,
+  } = useTradeFallbackPrice({
+    cacheKey: underlyingPriceKey,
+    chain: chainE?.chain,
+    coin: underlyingCoin,
+    listPrice: underlyingListPrice,
+    getPrice: getTradeCoinPrice,
+  });
+  const {
+    fallbackPrice: receiptFallbackPrice,
+    loading: receiptPriceLoading,
+  } = useTradeFallbackPrice({
+    cacheKey: receiptPriceKey,
+    chain: chainE?.chain,
+    coin: lendCoin,
+    listPrice: receiptListPrice,
+    getPrice: getTradeCoinPrice,
+  });
   const underlyingPrice =
     underlyingListPrice || toNum(underlyingFallbackPrice) || 0;
   const receiptPrice =
@@ -728,8 +753,7 @@ export default function LendPanel({
     ? underlyingEnd * underlyingPrice
     : 0;
   const receiptEndUsd = receiptPrice ? receiptEnd * receiptPrice : 0;
-  const priceLoading =
-    !!priceLoadingM[underlyingPriceKey] || !!priceLoadingM[receiptPriceKey];
+  const priceLoading = underlyingPriceLoading || receiptPriceLoading;
   const noPriceCoins = [
     underlyingCoin && underlyingPrice <= 0 ? underlyingCoin : "",
     lendCoin && receiptPrice <= 0 ? lendCoin : "",
@@ -925,77 +949,6 @@ export default function LendPanel({
     const next = getSignedReceiptQty(lendQty);
     if (next != receiptQty) setReceiptQty(next);
   }, [lendQty, qtyInputSide, receiptQty, receiptRate]);
-
-  useEffect(() => {
-    if (!chainE?.chain || !underlyingCoin || underlyingListPrice > 0) return;
-    if (underlyingFallbackPrice !== undefined) return;
-
-    let cancelled = false;
-    setPriceLoadingM((priceM) => ({ ...priceM, [underlyingPriceKey]: true }));
-    getTradeCoinPrice({ chain: chainE.chain, coin: underlyingCoin })
-      .then((res) => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({
-          ...priceM,
-          [underlyingPriceKey]: toNum(res?.price),
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({ ...priceM, [underlyingPriceKey]: 0 }));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPriceLoadingM((priceM) => ({
-          ...priceM,
-          [underlyingPriceKey]: false,
-        }));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    chainE?.chain,
-    underlyingCoin,
-    underlyingFallbackPrice,
-    underlyingListPrice,
-    underlyingPriceKey,
-  ]);
-
-  useEffect(() => {
-    if (!chainE?.chain || !lendCoin || receiptListPrice > 0) return;
-    if (receiptFallbackPrice !== undefined) return;
-
-    let cancelled = false;
-    setPriceLoadingM((priceM) => ({ ...priceM, [receiptPriceKey]: true }));
-    getTradeCoinPrice({ chain: chainE.chain, coin: lendCoin })
-      .then((res) => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({
-          ...priceM,
-          [receiptPriceKey]: toNum(res?.price),
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFallbackPriceM((priceM) => ({ ...priceM, [receiptPriceKey]: 0 }));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setPriceLoadingM((priceM) => ({ ...priceM, [receiptPriceKey]: false }));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    chainE?.chain,
-    lendCoin,
-    receiptFallbackPrice,
-    receiptListPrice,
-    receiptPriceKey,
-  ]);
 
   function getReceiptQty(value) {
     return formatComputedTradeQty(toNum(value) * receiptRate, receiptQtyDecimals);
@@ -1216,22 +1169,6 @@ export default function LendPanel({
       : entry.value;
   }
 
-  function clearCustomCoinPreview() {
-    setCustomCoinPreview(null);
-    setCustomCoinDraft({ coin: "", name: "", type: "", customType: "", ref: "" });
-  }
-
-  function setCustomCoinPreviewData(res) {
-    setCustomCoinPreview(res);
-    setCustomCoinDraft({
-      coin: res.coin || "",
-      name: res.entry?.name || "",
-      type: res.entry?.type || "token",
-      customType: res.entry?.type || "token",
-      ref: res.entry?.ref || "",
-    });
-  }
-
   async function openProtocolCoinConfirm(e, entry = {}, tokenKind = "lend") {
     e.preventDefault();
     e.stopPropagation();
@@ -1263,60 +1200,6 @@ export default function LendPanel({
             }
           : res,
       );
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setAddingCoin(false);
-    }
-  }
-
-  async function confirmCustomCoin() {
-    if (!customCoinPreview || addingCoin) return;
-
-    setAddingCoin(true);
-    try {
-      const coin = String(customCoinDraft.coin || customCoinPreview.coin || "").trim();
-      const entry = {
-        address: customCoinPreview.entry?.address,
-        decimals: customCoinPreview.entry?.decimals,
-        name: customCoinDraft.name || customCoinPreview.entry?.name || coin,
-        type:
-          customCoinDraft.customType.trim() ||
-          customCoinDraft.type ||
-          customCoinPreview.entry?.type ||
-          "token",
-      };
-      if (customCoinDraft.ref.trim()) entry.ref = customCoinDraft.ref.trim();
-      const res = useLocalEditorStore
-        ? addLocalCustomCoin({
-            chain: customCoinPreview.chain,
-            coin,
-            entry,
-          })
-        : await addCustomCoin({
-            chain: customCoinPreview.chain,
-            address: entry.address,
-            coin,
-            name: entry.name,
-            type: entry.type,
-            ref: entry.ref || "",
-          });
-
-      if (!res.ok) throw new Error(res.msg || "add coin failed");
-      if (res.exists) {
-        toast(`${res.chain} ${res.coin} exists`);
-        clearCustomCoinPreview();
-        return;
-      }
-
-      const addressKey = getTokenAddressKey(customCoinPreview.chain, entry.address);
-      setLocallyAddedAddressM((addressM) => ({
-        ...addressM,
-        [`${customCoinPreview.chain}:${addressKey}`]: true,
-      }));
-      toast.success(`${res.chain} ${res.coin} added`);
-      clearCustomCoinPreview();
-      onTxComplete({ ok: true, type: "addCoin", chain: customCoinPreview.chain });
     } catch (e) {
       toast.error(e.message);
     } finally {
