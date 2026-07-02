@@ -3,6 +3,7 @@
 import "ygb/client";
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
+import toast from "react-hot-toast";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
@@ -210,6 +211,141 @@ export function TradePickerSortHeader({
       {children}
     </button>
   );
+}
+
+export function getTradeWalletLabel(entry = {}) {
+  return String(entry.label || entry.name || entry.value || "wallet");
+}
+
+export function getTradeWalletToastText(entry = {}, loopRun = false, message = "") {
+  return loopRun ? `${getTradeWalletLabel(entry)}: ${message}` : message;
+}
+
+export function createTradeToast(entry = {}, loopRun = false) {
+  const text = (message = "") =>
+    getTradeWalletToastText(entry, loopRun, message);
+
+  return {
+    text,
+    show: (message, options) => toast(text(message), options),
+    loading: (message, options) => toast.loading(text(message), options),
+    success: (message, options) => toast.success(text(message), options),
+    error: (message, options) => toast.error(text(message), options),
+  };
+}
+
+export function withTradeWalletResult(result, entry = {}) {
+  if (!result) return result;
+
+  return {
+    ...result,
+    walletLabel: getTradeWalletLabel(entry),
+    walletName: entry.name || "",
+    walletAddress: entry.address || "",
+  };
+}
+
+export function createTradeLoopResult(results = [], fallback = {}) {
+  const entries = (Array.isArray(results) ? results : [])
+    .filter(Boolean)
+    .map((result) => ({
+      ...result,
+      walletLabel: result.walletLabel || getTradeWalletLabel(result),
+    }));
+  if (!entries.length) return null;
+
+  const txs = entries.flatMap((entry) =>
+    (entry.txs || []).map((tx) => ({
+      ...tx,
+      walletLabel: entry.walletLabel,
+      walletName: entry.walletName,
+      walletAddress: entry.walletAddress,
+    })),
+  );
+  const loopErrors = entries
+    .filter((entry) => entry.ok === false || entry.error)
+    .map((entry) => ({
+      walletLabel: entry.walletLabel,
+      error: entry.error || "failed",
+    }));
+  const lastOk = [...entries].reverse().find((entry) => entry.ok !== false);
+
+  return {
+    ...(lastOk || entries[entries.length - 1]),
+    ...fallback,
+    ok: !!txs.length,
+    loop: true,
+    results: entries,
+    txs,
+    loopErrors,
+    error: txs.length
+      ? ""
+      : loopErrors
+          .map((entry) => `${entry.walletLabel}: ${entry.error}`)
+          .join("; ") || "loop failed",
+  };
+}
+
+export async function sendBrowserTradeTx({
+  tx,
+  walletEntry = {},
+  tradeToast,
+  toastId,
+  message = "",
+  solana = false,
+} = {}) {
+  if (message) tradeToast?.loading(message, { id: toastId });
+
+  return solana || tx?.chain == "Solana" || tx?.format?.startsWith("solana:")
+    ? sendBrowserSolanaTx({
+        tx,
+        wallet: walletEntry.browserWallet,
+        address: walletEntry.address,
+      })
+    : sendBrowserTx({
+        tx,
+        wallet: walletEntry.browserWallet,
+        address: walletEntry.address,
+      });
+}
+
+export async function runTradeWalletLoop({
+  loopWallets = false,
+  getLoopWalletEntries = () => [],
+  selectedWalletEntry,
+  actionLabel = "action",
+  runOne = async () => {},
+} = {}) {
+  const loopEntries = loopWallets ? getLoopWalletEntries() : [];
+  if (!loopEntries.length) {
+    return runOne(selectedWalletEntry, { skipConfirm: false, loopRun: false });
+  }
+
+  const seen = new Set();
+  const walletEntries = [selectedWalletEntry, ...loopEntries].filter((entry) => {
+    const key = `${entry?.value || ""}:${String(entry?.address || "").toLowerCase()}`;
+    if (!entry?.address || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const labels = walletEntries.map(getTradeWalletLabel).join(", ");
+  const ok = window.confirm(`WARN: confirm loop ${actionLabel} for all: ${labels}?`);
+  if (!ok) return null;
+
+  const results = [];
+  const toastId = toast.loading(`looping: ${labels}`);
+  try {
+    for (const entry of walletEntries) {
+      const result = await runOne(entry, { skipConfirm: true, loopRun: true });
+      if (result) results.push(withTradeWalletResult(result, entry));
+    }
+    toast.success(`loop done: ${labels}`, { id: toastId });
+  } catch (e) {
+    toast.error(e?.message || `loop failed: ${labels}`, { id: toastId });
+    throw e;
+  }
+
+  return results;
 }
 
 export function getTradeModeCookie(base = "", walletType = "evm") {
@@ -633,6 +769,121 @@ export function inputQty(value) {
   const clean = n.toFixed(12).replace(/\.?0+$/, "");
 
   return clean == "-0" ? "0" : clean;
+}
+
+export function getQtyDecimals(decimals, fallback = 18) {
+  const n = Number(decimals);
+
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
+export function formatTradeQty(value, decimals = 18) {
+  const decimalLimit = getQtyDecimals(decimals);
+  let text = String(value ?? "")
+    .trim()
+    .replace(/,/g, "");
+
+  if (!text) return "0";
+  if (/e/i.test(text)) {
+    const n = Number(text);
+    text = Number.isFinite(n) ? n.toFixed(Math.min(decimalLimit, 30)) : "0";
+  }
+
+  const negative = text.startsWith("-");
+  text = text.replace(/[^\d.]/g, "");
+
+  const dotIndex = text.indexOf(".");
+  if (dotIndex >= 0) {
+    text =
+      text.slice(0, dotIndex + 1) + text.slice(dotIndex + 1).replace(/\./g, "");
+  }
+  if (text.startsWith(".")) text = `0${text}`;
+  if (/^0+(?=\.)/.test(text)) text = text.replace(/^0+(?=\.)/, "0");
+  if (/^0+(?=\d)/.test(text)) text = text.replace(/^0+(?=\d)/, "") || "0";
+
+  const [whole = "0", fraction = ""] = text.split(".");
+  const limitedFraction = fraction.slice(0, decimalLimit);
+  const trimmedFraction = limitedFraction.replace(/0+$/, "");
+  const formatted = trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
+  const clean = formatted.replace(/^0+(?=\d)/, "") || "0";
+
+  return negative && clean != "0" ? `-${clean}` : clean;
+}
+
+export function limitQtyInputDecimals(value, decimals = 18) {
+  const decimalLimit = getQtyDecimals(decimals);
+  const text = String(value ?? "");
+  const dotIndex = text.indexOf(".");
+
+  if (dotIndex < 0) return text;
+
+  return text.slice(0, dotIndex + 1 + decimalLimit);
+}
+
+export function cleanTradeInput(value) {
+  let text = String(value ?? "")
+    .trim()
+    .replace(/,/g, "")
+    .replace(/[^\d.]/g, "");
+  const dotIndex = text.indexOf(".");
+
+  if (dotIndex >= 0) {
+    text =
+      text.slice(0, dotIndex + 1) + text.slice(dotIndex + 1).replace(/\./g, "");
+  }
+  if (!text) return "0";
+  if (text.startsWith(".")) text = `0${text}`;
+  if (/^0+(?=\.)/.test(text)) return text.replace(/^0+(?=\.)/, "0");
+  if (/^0+(?=\d)/.test(text)) return text.replace(/^0+(?=\d)/, "") || "0";
+
+  return text;
+}
+
+export function absTradeQty(value, decimals = 18) {
+  return formatTradeQty(String(value ?? "").replace(/^-/, ""), decimals);
+}
+
+export function qtyInputSize(value = "") {
+  return Math.max(String(value ?? "").length + 1, 10);
+}
+
+export function qtyInputStyle(value = "") {
+  return {
+    maxWidth: "none",
+    width: `${qtyInputSize(value)}ch`,
+  };
+}
+
+export function rangeQtyInput(value, maxValue, maxQty, decimals = 18) {
+  const n = toNum(value);
+  const maxN = toNum(maxValue);
+
+  if (maxN > 0 && n >= maxN) return formatTradeQty(maxQty, decimals);
+
+  return formatTradeQty(value, decimals);
+}
+
+export function normalizeSignedQtyInput(
+  value,
+  maxPositive,
+  maxNegative,
+  decimals = 18,
+) {
+  const raw = String(value ?? "").trim();
+  const negative = raw.startsWith("-");
+  const qty = limitQtyInputDecimals(
+    cleanTradeInput(negative ? raw.slice(1) : raw),
+    decimals,
+  );
+  const max = negative ? maxNegative : maxPositive;
+  const n = toNum(qty);
+
+  if (Number.isFinite(max) && n > max) {
+    const maxQty = formatTradeQty(max, decimals);
+    return negative && maxQty != "0" ? `-${maxQty}` : maxQty;
+  }
+
+  return negative && n ? `-${qty}` : qty;
 }
 
 function cleanInputValue(value) {
@@ -1190,7 +1441,8 @@ export async function signBrowserRelayItem({
 
 export function SwapTxLink({ tx }) {
   const txUrl = getTxUrl(tx.chain, tx.hash);
-  const label = `${tx.chain} ${tx.type ? `${tx.type} ` : ""}${shortHash(tx.hash)}`;
+  const walletLabel = tx.walletLabel ? `${tx.walletLabel} ` : "";
+  const label = `${walletLabel}${tx.chain} ${tx.type ? `${tx.type} ` : ""}${shortHash(tx.hash)}`;
 
   return (
     <span className="infoHover hoverOnlyInfo swapTxInfo">
@@ -1203,6 +1455,11 @@ export function SwapTxLink({ tx }) {
       )}
       <span className="infoCard">
         <span className="infoCardTitle">{tx.type || "tx"}</span>
+        {tx.walletLabel && (
+          <span>
+            wallet: <span className="gray">{tx.walletLabel}</span>
+          </span>
+        )}
         <span>
           chain: <span className="gray">{tx.chain}</span>
         </span>

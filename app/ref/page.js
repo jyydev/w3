@@ -2,17 +2,17 @@ import Logo from "@/components/Logo";
 import "./ref.css";
 
 const walletRoutes = [
-  ["/w", "default EVM wallet view; loads all wallet txt files"],
-  ["/w/y", "load data/editor/wallet/evm/y.txt, or y/ folder if selected"],
-  ["/w/y/", "folder selection; loads all txt files under y/"],
-  ["/w?chain=solana", "Solana wallet view; uses data/editor/wallet/solana"],
+  ["/w", "default EVM wallet view; loads all wallet JSON files"],
+  ["/w/y", "load data/editor/wallets/evm/y.json, or y/ folder if selected"],
+  ["/w/y/", "folder selection; loads all JSON files under y/"],
+  ["/w?chain=solana", "Solana wallet view; uses data/editor/wallets/solana"],
   ["/w?w=NAME", "filter to one wallet name from the loaded wallet files"],
   ["/w?addr=ADDRESS", "load only one custom address"],
 ];
 
 const walletDataFiles = [
-  ["data/editor/wallet/evm", "EVM wallet txt files and folders"],
-  ["data/editor/wallet/solana", "Solana wallet txt files and folders"],
+  ["data/editor/wallets/evm", "EVM wallet JSON files and folders"],
+  ["data/editor/wallets/solana", "Solana wallet JSON files and folders"],
   ["data/coins/CHAIN.js", "global tracked coin definitions"],
   ["data/editor/coins/CHAIN.json", "custom coin staging area from add coin"],
   ["data/editor/cookie/offChains.txt", "server-side disabled chains"],
@@ -21,10 +21,10 @@ const walletDataFiles = [
 ];
 
 const walletNotes = [
-  "Wallet txt lines use name: address or name = address.",
-  "Blank lines, # comments, and // comments are ignored.",
-  "The all selection combines txt files and excludes watch files/folders.",
-  "A folder selection loads every txt file under that folder.",
+  "Wallet JSON files use an array of { wallet, address, ref } entries.",
+  "The ref field is optional and editable from the address hover card.",
+  "The all selection combines JSON files and excludes watch files/folders.",
+  "A folder selection loads every JSON file under that folder.",
   "Switching EVM and Solana remembers the last wallet selection for each type.",
   "walletNotes in sets.js is shown in the address hover card and under expanded wallet names.",
 ];
@@ -42,7 +42,7 @@ const tableNotes = [
 
 const actions = [
   ["Address input", "enter 0x or Solana address; URL becomes /w?addr=ADDRESS"],
-  ["Add wallet", "toggle add controls, choose wallet file, enter name/address, then save to wallet txt"],
+  ["Add wallet", "toggle add controls, choose wallet file, enter name/address, then save to wallet JSON"],
   ["Add coin", "choose chain, enter token contract/mint, save metadata to data/editor/coins/CHAIN.json"],
   ["Editor store globally", "append staged custom coins to data/coins/CHAIN.js and remove successful entries from JSON"],
   ["Address settings", "disable wallets by browser cookie or server offAddr.txt; delete wallet entries with confirmation"],
@@ -102,7 +102,7 @@ function Page() {
       <Section title="wallet">
         <p>
           `/w` is the wallet viewer. It loads wallet addresses from
-          `data/editor/wallet`, fetches balances by chain, prices assets, and
+          `data/editor/wallets`, fetches balances by chain, prices assets, and
           shows totals in one sortable table.
         </p>
       </Section>

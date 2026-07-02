@@ -47,7 +47,7 @@ async function App({ searchParams }) {
             <span className="infoCardTitle">Editor</span>
             <span>Cmd+S / Ctrl+S saves while editing.</span>
             <span>Saved files are under data/editor.</span>
-            <span>Lines starting with // are comments for wallet files.</span>
+            <span>Wallet files use JSON arrays with wallet, address, and ref.</span>
           </span>
         </span>
       </div>

@@ -9,11 +9,12 @@ import getCoinM from "@/fn/getCoinM";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
 import { getWalletDisableKey } from "./walletSettingData";
 
-const walletRootDir = path.join(process.cwd(), "data", "editor", "wallet");
+const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
 const customCoinRootDir = path.join(process.cwd(), "data", "editor", "coins");
 const customDefiRootDir = path.join(process.cwd(), "data", "editor", "defi");
 export const defaultWalletType = "evm";
 export const walletTypes = ["evm", "solana"];
+const walletFileExt = ".json";
 const dexChainM = {
   BSC: "bsc",
   Ethereum: "ethereum",
@@ -170,6 +171,18 @@ function getRpcs(chainE) {
     .filter(Boolean);
 }
 
+function normalizeCustomCoinM(input = {}) {
+  if (Array.isArray(input)) {
+    return Object.fromEntries(
+      input
+        .filter((entry) => entry && typeof entry == "object" && entry.coin)
+        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+        .filter(([coin]) => coin),
+    );
+  }
+  return input && typeof input == "object" ? input : {};
+}
+
 async function readCustomCoins(chain = "") {
   const cleanChain = String(chain || "").trim();
   if (!cleanChain) return {};
@@ -181,9 +194,7 @@ async function readCustomCoins(chain = "") {
     const parsed = JSON.parse(
       await fs.readFile(path.join(customCoinRootDir, `${cleanChain}.json`), "utf8"),
     );
-    return parsed && typeof parsed == "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
+    return normalizeCustomCoinM(parsed);
   } catch (e) {
     if (e.code == "ENOENT") return {};
     return {};
@@ -295,7 +306,7 @@ function isReservedWalletPath(file) {
     .split(/[\\/]+/)
     .filter(Boolean)
     .some((part) =>
-      reservedWalletNames.has(part.replace(/\.txt$/i, "").toLowerCase()),
+      reservedWalletNames.has(part.replace(/\.(txt|json)$/i, "").toLowerCase()),
     );
 }
 
@@ -544,26 +555,51 @@ function chunkList(list, size) {
   return chunks;
 }
 
-export function parseWallets(txt = "") {
+export function parseWallets(input = "") {
   return Object.fromEntries(
-    parseWalletEntries(txt).map((entry) => [entry.name, entry.address]),
+    parseWalletEntries(input).map((entry) => [entry.name, entry.address]),
   );
 }
 
-export function parseWalletEntries(txt = "", source = "") {
-  return txt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#") && !line.startsWith("//"))
-    .map((line) => {
-      const [, name, address] = line.match(/^([^:=\s]+)\s*[:=]\s*(\S+)$/) || [];
-      if (!name || !address) return null;
+export function parseWalletEntries(input = "", source = "") {
+  let rows = input;
+
+  if (typeof input == "string") {
+    const txt = String(input || "").trim();
+    if (txt.startsWith("[") || txt.startsWith("{")) {
+      try {
+        rows = JSON.parse(txt || "[]");
+      } catch {
+        rows = input;
+      }
+    }
+  }
+
+  const entries = Array.isArray(rows)
+    ? rows
+    : String(rows || "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("#") && !line.startsWith("//"))
+        .map((line) => {
+          const [, wallet, address] =
+            line.match(/^([^:=\s]+)\s*[:=]\s*(\S+)$/) || [];
+          return { wallet, address, ref: "" };
+        });
+
+  return entries
+    .map((entry) => {
+      const wallet = String(entry?.wallet ?? entry?.name ?? "").trim();
+      const address = String(entry?.address ?? "").trim();
+      if (!wallet || !address) return null;
 
       return {
-        name,
+        wallet,
+        name: wallet,
         address,
+        ref: String(entry?.ref ?? "").trim(),
         source,
-        label: source ? `${source}/${name}` : name,
+        label: source ? `${source}/${wallet}` : wallet,
       };
     })
     .filter(Boolean);
@@ -597,7 +633,7 @@ function getCustomWallets(walletAddress = "") {
 function getCustomWalletEntries(walletAddress = "") {
   const address = normalizeWalletAddress(walletAddress);
   return address
-    ? [{ name: "addr", address, source: "", label: "addr" }]
+    ? [{ wallet: "addr", name: "addr", address, ref: "", source: "", label: "addr" }]
     : null;
 }
 
@@ -610,7 +646,7 @@ function getWalletSource(filePath, walletDir) {
     .relative(walletDir, filePath)
     .split(path.sep)
     .join("/")
-    .replace(/\.txt$/i, "");
+    .replace(/\.(txt|json)$/i, "");
 }
 
 async function readWalletEntries(filePath, walletDir) {
@@ -624,7 +660,7 @@ export async function listWalletFiles(walletType = defaultWalletType) {
   const walletDir = getWalletDir(walletType);
 
   try {
-    const files = await listTxtFiles(walletDir);
+    const files = await listWalletJsonFiles(walletDir);
     const folders = new Set(
       files
         .map((file) => path.dirname(file))
@@ -634,7 +670,7 @@ export async function listWalletFiles(walletType = defaultWalletType) {
 
     return [
       ...folders,
-      ...files.map((file) => file.split(path.sep).join("/").replace(/\.txt$/i, "")),
+      ...files.map((file) => file.split(path.sep).join("/").replace(/\.(txt|json)$/i, "")),
     ].sort();
   } catch (e) {
     if (e.code == "ENOENT") return [];
@@ -642,15 +678,18 @@ export async function listWalletFiles(walletType = defaultWalletType) {
   }
 }
 
-async function listTxtFiles(dir, baseDir = dir) {
+async function listWalletJsonFiles(dir, baseDir = dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files = [];
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listTxtFiles(fullPath, baseDir)));
-    } else if (entry.isFile() && path.extname(entry.name).toLowerCase() == ".txt") {
+      files.push(...(await listWalletJsonFiles(fullPath, baseDir)));
+    } else if (
+      entry.isFile() &&
+      path.extname(entry.name).toLowerCase() == walletFileExt
+    ) {
       files.push(path.relative(baseDir, fullPath));
     }
   }
@@ -661,7 +700,10 @@ async function listTxtFiles(dir, baseDir = dir) {
 function resolveWalletPath(file, walletType = defaultWalletType) {
   if (!file) return "";
   const walletDir = getWalletDir(walletType);
-  const name = decodeURIComponent(file).trim().replace(/\/+$/, "");
+  const name = decodeURIComponent(file)
+    .trim()
+    .replace(/\.(txt|json)$/i, "")
+    .replace(/\/+$/, "");
   if (!name || name.includes("\0") || path.isAbsolute(name)) return "";
 
   const fullPath = path.resolve(walletDir, name);
@@ -695,8 +737,8 @@ export async function loadWalletEntries(
       });
 
       if (stat?.isDirectory()) {
-        const files = await listTxtFiles(selectedPath);
-        const siblingFile = `${selectedPath}.txt`;
+        const files = await listWalletJsonFiles(selectedPath);
+        const siblingFile = `${selectedPath}${walletFileExt}`;
         const siblingStat = await fs.stat(siblingFile).catch((e) => {
           if (e.code != "ENOENT") throw e;
           return null;
@@ -719,14 +761,14 @@ export async function loadWalletEntries(
         );
       }
 
-      const selectedFile = stat?.isFile() ? selectedPath : `${selectedPath}.txt`;
+      const selectedFile = stat?.isFile() ? selectedPath : `${selectedPath}${walletFileExt}`;
       return filterWalletEntries(
         await readWalletEntries(selectedFile, walletDir),
         selectedWalletName,
       );
     }
 
-    const files = await listTxtFiles(walletDir);
+    const files = await listWalletJsonFiles(walletDir);
     const entryList = await Promise.all(
       files
         .filter((file) => selectedWalletName || !isReservedWalletPath(file))

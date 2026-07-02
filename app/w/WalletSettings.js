@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { ckPrefix } from "@/sets";
 import {
+  clearLocalEditorData,
   localEditorStorageEvent,
   readLocalLineFileValues,
   setLocalLineFileValue,
   useLocalStorageEditor,
 } from "../browserEditorStorage";
+import { clearEditorData } from "./editorClearActions";
 import { toggleOffChain } from "./chainActions";
 import {
   alchemyMinUsdCookie,
@@ -19,6 +22,14 @@ import {
 } from "./walletSettingData";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
+const baseCookieClearTargets = [["ALL", "ALL"]];
+const editorDataClearTargets = [
+  ["ALL", "ALL"],
+  ["coins", "coins"],
+  ["cookie", "cookie"],
+  ["defi", "defi"],
+  ["wallets", "wallets"],
+];
 
 function encodeDisabledChains(chains) {
   return chains.join(",");
@@ -43,6 +54,12 @@ function WalletSettings({
   const [alchemyMinUsdDraft, setAlchemyMinUsdDraft] = useState(
     String(alchemyMinUsd),
   );
+  const [cookieClearTarget, setCookieClearTarget] = useState("ALL");
+  const [editorDataClearTarget, setEditorDataClearTarget] = useState("ALL");
+  const [clearingEditorData, setClearingEditorData] = useState(false);
+  const cookieTargets = ckPrefix
+    ? [...baseCookieClearTargets, ["app", "app"]]
+    : baseCookieClearTargets;
   const [disabledM, setDisabledM] = useState(() =>
     Object.fromEntries(disabledChains.map((chain) => [chain, true])),
   );
@@ -182,6 +199,79 @@ function WalletSettings({
     router.refresh();
   }
 
+  function getBrowserCookieNames(target = "ALL") {
+    const names = document.cookie
+      .split(";")
+      .map((cookie) => cookie.split("=")[0]?.trim())
+      .filter(Boolean);
+
+    if (target == "ALL") return names;
+    if (target == "app" && ckPrefix) {
+      return names.filter((name) => name.startsWith(ckPrefix));
+    }
+
+    return [];
+  }
+
+  function deleteBrowserCookie(name = "") {
+    const cleanName = String(name || "").trim();
+    if (!cleanName) return;
+
+    const paths = ["/", window.location.pathname || "/"];
+    for (const path of [...new Set(paths)]) {
+      document.cookie = `${encodeURIComponent(cleanName)}=; Max-Age=0; path=${path}`;
+      document.cookie = `${cleanName}=; Max-Age=0; path=${path}`;
+    }
+  }
+
+  function clearBrowserCookies() {
+    const names = getBrowserCookieNames(cookieClearTarget);
+    if (!names.length) {
+      toast("no cookies to clear");
+      return;
+    }
+
+    const label = cookieClearTarget == "ALL" ? "ALL browser cookies" : "app cookies";
+    if (!window.confirm(`Clear ${label}?\n\nThis cannot be undone.`)) return;
+
+    for (const name of names) deleteBrowserCookie(name);
+    toast.success(`cleared ${names.length} cookie${names.length == 1 ? "" : "s"}`);
+    router.refresh();
+  }
+
+  async function clearEditorStorage() {
+    const target = editorDataClearTarget || "ALL";
+    const label =
+      target == "ALL"
+        ? "ALL data/editor files and folders"
+        : `data/editor/${target}`;
+    const mode = useLocalEditorStore ? "localStorage" : "server";
+    if (!window.confirm(`Clear ${label} from ${mode}?\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    setClearingEditorData(true);
+    try {
+      if (useLocalEditorStore) {
+        const res = clearLocalEditorData(target);
+        if (!res.ok) throw new Error(res.msg || "clear localStorage failed");
+        toast.success(`cleared ${res.removed} local ${target}`);
+        router.refresh();
+        return;
+      }
+
+      const res = await clearEditorData({ target });
+      if (!res.ok) throw new Error(res.msg || "clear server data failed");
+
+      toast.success(`cleared ${res.removed} server ${target}`);
+      router.refresh();
+    } catch (e) {
+      toast.error(e.message || "clear failed");
+    } finally {
+      setClearingEditorData(false);
+    }
+  }
+
   return (
     <span
       className={`infoHover clickInfo walletSettingsIcon ${
@@ -279,17 +369,6 @@ function WalletSettings({
                   <td>{defaultUseAlchemy ? "on" : "off"}</td>
                 </tr>
                 <tr>
-                  <td>gas auto label</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={showGasAutoState}
-                      onChange={toggleShowGasAuto}
-                    />
-                  </td>
-                  <td>{defaultShowGasAuto ? "on" : "off"}</td>
-                </tr>
-                <tr>
                   <td>Alchemy min $</td>
                   <td>
                     <input
@@ -308,6 +387,63 @@ function WalletSettings({
                     />
                   </td>
                   <td>{defaultAlchemyMinUsd}</td>
+                </tr>
+                <tr>
+                  <td>gas auto label</td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={showGasAutoState}
+                      onChange={toggleShowGasAuto}
+                    />
+                  </td>
+                  <td>{defaultShowGasAuto ? "on" : "off"}</td>
+                </tr>
+                <tr>
+                  <td>clear cookies</td>
+                  <td>
+                    <span className="walletSettingsActionRow">
+                      <select
+                        value={cookieClearTarget}
+                        onChange={(e) => setCookieClearTarget(e.target.value)}
+                      >
+                        {cookieTargets.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={clearBrowserCookies}>
+                        clear
+                      </button>
+                    </span>
+                  </td>
+                  <td>browser</td>
+                </tr>
+                <tr>
+                  <td>clear data</td>
+                  <td>
+                    <span className="walletSettingsActionRow">
+                      <select
+                        value={editorDataClearTarget}
+                        onChange={(e) => setEditorDataClearTarget(e.target.value)}
+                      >
+                        {editorDataClearTargets.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={clearingEditorData}
+                        onClick={clearEditorStorage}
+                      >
+                        clear
+                      </button>
+                    </span>
+                  </td>
+                  <td>{useLocalEditorStore ? "local" : "server"}</td>
                 </tr>
               </tbody>
             </table>

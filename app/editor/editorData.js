@@ -96,8 +96,11 @@ export async function saveEditorDataFile(file, content) {
   assertProjectFileWrites();
 
   const { fullPath, relative, ext } = resolveEditorDataFile(file);
+  const emptyJsonContent = /^coins?\/[^/]+\.json$/i.test(relative) ? "[]" : "{}";
   const saveContent =
-    ext == ".json" && !String(content ?? "").trim() ? "{}" : (content ?? "");
+    ext == ".json" && !String(content ?? "").trim()
+      ? emptyJsonContent
+      : (content ?? "");
 
   if (ext == ".json") JSON.parse(saveContent);
 
@@ -146,7 +149,7 @@ function formatValue(value, level = 1) {
 }
 
 function formatCoinEntry(symbol, coin) {
-  return `  ${formatObjectKey(symbol)}: ${formatValue(coin)},\n`;
+  return `  ${formatValue({ coin: symbol, ...coin })},\n`;
 }
 
 function normalizeAddress(address) {
@@ -157,10 +160,35 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value == "object" && !Array.isArray(value);
 }
 
+function normalizeCoinM(input = {}) {
+  if (Array.isArray(input)) {
+    return Object.fromEntries(
+      input
+        .filter((entry) => entry && typeof entry == "object" && entry.coin)
+        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+        .filter(([coin]) => coin),
+    );
+  }
+  return isPlainObject(input) ? input : {};
+}
+
+function getWritableCoinList(coins = {}) {
+  return Object.entries(normalizeCoinM(coins)).map(([coin, entry]) => ({
+    coin,
+    ...(entry || {}),
+  }));
+}
+
 async function appendGlobalCoins(chain, coins) {
   assertProjectFileWrites();
 
-  if (!isPlainObject(coins)) throw new Error("Coin JSON must be an object");
+  const coinM = normalizeCoinM(coins);
+  const validEmpty =
+    (Array.isArray(coins) && !coins.length) ||
+    (isPlainObject(coins) && !Object.keys(coins).length);
+  if (!Object.keys(coinM).length && !validEmpty) {
+    throw new Error("Coin JSON must be an array of coin objects");
+  }
 
   const fileBase = coinFileM[chain];
   if (!fileBase) throw new Error(`Unknown coin chain: ${chain}`);
@@ -174,7 +202,7 @@ async function appendGlobalCoins(chain, coins) {
     Object.values(existingCoins).map((coin) => normalizeAddress(coin?.address)).filter(Boolean),
   );
 
-  for (const match of source.matchAll(/\n  (?:"([^"]+)"|'([^']+)'|([A-Za-z_$][\w$]*))\s*:/g)) {
+  for (const match of source.matchAll(/\n  \{\s*coin\s*:\s*(?:"([^"]+)"|'([^']+)')/g)) {
     existingKeys.add(match[1] || match[2] || match[3]);
   }
   for (const match of source.matchAll(/(?:address|["']address["'])\s*:\s*["']([^"']+)["']/g)) {
@@ -184,7 +212,7 @@ async function appendGlobalCoins(chain, coins) {
   const added = [];
   const skipped = [];
 
-  for (const [symbol, coin] of Object.entries(coins || {})) {
+  for (const [symbol, coin] of Object.entries(coinM)) {
     if (!isPlainObject(coin)) throw new Error(`${symbol} must be a coin object`);
     const address = normalizeAddress(coin?.address);
     if (existingKeys.has(symbol) || (address && existingAddresses.has(address))) {
@@ -201,8 +229,8 @@ async function appendGlobalCoins(chain, coins) {
   const exportMatch = source.match(/\nexport\s+default\s+[A-Za-z_$][\w$]*\s*;\s*$/);
   if (!exportMatch) throw new Error(`Cannot find export default in ${targetRelative}`);
 
-  const objectEnd = source.lastIndexOf("\n};", exportMatch.index);
-  if (objectEnd < 0) throw new Error(`Cannot find coin object end in ${targetRelative}`);
+  const objectEnd = source.lastIndexOf("\n];", exportMatch.index);
+  if (objectEnd < 0) throw new Error(`Cannot find coin array end in ${targetRelative}`);
 
   const insert = added.map(([symbol, coin]) => formatCoinEntry(symbol, coin)).join("");
   await fs.writeFile(targetFile, `${source.slice(0, objectEnd)}\n${insert}${source.slice(objectEnd)}`);
@@ -213,13 +241,13 @@ async function appendGlobalCoins(chain, coins) {
 export async function storeEditorCoinsGlobally(file, content) {
   const saved = await saveEditorDataFile(file, content);
   const chain = getEditorCoinChain(saved.file);
-  const coins = JSON.parse(saved.content || "{}");
+  const coins = normalizeCoinM(JSON.parse(saved.content || "[]"));
   const stored = await appendGlobalCoins(chain, coins);
   let result = saved;
 
   if (stored.added.length) {
     for (const symbol of stored.added) delete coins[symbol];
-    result = await saveEditorDataFile(saved.file, `${JSON.stringify(coins, null, 2)}\n`);
+    result = await saveEditorDataFile(saved.file, `${JSON.stringify(getWritableCoinList(coins), null, 2)}\n`);
   }
 
   return {

@@ -9,17 +9,28 @@ import solana from "../data/coins/solana.js";
 import wemix from "../data/coins/wemix.js";
 import zkSyncEra from "../data/coins/zkSyncEra.js";
 
+function coinListToM(coins = []) {
+  if (!Array.isArray(coins)) return coins || {};
+
+  return Object.fromEntries(
+    coins
+      .filter((entry) => entry && typeof entry == "object" && entry.coin)
+      .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+      .filter(([coin]) => coin),
+  );
+}
+
 const coinM = {
-  BSC: bsc,
-  Ethereum: ethereum,
-  Arbitrum: arbitrum,
-  Optimism: optimism,
-  Base: base,
-  zkSyncEra: zkSyncEra,
-  Kaia: kaia,
-  WEMIX: wemix,
-  Avalanche: avalanche,
-  Solana: solana,
+  BSC: coinListToM(bsc),
+  Ethereum: coinListToM(ethereum),
+  Arbitrum: coinListToM(arbitrum),
+  Optimism: coinListToM(optimism),
+  Base: coinListToM(base),
+  zkSyncEra: coinListToM(zkSyncEra),
+  Kaia: coinListToM(kaia),
+  WEMIX: coinListToM(wemix),
+  Avalanche: coinListToM(avalanche),
+  Solana: coinListToM(solana),
 };
 
 export default coinM;

@@ -214,7 +214,10 @@ function getAaveAmount({
   coin = "",
   amount = "",
   decimals,
+  withdrawAll = false,
 } = {}) {
+  if (withdrawAll) return ethers.MaxUint256;
+
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
     Number.isInteger(decimals) ? decimals : getCoinDecimals(chain, coin),
@@ -305,6 +308,7 @@ export async function getAaveLendPreview({
   underlyingDecimals,
   lendAddress = "",
   amount = "",
+  withdrawAll = false,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
   if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
@@ -318,6 +322,7 @@ export async function getAaveLendPreview({
     coin: underlyingCoin,
     amount,
     decimals: underlyingDecimals,
+    withdrawAll: action == "redeem" && withdrawAll,
   });
   const provider = new ethers.JsonRpcProvider(rpc);
 
@@ -347,6 +352,7 @@ export async function getAaveLendPreview({
       approvalNeeded: action != "redeem" && allowance < amountIn,
       allowance: allowance.toString(),
       amountIn: amountIn.toString(),
+      withdrawAll: action == "redeem" && withdrawAll,
       pool,
     };
   } finally {
@@ -365,6 +371,7 @@ export async function buildAaveLendTxs({
   lendAddress = "",
   amount = "",
   approvalAmount = "",
+  withdrawAll = false,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
   if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
@@ -381,6 +388,7 @@ export async function buildAaveLendTxs({
     coin: underlyingCoin,
     amount,
     decimals: underlyingDecimals,
+    withdrawAll: action == "redeem" && withdrawAll,
   });
   const provider = new ethers.JsonRpcProvider(rpc);
 
@@ -478,6 +486,7 @@ export async function buildAaveLendTxs({
       underlyingCoin,
       lendCoin,
       amountIn: amountIn.toString(),
+      withdrawAll: action == "redeem" && withdrawAll,
       pool,
       txs,
     };
@@ -498,6 +507,7 @@ export async function executeAaveLend({
   lendAddress = "",
   amount = "",
   approvalAmount = "",
+  withdrawAll = false,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
   if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
@@ -514,6 +524,7 @@ export async function executeAaveLend({
     coin: underlyingCoin,
     amount,
     decimals: underlyingDecimals,
+    withdrawAll: action == "redeem" && withdrawAll,
   });
   const provider = new ethers.JsonRpcProvider(rpc);
 
@@ -587,6 +598,7 @@ export async function executeAaveLend({
       underlyingCoin,
       lendCoin,
       amountIn: amountIn.toString(),
+      withdrawAll: action == "redeem" && withdrawAll,
       pool,
       txs,
     };

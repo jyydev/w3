@@ -24,12 +24,17 @@ import {
   readLocalLineFileValues,
   readLocalWalletEntries,
   setLocalLineFileValue,
+  updateLocalWalletEntryRef,
   useLocalStorageEditor,
 } from "../browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
 import { addCustomCoin, deleteCustomCoin, previewCustomCoin } from "./coinActions";
 import { getLocalWalletBalanceData } from "./localWalletActions";
-import { addWalletEntry, deleteWalletEntry } from "./walletActions";
+import {
+  addWalletEntry,
+  deleteWalletEntry,
+  updateWalletEntryRef,
+} from "./walletActions";
 import {
   encodeFavAddrs,
   favAddrCookie,
@@ -342,11 +347,14 @@ function Wallet({
     name: "",
     type: "",
     customType: "",
+    ref: "",
   });
   let [addingCoin, setAddingCoin] = useState(false);
   let [copiedAddress, setCopiedAddress] = useState("");
   let [copiedAddressSource, setCopiedAddressSource] = useState("");
   let [deletingWalletKey, setDeletingWalletKey] = useState("");
+  let [savingWalletRefKey, setSavingWalletRefKey] = useState("");
+  let [walletRefDraftM, setWalletRefDraftM] = useState({});
   let [deletingCoinKey, setDeletingCoinKey] = useState("");
   let [disabledWalletList, setDisabledWalletList] = useState(disabledWallets);
   let [offAddrList, setOffAddrList] = useState(offAddrs);
@@ -964,6 +972,59 @@ function Wallet({
     return `${entry.source || ""}:${entry.name || ""}:${entry.address || ""}`;
   }
 
+  function getWalletRefDraft(entry) {
+    const key = getWalletEntryKey(entry);
+    return Object.prototype.hasOwnProperty.call(walletRefDraftM, key)
+      ? walletRefDraftM[key]
+      : entry?.ref || "";
+  }
+
+  function setWalletRefDraft(entry, value) {
+    const key = getWalletEntryKey(entry);
+    setWalletRefDraftM((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function saveWalletRef(entry) {
+    if (!entry?.source) return;
+
+    const key = getWalletEntryKey(entry);
+    const nextRef = String(getWalletRefDraft(entry) || "").trim();
+    if (nextRef == String(entry.ref || "").trim()) return;
+
+    setSavingWalletRefKey(key);
+    try {
+      if (useLocalEditorStore) {
+        const res = updateLocalWalletEntryRef({
+          walletType,
+          source: entry.source,
+          name: entry.name,
+          address: entry.address,
+          ref: nextRef,
+        });
+        if (!res.ok) throw new Error(res.msg || "save local wallet ref failed");
+        refreshLocalWalletFiles();
+        toast.success(`saved local ${entry.label || entry.name} ref`);
+        return;
+      }
+
+      const res = await updateWalletEntryRef({
+        walletType,
+        source: entry.source,
+        name: entry.name,
+        address: entry.address,
+        ref: nextRef,
+      });
+      if (!res.ok) throw new Error(res.msg || "save wallet ref failed");
+
+      toast.success(`saved ${entry.label || entry.name} ref`);
+      router.refresh();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSavingWalletRefKey("");
+    }
+  }
+
   function getWalletServerName(entry) {
     return entry.label || entry.name;
   }
@@ -978,7 +1039,7 @@ function Wallet({
     }
 
     const ok = window.confirm(
-      `Delete ${entry.label || entry.name} from ${entry.source}.txt?`,
+      `Delete ${entry.label || entry.name} from ${entry.source}.json?`,
     );
     if (!ok) return;
 
@@ -1154,7 +1215,7 @@ function Wallet({
   }
 
   function getWalletValue(file) {
-    return file.replace(/\.txt$/i, "");
+    return file.replace(/\.(txt|json)$/i, "");
   }
 
   function isVisibleWalletSelectionFile(file = "") {
@@ -1167,7 +1228,7 @@ function Wallet({
     return String(file)
       .split(/[\\/]+/)
       .filter(Boolean)
-      .some((part) => part.replace(/\.txt$/i, "").toLowerCase() == "watch");
+      .some((part) => part.replace(/\.(txt|json)$/i, "").toLowerCase() == "watch");
   }
 
   function hasWalletFile(wallet, type = walletType) {
@@ -1376,7 +1437,7 @@ function Wallet({
 
   function clearCustomCoinPreview() {
     setCustomCoinPreview(null);
-    setCustomCoinDraft({ coin: "", name: "", type: "", customType: "" });
+    setCustomCoinDraft({ coin: "", name: "", type: "", customType: "", ref: "" });
   }
 
   function setCustomCoinPreviewData(res) {
@@ -1386,6 +1447,7 @@ function Wallet({
       name: res.entry?.name || "",
       type: res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
       customType: res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
+      ref: res.entry?.ref || "",
     });
   }
 
@@ -1457,6 +1519,7 @@ function Wallet({
             customCoinPreview.entry?.type ||
             "token",
         };
+        if (customCoinDraft.ref.trim()) entry.ref = customCoinDraft.ref.trim();
         const res = addLocalCustomCoin({
           chain: customCoinPreview.chain,
           coin,
@@ -1481,6 +1544,7 @@ function Wallet({
         coin: customCoinDraft.coin,
         name: customCoinDraft.name,
         type: customCoinDraft.customType.trim() || customCoinDraft.type,
+        ref: customCoinDraft.ref,
       });
       if (!res.ok) throw new Error(res.msg || "add custom coin failed");
       if (res.exists) {
@@ -1698,6 +1762,7 @@ function Wallet({
         name: entry.name || row.name,
         label: entry.label || entry.name || row.name,
         source: entry.source || row.source || "",
+        ref: entry.ref || "",
       };
     });
   }
@@ -1995,6 +2060,40 @@ function Wallet({
     );
   }
 
+  function WalletRefInput({ entry, compact = false }) {
+    if (!entry?.source) {
+      return entry?.ref ? <span className="gray">{entry.ref}</span> : null;
+    }
+
+    const key = getWalletEntryKey(entry);
+    const value = getWalletRefDraft(entry);
+    const saving = savingWalletRefKey == key;
+
+    return (
+      <input
+        type="text"
+        className={`walletRefInput ${compact ? "compact" : ""}`}
+        placeholder="ref"
+        value={value}
+        disabled={saving}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onChange={(e) => setWalletRefDraft(entry, e.target.value)}
+        onBlur={() => saveWalletRef(entry)}
+        onKeyDown={(e) => {
+          if (e.key == "Enter") e.currentTarget.blur();
+          if (e.key == "Escape") {
+            setWalletRefDraft(entry, entry.ref || "");
+            e.currentTarget.blur();
+          }
+        }}
+        style={{
+          width: `${Math.max(String(value || "").length, 8) + 2}ch`,
+        }}
+      />
+    );
+  }
+
   function AddressSettings() {
     const disabled = new Set(disabledWalletList.map(getWalletDisableKey));
     const serverDisabled = new Set(offAddrList.map(getNameDisableKey));
@@ -2057,6 +2156,7 @@ function Wallet({
                   </button>
                 </th>
                 <th>address</th>
+                <th>ref</th>
                 <th>
                   <button
                     type="button"
@@ -2109,6 +2209,9 @@ function Wallet({
                         address={entry.address}
                         source={`settings:${entryKey}`}
                       />
+                    </td>
+                    <td>
+                      <WalletRefInput entry={entry} compact />
                     </td>
                     <td>
                       <input
@@ -2244,6 +2347,7 @@ function Wallet({
   function AddressCell({ row }) {
     if (!row.address) return <td></td>;
 
+    const walletEntry = getKnownWalletEntry(row) || row;
     const walletNote = walletNotes?.[row.name] || "";
     const isSolana = walletType == "solana";
     const solanaScanner = chainList.find(
@@ -2279,6 +2383,11 @@ function Wallet({
               {walletNote && <span className="gray">: {walletNote}</span>}
             </span>
             <CopyAddressRow address={row.address} />
+            {(walletEntry?.source || walletEntry?.ref) && (
+              <span>
+                ref: <WalletRefInput entry={walletEntry} compact />
+              </span>
+            )}
             {profileUrl && (
               <span>
                 profile:{" "}
@@ -2429,6 +2538,11 @@ function Wallet({
           <span>
             type: <span className="white">{coinE.type || "-"}</span>
           </span>
+          {coinE.ref && (
+            <span>
+              ref: <span className="white">{coinE.ref}</span>
+            </span>
+          )}
           <span>
             decimals: <span className="white">{coinE.decimals ?? "-"}</span>
           </span>
@@ -2624,6 +2738,26 @@ function Wallet({
                 }}
               />
             </span>
+
+            <label className="gray" htmlFor="coinConfirmRef">
+              ref
+            </label>
+            <input
+              id="coinConfirmRef"
+              type="text"
+              value={customCoinDraft.ref}
+              onChange={(e) =>
+                setCustomCoinDraft((draft) => ({
+                  ...draft,
+                  ref: e.target.value,
+                }))
+              }
+              placeholder="optional note"
+              disabled={addingCoin}
+              style={{
+                width: `${Math.max(customCoinDraft.ref.length || 0, 13) + 2}ch`,
+              }}
+            />
           </div>
           <div className="walletCoinConfirmBtns">
             <button

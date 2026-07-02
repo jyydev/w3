@@ -59,7 +59,7 @@ function isReservedWalletSource(source = "") {
   return String(source || "")
     .split(/[\\/]+/)
     .filter(Boolean)
-    .some((part) => part.replace(/\.txt$/i, "").toLowerCase() == "watch");
+    .some((part) => part.replace(/\.(txt|json)$/i, "").toLowerCase() == "watch");
 }
 
 function filterReservedWalletEntries(entries = []) {
@@ -73,6 +73,10 @@ function getInitialCookie(initialCookieM = {}, name = "") {
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
   return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+}
+
+function shortAddressTail(address = "") {
+  return address ? `..${String(address).slice(-3)}` : "";
 }
 
 function applyBalancePatches(data = [], patchM = {}) {
@@ -407,6 +411,7 @@ function Panels({
       ? false
       : initialRightPaneVisible == "1",
   );
+  const [loopWallets, setLoopWallets] = useState(false);
   const [pane, setPane] = useState(
     () =>
       paneTypes.includes(initialRightPane)
@@ -438,6 +443,16 @@ function Panels({
     !!selectedWalletEntry?.address &&
     !selectedWalletEntry.hasPrivateKey &&
     !selectedWalletEntry.isBrowserWallet;
+  const loopWalletEntries = useMemo(
+    () =>
+      wallets.filter(
+        (entry) =>
+          entry?.address &&
+          entry.value != wallet &&
+          !sameAddress(entry.address, selectedWalletEntry?.address),
+      ),
+    [selectedWalletEntry?.address, wallet, wallets],
+  );
 
   useEffect(() => {
     if (!useLocalStorageEditor()) {
@@ -651,6 +666,19 @@ function Panels({
     });
   }
 
+  function getLoopWalletEntries() {
+    if (!loopWallets || typeof document == "undefined") return [];
+    const checkedValues = new Set(
+      Array.from(document.querySelectorAll('input[name="loopWallet"]:checked'))
+        .map((input) => input.value)
+        .filter(Boolean),
+    );
+
+    return loopWalletEntries.filter(
+      (entry) => entry.hasPrivateKey && checkedValues.has(entry.value),
+    );
+  }
+
   const refreshWalletBalances = useCallback((res = {}) => {
     const rawTargets = Array.isArray(res?.refreshTargets)
       ? res.refreshTargets
@@ -734,6 +762,8 @@ function Panels({
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
         showGasAutoLabel={showGasAutoLabel}
+        loopWallets={loopWallets}
+        getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Lend" ? (
@@ -747,6 +777,8 @@ function Panels({
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
         showGasAutoLabel={showGasAutoLabel}
+        loopWallets={loopWallets}
+        getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Yield" ? (
@@ -760,6 +792,8 @@ function Panels({
         onTradeTypeChange={setPanelType}
         onCycleTradeType={cyclePanelType}
         showGasAutoLabel={showGasAutoLabel}
+        loopWallets={loopWallets}
+        getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Send" ? (
@@ -776,6 +810,8 @@ function Panels({
         onCycleTradeType={cyclePanelType}
         onFromWalletChange={setWallet}
         showGasAutoLabel={showGasAutoLabel}
+        loopWallets={loopWallets}
+        getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
       />
     ) : null;
@@ -828,10 +864,23 @@ function Panels({
               </button>
             )}
           </label>
+          {loopWalletEntries.length > 0 && (
+            <label
+              className="switch small tradeLoopSwitch"
+              title="loop selected wallets after confirmation"
+            >
+              <input
+                type="checkbox"
+                checked={loopWallets}
+                onChange={(e) => setLoopWallets(e.target.checked)}
+              />
+              <span className="slider"></span>
+            </label>
+          )}
           {!!selectedWalletEntry?.address && (
             <span className="infoHover hoverOnlyInfo tradeWalletAddress">
               <span className="gray">
-                {shortAddress(selectedWalletEntry.address)}
+                {shortAddressTail(selectedWalletEntry.address)}
               </span>
               {selectedSavedWalletEntry?.name && (
                 <span className="gray">{selectedSavedWalletEntry.name}</span>
@@ -895,10 +944,51 @@ function Panels({
           {privateKeyMissing && <span className="red">no private key</span>}
         </div>
         {show && (
-          <div className="flex gap2 tradePanelBody">
-            {renderTradePane(tradeType, setTradeType, cycleTradeType)}
-            {showRightPane && renderTradePane(pane, setPane, cyclePane)}
-          </div>
+          <>
+            {loopWallets && loopWalletEntries.length > 0 && (
+              <div className="tradeLoopWallets">
+                {loopWalletEntries.map((entry) => {
+                  const canLoop = !!entry.hasPrivateKey;
+
+                  return (
+                    <label
+                      key={`loopWallet_${entry.value}_${entry.address}`}
+                      className={[
+                        "tradeLoopWallet",
+                        "infoHover",
+                        "hoverOnlyInfo",
+                        canLoop ? "" : "disabled",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <input
+                        type="checkbox"
+                        name="loopWallet"
+                        value={entry.value}
+                        defaultChecked={canLoop}
+                        disabled={!canLoop}
+                      />
+                      <span>{entry.label}</span>
+                      <span className="infoCard">
+                        <span className="infoCardTitle">
+                          {entry.label || entry.name}
+                        </span>
+                        <span className="gray swapHashFull">
+                          {entry.address}
+                        </span>
+                        {!canLoop && <span className="red">no private key</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex gap2 tradePanelBody">
+              {renderTradePane(tradeType, setTradeType, cycleTradeType)}
+              {showRightPane && renderTradePane(pane, setPane, cyclePane)}
+            </div>
+          </>
         )}
       </div>
     </div>

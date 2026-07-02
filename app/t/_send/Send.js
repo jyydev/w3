@@ -11,22 +11,28 @@ import {
   getTradeCoinPrice,
 } from "./sv";
 import {
-  clampInputValue,
+  cleanTradeInput,
   cookieMaxAge,
+  createTradeLoopResult,
+  createTradeToast,
   emitTradeChainSelect,
   fmt,
   fmtPrice,
+  formatTradeQty,
   getChainCoins,
+  getQtyDecimals,
   getTradeModeCookie,
   getWalletOptions,
-  inputQty,
+  limitQtyInputDecimals,
   nextValue,
-  normalizeQtyInput,
+  normalizeSignedQtyInput,
   priceKey,
-  readQtyInput,
+  qtyInputSize,
+  qtyInputStyle,
+  rangeQtyInput,
+  runTradeWalletLoop,
   sameAddress,
-  sendBrowserSolanaTx,
-  sendBrowserTx,
+  sendBrowserTradeTx,
   shortAddress,
   SwapTxLink,
   TradePickerColumn,
@@ -65,6 +71,8 @@ export default function SendPanel({
   onCycleTradeType,
   onFromWalletChange = () => {},
   showGasAutoLabel = false,
+  loopWallets = false,
+  getLoopWalletEntries = () => [],
   onTxComplete = () => {},
 }) {
   const chainList = useMemo(
@@ -105,6 +113,8 @@ export default function SendPanel({
   const [qty, setQty] = useState("0");
   const [fromEndDraft, setFromEndDraft] = useState("");
   const [toEndDraft, setToEndDraft] = useState("");
+  const [fromEndWith, setFromEndWith] = useState(false);
+  const [toEndWith, setToEndWith] = useState(false);
   const [fallbackBalanceM, setFallbackBalanceM] = useState({});
   const [balanceLoadingM, setBalanceLoadingM] = useState({});
   const [balanceErrorM, setBalanceErrorM] = useState({});
@@ -178,8 +188,11 @@ export default function SendPanel({
   const toBalanceLoading = !!balanceLoadingM[toBalanceKey];
   const fromBalanceError = balanceErrorM[fromBalanceKey] || "";
   const toBalanceError = balanceErrorM[toBalanceKey] || "";
+  const coinDecimals = getQtyDecimals(chainE?.coinInfoM?.[coin]?.decimals);
   const maxSend = toNum(fromBalance.balance);
   const currentToBal = toNum(toBalance.balance);
+  const maxSendQty = formatTradeQty(fromBalance.balance, coinDecimals);
+  const currentToQty = formatTradeQty(toBalance.balance, coinDecimals);
   const sendQty = toNum(qty);
   const sliderValue = Math.min(sendQty, maxSend);
   const priceMKey = priceKey(chain, coin);
@@ -191,6 +204,9 @@ export default function SendPanel({
   const toUsd = price ? currentToBal * price : 0;
   const fromEnd = Math.max(0, maxSend - sendQty);
   const toEnd = currentToBal + sendQty;
+  const fromEndInputValue =
+    fromEndDraft || formatTradeQty(fromEnd, coinDecimals);
+  const toEndInputValue = toEndDraft || formatTradeQty(toEnd, coinDecimals);
   const qtyUsd = price ? sendQty * price : 0;
   const fromEndUsd = price ? fromEnd * price : 0;
   const toEndUsd = price ? toEnd * price : 0;
@@ -622,56 +638,97 @@ export default function SendPanel({
   }
 
   function updateQty(value) {
-    setQty(normalizeQtyInput(clampInputValue(value, maxSend)));
+    const qty = normalizeSignedQtyInput(value, maxSend, currentToBal, coinDecimals);
+    setQty(qty);
   }
 
   function setMaxSend() {
-    updateQty(inputQty(maxSend));
+    updateQty(maxSendQty);
   }
 
   function updateFromEnd(value) {
-    const endQty = clampInputValue(value, maxSend);
-    setFromEndDraft(readQtyInput(endQty));
-    updateQty(inputQty(Math.max(0, maxSend - toNum(endQty))));
+    const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
+    setFromEndDraft(endQty);
+    updateQty(formatTradeQty(maxSend - toNum(endQty), coinDecimals));
   }
 
   function updateToEnd(value) {
-    const endQty = normalizeQtyInput(
-      clampInputValue(value, maxSend + currentToBal),
-    );
-    setToEndDraft(readQtyInput(endQty));
-    updateQty(inputQty(Math.max(0, toNum(endQty) - currentToBal)));
+    const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
+    setToEndDraft(endQty);
+    updateQty(formatTradeQty(toNum(endQty) - currentToBal, coinDecimals));
   }
 
-  async function runSend() {
-    if (!fromEntry?.address) {
-      toast.error("sender missing");
+  async function getSendQtyForWallet(walletEntry = fromEntry) {
+    if (!fromEndWith && !toEndWith) return formatTradeQty(qty, coinDecimals);
+
+    if (toEndWith) {
+      return formatTradeQty(toNum(toEndDraft || toEndInputValue) - currentToBal, coinDecimals);
+    }
+
+    const targetEnd = toNum(fromEndDraft || fromEndInputValue);
+    if (!walletEntry?.address) return "0";
+    if (sameAddress(walletEntry.address, fromEntry?.address)) {
+      return formatTradeQty(maxSend - targetEnd, coinDecimals);
+    }
+
+    const balance = await getTradeCoinBalance({
+      chain,
+      coin,
+      address: walletEntry.address,
+    });
+
+    return formatTradeQty(
+      toNum(balance?.balance) - targetEnd,
+      coinDecimals,
+    );
+  }
+
+  async function runSendForWallet(
+    walletEntry = fromEntry,
+    { skipConfirm = false, loopRun = false } = {},
+  ) {
+    const tradeToast = createTradeToast(walletEntry, loopRun);
+
+    if (!walletEntry?.address) {
+      tradeToast.error("sender missing");
       return;
     }
     if (!toEntry?.address) {
-      toast.error("recipient missing");
+      tradeToast.error("recipient missing");
       return;
     }
-    if (sameAddress(fromEntry.address, toEntry.address)) {
-      toast.error("sender and recipient are the same");
+    if (sameAddress(walletEntry.address, toEntry.address)) {
+      tradeToast.error("sender and recipient are the same");
       return;
     }
-    if (!sendQty) {
-      toast.error("send qty is 0");
-      return;
-    }
-
-    const useBrowserWallet = !!fromEntry.isBrowserWallet;
-    if (!useBrowserWallet && !fromEntry.hasPrivateKey) {
-      toast.error("no private key");
+    let submitQty = "0";
+    try {
+      submitQty = await getSendQtyForWallet(walletEntry);
+    } catch (e) {
+      tradeToast.error(e?.message || "send qty query failed");
       return;
     }
 
-    if (!useBrowserWallet) {
+    if (toNum(submitQty) < 0) {
+      tradeToast.error("send qty cannot be negative; switch wallets");
+      return;
+    }
+    if (!toNum(submitQty)) {
+      tradeToast.error("send qty is 0");
+      return;
+    }
+
+    const useBrowserWallet = !!walletEntry.isBrowserWallet;
+    if (!useBrowserWallet && !walletEntry.hasPrivateKey) {
+      tradeToast.error("no private key");
+      return;
+    }
+
+    if (!useBrowserWallet && !skipConfirm) {
       const ok = window.confirm(
-        `Send ${readQtyInput(qty)} ${coin} on ${chain}?\n\nfrom: ${
-          fromEntry.label || fromEntry.name
-        } ${shortAddress(fromEntry.address)}\nto: ${
+        `Send ${submitQty} ${coin} on ${chain}?\n\nfrom: ${
+          walletEntry.label || walletEntry.name
+        } ${shortAddress(walletEntry.address)}\nto: ${
           toEntry.label || toEntry.name
         } ${shortAddress(toEntry.address)}`,
       );
@@ -680,69 +737,83 @@ export default function SendPanel({
 
     setSendPending(true);
     setSendResult(null);
-    const toastId = toast.loading("Send: preparing tx...");
+    const toastId = tradeToast.loading("Send: preparing tx...");
     try {
       let res;
 
       if (useBrowserWallet) {
         const built = await buildSendTx({
-          walletAddress: fromEntry.address,
+          walletAddress: walletEntry.address,
           chain,
           coin,
-          amount: readQtyInput(qty),
+          amount: submitQty,
           recipient: toEntry.address,
         });
         const txs = [];
 
         for (const tx of built.txs || []) {
-          toast.loading(`Send: confirm ${tx.chain} ${tx.type}...`, {
-            id: toastId,
-          });
           txs.push(
-            tx.chain == "Solana" || tx.format?.startsWith("solana:")
-              ? await sendBrowserSolanaTx({
-                  tx,
-                  wallet: fromEntry.browserWallet,
-                  address: fromEntry.address,
-                })
-              : await sendBrowserTx({
-                  tx,
-                  wallet: fromEntry.browserWallet,
-                  address: fromEntry.address,
-                }),
+            await sendBrowserTradeTx({
+              tx,
+              walletEntry,
+              tradeToast,
+              toastId,
+              message: `Send: confirm ${tx.chain} ${tx.type}...`,
+            }),
           );
         }
         res = { ...built, txs };
       } else {
-        toast.loading("Send: submitting tx...", { id: toastId });
+        tradeToast.loading("Send: submitting tx...", { id: toastId });
         res = await executeSend({
-          walletName: fromEntry.name,
-          walletAddress: fromEntry.address,
+          walletName: walletEntry.name,
+          walletAddress: walletEntry.address,
           chain,
           coin,
-          amount: readQtyInput(qty),
+          amount: submitQty,
           recipient: toEntry.address,
         });
       }
 
       setSendResult(res);
-      toast.success(`Send submitted ${res.txs?.length || 0} tx`, {
+      tradeToast.success(`Send submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
       onTxComplete({
         ...res,
         refreshTargets: [
-          { chain, coin, address: fromEntry.address },
+          { chain, coin, address: walletEntry.address },
           { chain, coin, address: toEntry.address },
         ],
       });
+      return res;
     } catch (e) {
       const message = e?.message || "send failed";
-      setSendResult({ ok: false, error: message });
-      toast.error(message, { id: toastId });
+      const errorResult = { ok: false, error: message };
+      setSendResult(errorResult);
+      tradeToast.error(message, { id: toastId });
+      return errorResult;
     } finally {
       setSendPending(false);
     }
+  }
+
+  async function runSend() {
+    const result = await runTradeWalletLoop({
+      loopWallets,
+      getLoopWalletEntries,
+      selectedWalletEntry: fromEntry,
+      actionLabel: `send ${
+        fromEndWith ? `end ${formatTradeQty(fromEndInputValue, coinDecimals)}` : formatTradeQty(qty, coinDecimals)
+      } ${coin}`,
+      runOne: runSendForWallet,
+    });
+    if (Array.isArray(result)) {
+      const loopResult = createTradeLoopResult(result, { action: "send" });
+      if (loopResult) setSendResult(loopResult);
+    }
+
+    return result;
   }
 
   const sortedCoinRows = sortTradePickerRows(
@@ -944,7 +1015,7 @@ export default function SendPanel({
               onClick={setMaxSend}
             >
               <span className="gray">{coin}: </span>
-              {fromBalanceLoading ? "..." : fmt(fromBalance.balance)}
+              {fromBalanceLoading ? "..." : maxSendQty}
               {fromUsd > 0 && <span className="gray"> ${fmt(fromUsd, 2)}</span>}
               {fromBalanceError && (
                 <span className="red"> {fromBalanceError}</span>
@@ -953,12 +1024,27 @@ export default function SendPanel({
           </div>
           <div className="swapAmountLine">
             <span className="gray">end</span>
+            <label className="switch small lendEndSwitch">
+              <input
+                type="checkbox"
+                checked={fromEndWith}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFromEndWith(checked);
+                  if (checked) setToEndWith(false);
+                }}
+              />
+              <span className="slider" />
+            </label>
             <input
-              type="number"
+              className="swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
-              max={maxSend || 0}
               step="any"
-              value={fromEndDraft || inputQty(fromEnd)}
+              size={qtyInputSize(fromEndInputValue)}
+              style={qtyInputStyle(fromEndInputValue)}
+              value={fromEndInputValue}
               onChange={(e) => updateFromEnd(e.target.value)}
               onBlur={() => setFromEndDraft("")}
             />
@@ -967,11 +1053,13 @@ export default function SendPanel({
           <div className="swapAmountLine">
             <span className="gray">qty</span>
             <input
-              className="sendQtyInput"
-              type="number"
+              className="sendQtyInput swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
-              max={maxSend || 0}
               step="any"
+              size={qtyInputSize(qty)}
+              style={qtyInputStyle(qty)}
               value={qty}
               onChange={(e) => updateQty(e.target.value)}
             />
@@ -996,7 +1084,11 @@ export default function SendPanel({
               max={maxSend || 0}
               step="any"
               value={sliderValue}
-              onChange={(e) => updateQty(inputQty(e.target.value))}
+              onChange={(e) =>
+                updateQty(
+                  rangeQtyInput(e.target.value, maxSend, maxSendQty, coinDecimals),
+                )
+              }
               disabled={!maxSend}
             />
             <button
@@ -1148,19 +1240,34 @@ export default function SendPanel({
           <div className="swapBalanceLine">
             <span className="swapAssetBalance">
               <span className="gray">{coin}: </span>
-              {toBalanceLoading ? "..." : fmt(toBalance.balance)}
+              {toBalanceLoading ? "..." : currentToQty}
               {toUsd > 0 && <span className="gray"> ${fmt(toUsd, 2)}</span>}
               {toBalanceError && <span className="red"> {toBalanceError}</span>}
             </span>
           </div>
           <div className="swapAmountLine">
             <span className="gray">end</span>
+            <label className="switch small lendEndSwitch">
+              <input
+                type="checkbox"
+                checked={toEndWith}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setToEndWith(checked);
+                  if (checked) setFromEndWith(false);
+                }}
+              />
+              <span className="slider" />
+            </label>
             <input
-              type="number"
+              className="swapQtyInput"
+              type="text"
+              inputMode="decimal"
               min="0"
-              max={maxSend + currentToBal || currentToBal || 0}
               step="any"
-              value={toEndDraft || inputQty(toEnd)}
+              size={qtyInputSize(toEndInputValue)}
+              style={qtyInputStyle(toEndInputValue)}
+              value={toEndInputValue}
               onChange={(e) => updateToEnd(e.target.value)}
               onBlur={() => setToEndDraft("")}
             />
@@ -1184,8 +1291,14 @@ export default function SendPanel({
           {sendResult.ok ? (
             <>
               <span className="gray">Send:</span>{" "}
-              {sendResult.txs?.map((tx) => (
-                <SwapTxLink key={tx.hash} tx={tx} />
+              {sendResult.txs?.map((tx, index) => (
+                <SwapTxLink key={`${tx.walletLabel || ""}_${tx.hash}_${index}`} tx={tx} />
+              ))}
+              {sendResult.loopErrors?.map((entry) => (
+                <span key={`${entry.walletLabel}_${entry.error}`} className="red">
+                  {" "}
+                  {entry.walletLabel}: {entry.error}
+                </span>
               ))}
             </>
           ) : (

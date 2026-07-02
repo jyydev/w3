@@ -893,10 +893,10 @@ span.chainIcon {
   color: var(--gray);
   text-overflow: ellipsis;
 }
-.walletSettingsTable td:nth-child(3),
-.walletSettingsTable th:nth-child(3),
 .walletSettingsTable td:nth-child(4),
 .walletSettingsTable th:nth-child(4),
+.walletSettingsTable td:nth-child(5),
+.walletSettingsTable th:nth-child(5),
 .coinSettingsTable td:nth-child(3),
 .coinSettingsTable th:nth-child(3),
 .coinSettingsTable td:nth-child(4),
@@ -912,6 +912,36 @@ span.chainIcon {
 .walletSettingsTable input,
 .coinSettingsTable input {
   margin: 0;
+}
+.walletRefInput {
+  min-width: 8ch;
+  max-width: 28ch;
+  height: 18px;
+  padding: 1px 4px;
+  border: 1px solid #333;
+  border-radius: 3px;
+  background: #111;
+  color: var(--orange);
+  font: inherit;
+}
+.walletRefInput.compact {
+  height: 17px;
+  font-size: 12px;
+}
+.walletRefInput:focus {
+  outline: none;
+  border-color: #22d3ee;
+}
+.walletSettingsActionRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.walletSettingsActionRow select,
+.walletSettingsActionRow button {
+  height: 20px;
+  font-size: 12px;
 }
 .walletSettingName {
   display: inline-flex;
@@ -1008,9 +1038,37 @@ span.chainIcon {
   flex: 0 0 var(--switch-width);
   vertical-align: middle;
 }
+.tradeLoopSwitch {
+  margin-top: 0;
+  margin-right: 0 !important;
+  flex: 0 0 var(--switch-width);
+  vertical-align: middle;
+}
+.tradeLoopWallets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding-top: 6px;
+}
+.tradeLoopWallet {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding-left: 8px;
+  white-space: nowrap;
+}
+.tradeLoopWallet.disabled {
+  color: #777;
+}
+.tradeLoopWallet.disabled input {
+  opacity: 0.55;
+}
 .tradeWalletAddress {
+  display: inline-flex;
+  align-items: center;
   font-size: 13px;
-  line-height: 1;
+  transform: translateY(1px);
 }
 .tradeWalletAddress .infoCard {
   min-width: 280px;
@@ -1094,6 +1152,11 @@ span.chainIcon {
   gap: 6px;
   align-items: center;
   margin-top: 6px;
+}
+.switch.small.lendEndSwitch {
+  --switch-width: 30px;
+  flex: 0 0 var(--switch-width);
+  margin: 0;
 }
 .swapAmountLine input[type="number"],
 .swapAmountLine input[type="range"] {

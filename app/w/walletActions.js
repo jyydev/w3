@@ -5,8 +5,9 @@ import path from "path";
 import { revalidatePath } from "next/cache";
 import { projectFileWriteBlockedResult } from "../projectFileWrites";
 
-const walletRootDir = path.join(process.cwd(), "data", "editor", "wallet");
+const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
 const walletTypes = new Set(["evm", "solana"]);
+const walletFileExt = ".json";
 
 function getWalletType(walletType = "evm") {
   const type = String(walletType || "evm").toLowerCase();
@@ -17,14 +18,14 @@ function resolveWalletFile({ walletType, source }) {
   const walletDir = path.join(walletRootDir, getWalletType(walletType));
   const cleanSource = String(source || "")
     .trim()
-    .replace(/\.txt$/i, "")
+    .replace(/\.(txt|json)$/i, "")
     .replace(/\/+$/, "");
 
   if (!cleanSource || cleanSource.includes("\0") || path.isAbsolute(cleanSource)) {
     throw new Error("invalid wallet file");
   }
 
-  const filePath = path.resolve(walletDir, `${cleanSource}.txt`);
+  const filePath = path.resolve(walletDir, `${cleanSource}${walletFileExt}`);
   const relative = path.relative(walletDir, filePath);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("invalid wallet file");
@@ -37,7 +38,7 @@ function resolveWalletPath({ walletType, source, ext = "" }) {
   const walletDir = path.join(walletRootDir, getWalletType(walletType));
   const cleanSource = String(source || "")
     .trim()
-    .replace(/\.txt$/i, "")
+    .replace(/\.(txt|json)$/i, "")
     .replace(/\/+$/, "");
 
   if (!cleanSource || cleanSource.includes("\0") || path.isAbsolute(cleanSource)) {
@@ -56,6 +57,43 @@ function resolveWalletPath({ walletType, source, ext = "" }) {
 function parseWalletLine(line = "") {
   const [, name, address] = line.match(/^\s*([^:=\s]+)\s*[:=]\s*(\S+)/) || [];
   return { name, address };
+}
+
+function normalizeWalletEntries(input = []) {
+  if (Array.isArray(input)) {
+    return input
+      .map((entry) => ({
+        wallet: String(entry?.wallet ?? entry?.name ?? "").trim(),
+        address: String(entry?.address ?? "").trim(),
+        ref: String(entry?.ref ?? "").trim(),
+      }))
+      .filter((entry) => entry.wallet && entry.address);
+  }
+
+  return String(input || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#") && !line.startsWith("//"))
+    .map(parseWalletLine)
+    .map((entry) => ({
+      wallet: String(entry.name || "").trim(),
+      address: String(entry.address || "").trim(),
+      ref: "",
+    }))
+    .filter((entry) => entry.wallet && entry.address);
+}
+
+async function readWalletFileEntries(filePath) {
+  const txt = await fs.readFile(filePath, "utf8");
+  if (path.extname(filePath).toLowerCase() == ".json") {
+    return normalizeWalletEntries(JSON.parse(txt || "[]"));
+  }
+
+  return normalizeWalletEntries(txt);
+}
+
+async function writeWalletFileEntries(filePath, entries) {
+  await fs.writeFile(filePath, `${JSON.stringify(normalizeWalletEntries(entries), null, 2)}\n`);
 }
 
 function cleanWalletName(name = "") {
@@ -92,23 +130,13 @@ export async function deleteWalletEntry({
   }
 
   const filePath = resolveWalletFile({ walletType, source });
-  const txt = await fs.readFile(filePath, "utf8");
-  const newline = txt.includes("\r\n") ? "\r\n" : "\n";
-  const trailingNewline = /\r?\n$/.test(txt);
-  const lines = txt.replace(/\r?\n$/, "").split(/\r?\n/);
+  const entries = await readWalletFileEntries(filePath);
   let removed = false;
 
-  const nextLines = lines.filter((line) => {
+  const nextEntries = entries.filter((entry) => {
     if (removed) return true;
-
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) {
-      return true;
-    }
-
-    const entry = parseWalletLine(line);
     if (
-      entry.name == walletName &&
+      entry.wallet == walletName &&
       sameAddress(walletType, entry.address, walletAddress)
     ) {
       removed = true;
@@ -120,10 +148,7 @@ export async function deleteWalletEntry({
 
   if (!removed) return { ok: false, msg: "wallet not found" };
 
-  await fs.writeFile(
-    filePath,
-    `${nextLines.join(newline)}${trailingNewline ? newline : ""}`,
-  );
+  await writeWalletFileEntries(filePath, nextEntries);
   revalidatePath("/w");
   revalidatePath("/t");
 
@@ -154,15 +179,17 @@ export async function deleteEmptyWalletPath({
 
     await fs.rmdir(folderPath);
   } else {
-    const filePath = resolveWalletPath({ walletType, source, ext: ".txt" });
+    const filePath = resolveWalletPath({ walletType, source, ext: walletFileExt });
     const stat = await fs.stat(filePath).catch((e) => {
       if (e.code != "ENOENT") throw e;
       return null;
     });
     if (!stat?.isFile()) return { ok: false, msg: "file not found" };
 
-    const txt = await fs.readFile(filePath, "utf8");
-    if (txt.trim()) return { ok: false, msg: "file is not empty" };
+    const entries = await readWalletFileEntries(filePath).catch(() => null);
+    if (!Array.isArray(entries) || entries.length) {
+      return { ok: false, msg: "file is not empty" };
+    }
 
     await fs.unlink(filePath);
   }
@@ -191,34 +218,70 @@ export async function addWalletEntry({
   const filePath = resolveWalletFile({ walletType: type, source });
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 
-  let txt = "";
+  let entries = [];
   try {
-    txt = await fs.readFile(filePath, "utf8");
+    entries = await readWalletFileEntries(filePath);
   } catch (e) {
     if (e.code != "ENOENT") throw e;
   }
 
-  const lines = txt.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) {
-      continue;
-    }
-
-    const entry = parseWalletLine(line);
-    if (entry.name == walletName) {
+  for (const entry of entries) {
+    if (entry.wallet == walletName) {
       return { ok: true, exists: true, reason: "name", name: walletName };
     }
     if (sameAddress(type, entry.address, walletAddress)) {
-      return { ok: true, exists: true, reason: "address", name: entry.name };
+      return { ok: true, exists: true, reason: "address", name: entry.wallet };
     }
   }
 
-  const newline = txt.includes("\r\n") ? "\r\n" : "\n";
-  const prefix = txt && !/\r?\n$/.test(txt) ? newline : "";
-  await fs.writeFile(filePath, `${txt}${prefix}${walletName}: ${walletAddress}${newline}`);
+  entries.push({ wallet: walletName, address: walletAddress, ref: "" });
+  await writeWalletFileEntries(filePath, entries);
   revalidatePath("/w");
   revalidatePath("/t");
 
   return { ok: true, file: source, name: walletName };
+}
+
+export async function updateWalletEntryRef({
+  walletType = "evm",
+  source = "",
+  name = "",
+  address = "",
+  ref = "",
+} = {}) {
+  if (process.env.VERCEL || process.env.W3_DISABLE_FILE_WRITES) {
+    return projectFileWriteBlockedResult();
+  }
+
+  const walletName = String(name || "").trim();
+  const walletAddress = String(address || "").trim();
+  if (!walletName || !walletAddress) {
+    return { ok: false, msg: "missing wallet" };
+  }
+
+  const filePath = resolveWalletFile({ walletType, source });
+  const entries = await readWalletFileEntries(filePath);
+  const nextRef = String(ref ?? "").trim();
+  let updated = false;
+
+  const nextEntries = entries.map((entry) => {
+    if (
+      !updated &&
+      entry.wallet == walletName &&
+      sameAddress(walletType, entry.address, walletAddress)
+    ) {
+      updated = true;
+      return { ...entry, ref: nextRef };
+    }
+
+    return entry;
+  });
+
+  if (!updated) return { ok: false, msg: "wallet not found" };
+
+  await writeWalletFileEntries(filePath, nextEntries);
+  revalidatePath("/w");
+  revalidatePath("/t");
+
+  return { ok: true, file: source, name: walletName, ref: nextRef };
 }

@@ -19,15 +19,32 @@ function getWalletTypeLabel(type = "") {
   return walletTypeLabels[type] || type;
 }
 
-function parseWalletNames(txt = "") {
+function parseWalletNames(input = "") {
+  let rows = input;
+  const text = String(input || "").trim();
+  if (text.startsWith("[") || text.startsWith("{")) {
+    try {
+      rows = JSON.parse(text || "[]");
+    } catch {
+      rows = input;
+    }
+  }
+
   const names = [];
   const seen = new Set();
+  const entries = Array.isArray(rows)
+    ? rows.map((entry) => String(entry?.wallet ?? entry?.name ?? "").trim())
+    : String(rows || "")
+        .split(/\r?\n/)
+        .map((rawLine) => {
+          const line = rawLine.trim();
+          if (!line || line.startsWith("#") || line.startsWith("//")) return "";
 
-  for (const rawLine of txt.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+          const [, name] = line.match(/^([^:=\s]+)\s*[:=]\s*(\S+)$/) || [];
+          return name || "";
+        });
 
-    const [, name] = line.match(/^([^:=\s]+)\s*[:=]\s*(\S+)$/) || [];
+  for (const name of entries) {
     if (!name || seen.has(name)) continue;
 
     seen.add(name);
@@ -45,7 +62,7 @@ async function readWalletNavChildren(dir, walletType, relPath = "") {
   const files = entries
     .filter(
       (entry) =>
-        entry.isFile() && path.extname(entry.name).toLowerCase() == ".txt",
+        entry.isFile() && path.extname(entry.name).toLowerCase() == ".json",
     )
     .sort((a, b) => a.name.localeCompare(b.name));
   const fileM = new Map(
@@ -104,7 +121,7 @@ async function readWalletNavChildren(dir, walletType, relPath = "") {
 }
 
 async function getWalletNavTree() {
-  const root = path.join(process.cwd(), "data/editor/wallet");
+  const root = path.join(process.cwd(), "data/editor/wallets");
   const entries = await fs
     .readdir(root, { withFileTypes: true })
     .catch((e) => (e.code == "ENOENT" ? [] : Promise.reject(e)));

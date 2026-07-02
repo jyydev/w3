@@ -88,8 +88,7 @@ exports.rpcs = {
   ],
   WEMIX: [
     "https://wemix.drpc.org",
-    // "wss://wemix.drpc.org", //wss: unsupported wss
-    // "https://api.wemix.com", //403 forbidden
+    "https://api.wemix.com", //403 forbidden
   ],
   Avalanche: [
     "https://avalanche-c-chain-rpc.publicnode.com",

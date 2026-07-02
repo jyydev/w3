@@ -53,8 +53,8 @@ data/editor/
 Examples:
 
 ```txt
-data/editor/wallet/evm/*.txt
-data/editor/wallet/solana/*.txt
+data/editor/wallets/evm/*.json
+data/editor/wallets/solana/*.json
 data/editor/coins/*.json
 data/editor/cookie/*.txt
 ```

@@ -144,6 +144,7 @@ function addLocalWalletFile(typeNode, record) {
           ? {
               kind: "file",
               source: currentPath,
+              file: record.file,
             }
           : null,
       children: [],
@@ -426,7 +427,7 @@ function NavbarWalletMenu({
     if (!target) return;
 
     const label = `${node.walletType}/${target.source}${
-      target.kind == "file" ? ".txt" : "/"
+      target.kind == "file" ? ".json" : "/"
     }`;
     if (!window.confirm(`Delete empty ${target.kind}?\n\n${label}`)) return;
 
@@ -437,7 +438,7 @@ function NavbarWalletMenu({
         }
 
         const res = deleteLocalEditorFile(
-          `wallet/${node.walletType}/${target.source}.txt`,
+          target.file || `wallets/${node.walletType}/${target.source}.json`,
         );
         if (!res.ok) throw new Error(res.msg || "delete failed");
 

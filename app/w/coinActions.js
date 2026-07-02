@@ -124,11 +124,32 @@ async function withSolanaConnection(chain, fn) {
 
 async function readCustomCoins(chain) {
   try {
-    return JSON.parse(await fs.readFile(getCustomCoinFile(chain), "utf8"));
+    return normalizeCustomCoinM(
+      JSON.parse(await fs.readFile(getCustomCoinFile(chain), "utf8")),
+    );
   } catch (e) {
     if (e.code == "ENOENT") return {};
     throw e;
   }
+}
+
+function normalizeCustomCoinM(input = {}) {
+  if (Array.isArray(input)) {
+    return Object.fromEntries(
+      input
+        .filter((entry) => entry && typeof entry == "object" && entry.coin)
+        .map(({ coin, ...entry }) => [String(coin).trim(), entry])
+        .filter(([coin]) => coin),
+    );
+  }
+  return input && typeof input == "object" ? input : {};
+}
+
+function getWritableCustomCoinList(coins = {}) {
+  return Object.entries(normalizeCustomCoinM(coins)).map(([coin, entry]) => ({
+    coin,
+    ...(entry || {}),
+  }));
 }
 
 function getCustomCoinFile(chain) {
@@ -823,6 +844,7 @@ export async function addCustomCoin({
   coin = "",
   name = "",
   type = "",
+  ref = "",
 } = {}) {
   if (String(chain || "").trim() == "Hyperliquid") {
     return addHyperliquidVault({ address, coin, name });
@@ -872,17 +894,19 @@ export async function addCustomCoin({
     }
 
     const finalType = cleanType(type, meta.type || "token");
+    const cleanRef = cleanText(ref, "");
     customCoins[requestedCoin] = {
       address: tokenAddress,
       decimals: meta.decimals,
       name: cleanText(name, meta.name || requestedCoin),
       type: finalType,
     };
+    if (cleanRef) customCoins[requestedCoin].ref = cleanRef;
 
     await fs.mkdir(customCoinDir, { recursive: true });
     await fs.writeFile(
       getCustomCoinFile(selectedChain),
-      `${JSON.stringify(customCoins, null, 2)}\n`,
+      `${JSON.stringify(getWritableCustomCoinList(customCoins), null, 2)}\n`,
     );
 
     revalidatePath("/w");
@@ -932,7 +956,7 @@ export async function deleteCustomCoin({ chain, coin } = {}) {
     await fs.mkdir(customCoinDir, { recursive: true });
     await fs.writeFile(
       getCustomCoinFile(selectedChain),
-      `${JSON.stringify(customCoins, null, 2)}\n`,
+      `${JSON.stringify(getWritableCustomCoinList(customCoins), null, 2)}\n`,
     );
 
     revalidatePath("/w");
