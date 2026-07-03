@@ -64,6 +64,8 @@ const actions = [
 ];
 
 const balanceNotes = [
+  "When Alchemy Portfolio is enabled and supports the chain, wallet balances use Alchemy instead of the normal per-token RPC balance loop.",
+  "Chains not covered by Alchemy, such as WEMIX, still fall back to RPC and may stay loading longer if that RPC is laggy.",
   "EVM balances use ethers and multicall aggregate3.",
   "Native EVM balances use multicall getEthBalance.",
   "ERC-20 balances use balanceOf(address).",

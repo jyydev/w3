@@ -2,12 +2,12 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { chainIds } from "@/data/basic";
 import {
   executeSolanaTx,
   getCoinDecimals,
   getSolanaKeypair,
   getSolanaPublicKey,
-  relayChainIds,
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
@@ -57,7 +57,7 @@ function normalizeJupiterToken(entry = {}) {
 
   return {
     chain,
-    chainId: relayChainIds.Solana,
+    chainId: chainIds.Solana,
     address,
     symbol,
     name: entry.name || "",
@@ -136,7 +136,7 @@ export async function getJupiterSupportedSwap() {
   const chains = [
     {
       chain,
-      chainId: relayChainIds.Solana,
+      chainId: chainIds.Solana,
       name: chain,
       added: !!coinM?.[chain],
     },
@@ -239,7 +239,7 @@ function getJupiterTx({
 
   return {
     chain: "Solana",
-    chainId: relayChainIds.Solana,
+    chainId: chainIds.Solana,
     type,
     transaction,
     format: "solana:v0",

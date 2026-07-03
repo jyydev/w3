@@ -3,7 +3,7 @@ import { cloneElement, isValidElement } from "react";
 import Logo from "@/components/Logo";
 import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import coinM from "@/fn/coinM";
-import { rpcs, sets, walletNotes } from "@/sets";
+import { alchemyNetworks, rpcs, sets, walletNotes } from "@/sets";
 import BrowserWalletConnect from "./BrowserWalletConnect";
 import Wallet from "./Wallet";
 import WalletInfo from "./WalletInfo";
@@ -406,6 +406,23 @@ async function WPage({
       chainE,
     ]),
   );
+  const alchemyChainM = Object.fromEntries(
+    availableChains.map((chain) => [chain, Boolean(alchemyNetworks?.[chain])]),
+  );
+  const chainSourceM = Object.fromEntries(
+    availableChains.map((chain) => {
+      const loadedSource = dataByChain.get(chain)?.source;
+      const source =
+        loadedSource ||
+        (chain == hyperliquidChain
+          ? "api"
+          : useAlchemy && alchemyChainM[chain]
+            ? "alchemy"
+            : "rpc");
+
+      return [chain, source];
+    }),
+  );
   const tradeData = evmRpcChains
     .filter((chain) => !disabledChainM.has(chain))
     .map((chain) => {
@@ -432,6 +449,8 @@ async function WPage({
         <WalletInfo />
         <WalletSettings
           chains={availableChains}
+          chainSourceM={chainSourceM}
+          alchemyChainM={alchemyChainM}
           disabledChains={disabledChains}
           offChains={offChains}
           defaultUseAlchemy={defaultUseAlchemy}

@@ -2,6 +2,7 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { chainIds } from "@/data/basic";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
@@ -15,7 +16,6 @@ import {
   getUnsignedTx,
   getUsableChainRpc,
   getWallet,
-  relayChainIds,
 } from "../../sharedServer";
 import {
   getCoinByAddress,
@@ -74,12 +74,12 @@ function getAaveSupportedChainRows() {
   const skipAliases = new Set(["BNB", "ZkSync"]);
 
   return Object.keys(aaveV3PoolM)
-    .filter((chain) => relayChainIds[chain])
+    .filter((chain) => chainIds[chain])
     .filter((chain) => !skipAliases.has(chain))
     .sort((a, b) => a.localeCompare(b))
     .map((chain) => ({
       chain,
-      chainId: relayChainIds[chain],
+      chainId: chainIds[chain],
       pool: aaveV3PoolM[chain],
     }));
 }
@@ -400,7 +400,7 @@ export async function buildAaveLendTxs({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const chainId = relayChainIds[chain];
+  const chainId = chainIds[chain];
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
   const pool = getAavePool(chain, lendCoin);

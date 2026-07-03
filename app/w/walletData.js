@@ -2160,7 +2160,7 @@ export async function getSolanaWalletBalances({
     });
     const coins = getReturnedCoins({ rows, coinEntries });
 
-    return { chain, coins, allCoins, coinInfoM, scanner, rows };
+    return { chain, coins, allCoins, coinInfoM, scanner, rows, source: "rpc" };
   } catch (e) {
     return {
       chain,
@@ -2169,6 +2169,7 @@ export async function getSolanaWalletBalances({
       coinInfoM,
       scanner,
       rows: walletEntries.map(([name, address]) => ({ name, address, balances: {} })),
+      source: "rpc",
       error: e?.message ?? "Solana wallet balance error",
     };
   }
@@ -2197,7 +2198,7 @@ export async function getHyperliquidWalletBalances({
   const walletEntries = Object.entries(wallets);
 
   if (!walletEntries.length) {
-    return { chain, coins: [], allCoins: [], coinInfoM: {}, scanner, rows: [] };
+    return { chain, coins: [], allCoins: [], coinInfoM: {}, scanner, rows: [], source: "api" };
   }
 
   const rows = walletEntries.map(([name, address]) =>
@@ -2376,6 +2377,7 @@ export async function getHyperliquidWalletBalances({
     discoveredCoins: [...discoveredCoins],
     scanner,
     rows,
+    source: "api",
   };
 }
 
@@ -2497,7 +2499,7 @@ export async function getWalletBalances({
     });
     const coins = getReturnedCoins({ rows, coinEntries });
 
-    return { chain, coins, allCoins, coinInfoM, scanner, rows };
+    return { chain, coins, allCoins, coinInfoM, scanner, rows, source: "rpc" };
   } catch (e) {
     return {
       chain,
@@ -2506,6 +2508,7 @@ export async function getWalletBalances({
       coinInfoM,
       scanner,
       rows: walletEntries.map(([name, address]) => ({ name, address, balances: {} })),
+      source: "rpc",
       error: e?.shortMessage ?? e?.message ?? "wallet balance error",
     };
   } finally {

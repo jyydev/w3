@@ -2,6 +2,7 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { chainIds } from "@/data/basic";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
@@ -14,7 +15,6 @@ import {
   getUnsignedTx,
   getWallet,
   nativeEvmAddress,
-  relayChainIds,
 } from "../../sharedServer";
 
 const defaultSlippageBps = 50n;const uniswapFeeTiers = [100, 500, 3000, 10000];
@@ -92,7 +92,7 @@ function getUniswapToken(chain = "", coin = "") {
 export async function getUniswapSupportedSwap() {
   const chains = Object.keys(uniswapV3M).map((chain) => ({
     chain,
-    chainId: relayChainIds[chain] || "",
+    chainId: chainIds[chain] || "",
     name: chain,
     added: !!coinM?.[chain],
     router: uniswapV3M[chain]?.router || "",
@@ -101,7 +101,7 @@ export async function getUniswapSupportedSwap() {
   const tokens = Object.keys(uniswapV3M).flatMap((chain) =>
     Object.entries(coinM?.[chain] || {}).map(([symbol, coinE]) => ({
       chain,
-      chainId: relayChainIds[chain] || "",
+      chainId: chainIds[chain] || "",
       address: coinE.native
         ? uniswapWrappedNativeM[chain] || nativeEvmAddress
         : coinE.address || "",
@@ -232,7 +232,7 @@ export async function buildUniswapSwapTxs({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const chainId = relayChainIds[chain];
+  const chainId = chainIds[chain];
   const tokenInE = getUniswapToken(chain, fromCoin);
   const tokenOutE = getUniswapToken(chain, toCoin);
   if (tokenInE.address == tokenOutE.address) {

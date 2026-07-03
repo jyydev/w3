@@ -7,41 +7,12 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import coinM from "@/fn/coinM";
+import { chainById, chainIds } from "@/data/basic";
 import { onWhitelist, rpcs, whitelists } from "@/sets";
 import { getCoinUsdPrice } from "../w/walletData";
 
 const relayApiBase = "https://api.relay.link";
 export const nativeEvmAddress = "0x0000000000000000000000000000000000000000";
-
-export const relayChainIds = {
-  Ethereum: 1,
-  Optimism: 10,
-  BNB: 56,
-  BSC: 56,
-  Gnosis: 100,
-  Polygon: 137,
-  Sonic: 146,
-  XLayer: 196,
-  Fantom: 250,
-  ZkSync: 324,
-  zkSyncEra: 324,
-  Metis: 1088,
-  WEMIX: 1111,
-  Soneium: 1868,
-  Mantle: 5000,
-  Base: 8453,
-  Celo: 42220,
-  Arbitrum: 42161,
-  Avalanche: 43114,
-  Linea: 59144,
-  Scroll: 534352,
-  Kaia: 8217,
-  Harmony: 1666600000,
-  Solana: 792703809,
-};
-export const relayChainById = Object.fromEntries(
-  Object.entries(relayChainIds).map(([chain, id]) => [id, chain]),
-);
 export const erc20Abi = [
   "function allowance(address owner,address spender) view returns (uint256)",
   "function approve(address spender,uint256 amount) returns (bool)",
@@ -546,7 +517,7 @@ export async function executeRawEvmTx({
   type = "tx",
 }) {
   const txChainId = Number(chainId || txData.chainId);
-  const txChain = relayChainById[txChainId];
+  const txChain = chainById[txChainId];
   const rpc = getChainRpc(txChain);
 
   if (!txChain || !rpc) {
@@ -698,7 +669,7 @@ export async function getSolanaInstructionTx({
 
   return {
     chain: "Solana",
-    chainId: relayChainIds.Solana,
+    chainId: chainIds.Solana,
     type,
     transaction: Buffer.from(tx.serialize()).toString("base64"),
     format: "solana:v0",

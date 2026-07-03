@@ -2,6 +2,7 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { chainById, chainIds } from "@/data/basic";
 import {
   assertWhitelistedRecipient,
   erc20Abi,
@@ -16,8 +17,6 @@ import {
   getSolanaPublicKey,
   getUnsignedTx,
   nativeEvmAddress,
-  relayChainById,
-  relayChainIds,
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
@@ -28,11 +27,11 @@ const jumperApiBase =
 const defaultSlippage = "0.005";
 const nativeSolanaAddress = "11111111111111111111111111111111";
 const jumperChainIds = {
-  ...relayChainIds,
+  ...chainIds,
   Solana: 1151111081099710,
 };
 const jumperChainById = {
-  ...relayChainById,
+  ...chainById,
   1151111081099710: "Solana",
 };
 const jumperChainNameM = {

@@ -2,6 +2,7 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { chainById, chainIds } from "@/data/basic";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
@@ -19,20 +20,23 @@ import {
   getUnsignedTx,
   getWallet,
   nativeEvmAddress,
-  relayChainById,
-  relayChainIds,
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
 const acrossApiBase = "https://app.across.to/api";const nativeSolanaAddress = "11111111111111111111111111111111";
+const acrossEvmChains = [
+  "Ethereum",
+  "Optimism",
+  "BSC",
+  "zkSyncEra",
+  "Base",
+  "Arbitrum",
+  "Avalanche",
+];
 const acrossChainIds = {
-  Ethereum: 1,
-  Optimism: 10,
-  BSC: 56,
-  zkSyncEra: 324,
-  Base: 8453,
-  Arbitrum: 42161,
-  Avalanche: 43114,
+  ...Object.fromEntries(
+    acrossEvmChains.map((chain) => [chain, chainIds[chain]]),
+  ),
   Solana: 34268394551451,
 };
 const acrossChainById = Object.fromEntries(
@@ -267,7 +271,7 @@ function isAcrossSolanaTx(txData = {}) {
 
 function getAcrossUnsignedTx({ txData = {}, type = "tx" } = {}) {
   const chainId = Number(txData.chainId);
-  const chain = acrossChainById[chainId] || relayChainById[chainId];
+  const chain = acrossChainById[chainId] || chainById[chainId];
   if (!chain) throw new Error(`Across chainId unsupported: ${chainId}`);
 
   if (isAcrossSolanaTx(txData)) {

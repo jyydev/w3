@@ -1,6 +1,7 @@
 "use server";
 
 import { ethers } from "ethers";
+import { chainIds } from "@/data/basic";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
@@ -14,7 +15,6 @@ import {
   getUnsignedTx,
   getUsableChainRpc,
   getWallet,
-  relayChainIds,
 } from "../../sharedServer";
 import {
   getCoinByAddress,
@@ -28,13 +28,16 @@ const morphoApiBase =
   process.env.MORPHO_API_BASE ||
   process.env.morpho_api_base ||
   "https://blue-api.morpho.org/graphql";
-const morphoChainIds = {
-  Ethereum: 1,
-  Optimism: 10,
-  Polygon: 137,
-  Base: 8453,
-  Arbitrum: 42161,
-};
+const morphoSupportedChains = [
+  "Ethereum",
+  "Optimism",
+  "Polygon",
+  "Base",
+  "Arbitrum",
+];
+const morphoChainIds = Object.fromEntries(
+  morphoSupportedChains.map((chain) => [chain, chainIds[chain]]),
+);
 const erc4626Abi = [
   "function asset() view returns (address)",
   "function convertToShares(uint256 assets) view returns (uint256)",
@@ -75,7 +78,7 @@ async function morphoFetch(query, variables = {}, timeoutMs = morphoVaultFetchTi
 }
 
 function getMorphoChainId(chain = "") {
-  return morphoChainIds[chain] || relayChainIds[chain];
+  return morphoChainIds[chain] || chainIds[chain];
 }
 
 function getMorphoSupportedChainRows() {
@@ -435,7 +438,7 @@ export async function buildMorphoLendTxs({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const chainId = relayChainIds[chain];
+  const chainId = chainIds[chain];
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
   const amountIn = getMorphoAmount({

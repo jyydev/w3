@@ -8,6 +8,7 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import coinM from "@/fn/coinM";
+import { chainIds } from "@/data/basic";
 import {
   erc20Interface,
   assertWhitelistedRecipient,
@@ -22,7 +23,6 @@ import {
   getTradeCoinBalance as getTradeCoinBalanceShared,
   getTradeCoinPrice as getTradeCoinPriceShared,
   getUnsignedTx,
-  relayChainIds,
 } from "../sharedServer";
 
 export async function getTradeCoinPrice(args) {
@@ -122,7 +122,7 @@ export async function buildSendTx({
     if (!ethers.isAddress(walletAddress)) throw new Error("EVM sender required");
     if (!ethers.isAddress(recipient)) throw new Error("EVM recipient required");
 
-    const chainId = relayChainIds[chain];
+    const chainId = chainIds[chain];
     if (!chainId) throw new Error(`chain unsupported: ${chain}`);
     if (!coinE.native && !ethers.isAddress(coinE.address)) {
       throw new Error(`EVM token address missing: ${chain} ${coin}`);

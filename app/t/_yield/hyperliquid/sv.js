@@ -2,6 +2,7 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import { chainIds } from "@/data/basic";
 import {
   assertWalletMatches,
   erc20Interface,
@@ -9,7 +10,6 @@ import {
   getPrivateKey,
   getUnsignedTx,
   getWallet,
-  relayChainIds,
 } from "../../sharedServer";
 import { fetchWithTimeout } from "../shared";
 
@@ -716,7 +716,7 @@ export async function buildHyperliquidSpotDepositTxs({
     );
   }
 
-  const chainId = relayChainIds[chain];
+  const chainId = chainIds[chain];
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
   return {

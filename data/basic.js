@@ -1,11 +1,53 @@
 export const defaultMulticallAddress = "0xca11bde05977b3631167028862be2a173976ca11";
 
+export const chainIds = {
+  Ethereum: 1,
+  Optimism: 10,
+  BNB: 56,
+  BSC: 56,
+  Gnosis: 100,
+  Polygon: 137,
+  Sonic: 146,
+  XLayer: 196,
+  Fantom: 250,
+  ZkSync: 324,
+  zkSyncEra: 324,
+  Metis: 1088,
+  WEMIX: 1111,
+  Soneium: 1868,
+  Mantle: 5000,
+  Base: 8453,
+  Celo: 42220,
+  Arbitrum: 42161,
+  Avalanche: 43114,
+  Linea: 59144,
+  Scroll: 534352,
+  Kaia: 8217,
+  Harmony: 1666600000,
+  Solana: 792703809,
+};
+
+export const chainById = Object.fromEntries(
+  Object.entries(chainIds).map(([chain, id]) => [id, chain]),
+);
+
 export const multicalls = {
   BSC: defaultMulticallAddress,
   Ethereum: defaultMulticallAddress,
+  Polygon: defaultMulticallAddress,
+  Gnosis: defaultMulticallAddress,
+  Fantom: defaultMulticallAddress,
+  Sonic: defaultMulticallAddress,
+  XLayer: defaultMulticallAddress,
+  Metis: defaultMulticallAddress,
+  Soneium: defaultMulticallAddress,
+  Mantle: defaultMulticallAddress,
+  Celo: defaultMulticallAddress,
   Arbitrum: defaultMulticallAddress,
   Optimism: defaultMulticallAddress,
   Base: defaultMulticallAddress,
+  Linea: defaultMulticallAddress,
+  Scroll: defaultMulticallAddress,
   zkSyncEra: "0xF9cda624FBC7e059355ce98a31693d299FACd963",
   Kaia: defaultMulticallAddress,
   WEMIX: defaultMulticallAddress,

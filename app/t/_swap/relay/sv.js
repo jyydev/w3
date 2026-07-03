@@ -8,6 +8,7 @@ import {
 } from "@solana/web3.js";
 import { ed25519 } from "@noble/curves/ed25519";
 import coinM from "@/fn/coinM";
+import { chainById, chainIds } from "@/data/basic";
 import {
   assertWhitelistedRecipient,
   erc20Abi,
@@ -23,8 +24,6 @@ import {
   getSolanaPublicKey,
   getUnsignedTx,
   nativeEvmAddress,
-  relayChainById,
-  relayChainIds,
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
@@ -134,7 +133,7 @@ async function getSolanaUnsignedTx({ txData = {}, user = "", type = "swap" }) {
 
   return {
     chain: "Solana",
-    chainId: relayChainIds.Solana,
+    chainId: chainIds.Solana,
     type,
     transaction: Buffer.from(tx.serialize()).toString("base64"),
     format: "solana:v0",
@@ -276,8 +275,8 @@ async function relayFetch(endpoint, options = {}) {
 
 function getRelayLocalChain(entry = {}) {
   const chainId = Number(entry.id ?? entry.chainId ?? entry.chainID);
-  if (Number.isFinite(chainId) && relayChainById[chainId]) {
-    return relayChainById[chainId];
+  if (Number.isFinite(chainId) && chainById[chainId]) {
+    return chainById[chainId];
   }
 
   const names = [
@@ -320,7 +319,7 @@ function normalizeRelayToken(token = {}, chain = "", chainId = "") {
 
 function normalizeRelayCurrency(token = {}) {
   const chainId = Number(token.chainId);
-  const chain = relayChainById[chainId] || "";
+  const chain = chainById[chainId] || "";
 
   return normalizeRelayToken(token, chain, chainId);
 }
@@ -375,7 +374,7 @@ export async function getRelayCurrencyDiscovery({
   chain = "",
   term = "",
 } = {}) {
-  const chainId = relayChainIds[chain];
+  const chainId = chainIds[chain];
   if (!chainId) throw new Error(`Relay chain missing: ${chain}`);
 
   const cleanTerm = String(term || "").trim();
@@ -494,7 +493,7 @@ async function executeRelaySignatureStep({ privateKey = "", solanaKeypair = null
   const sign = item?.sign || {};
   let signature;
 
-  if (item?.chainId == relayChainIds.Solana || sign.signatureKind == "ed25519") {
+  if (item?.chainId == chainIds.Solana || sign.signatureKind == "ed25519") {
     if (!solanaKeypair) throw new Error("Solana private key missing");
     const signed = ed25519.sign(
       relaySignMessageBytes(sign),
@@ -632,8 +631,8 @@ export async function buildRelaySwapSteps({
     throw new Error("EVM wallet address required");
   }
 
-  const originChainId = relayChainIds[fromChain];
-  const destinationChainId = relayChainIds[toChain];
+  const originChainId = chainIds[fromChain];
+  const destinationChainId = chainIds[toChain];
   if (!originChainId) throw new Error(`Relay chain unsupported: ${fromChain}`);
   if (!destinationChainId) throw new Error(`Relay chain unsupported: ${toChain}`);
   const user = getRelayUserAddress(fromChain, walletAddress);
@@ -673,7 +672,7 @@ export async function buildRelaySwapSteps({
       if (step.kind == "transaction") {
         const txData = item.data || {};
         const chainId = Number(txData.chainId || originChainId);
-        const chain = relayChainById[chainId];
+        const chain = chainById[chainId];
         if (!chain) throw new Error(`Relay chainId unsupported: ${chainId}`);
 
         items.push({

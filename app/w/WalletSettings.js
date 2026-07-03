@@ -38,6 +38,8 @@ function encodeDisabledChains(chains) {
 
 function WalletSettings({
   chains = [],
+  chainSourceM = {},
+  alchemyChainM = {},
   disabledChains = [],
   offChains = [],
   defaultUseAlchemy = false,
@@ -149,6 +151,16 @@ function WalletSettings({
       path: "/",
     });
     router.refresh();
+  }
+
+  function getChainSource(chain) {
+    const loadedSource = chainSourceM?.[chain];
+    if (loadedSource == "api") return "api";
+    if (useAlchemyState != !!useAlchemy) {
+      return useAlchemyState && alchemyChainM?.[chain] ? "alchemy" : "rpc";
+    }
+
+    return loadedSource || (useAlchemyState && alchemyChainM?.[chain] ? "alchemy" : "rpc");
   }
 
   async function toggleServerChain(chain) {
@@ -337,6 +349,7 @@ function WalletSettings({
               <thead>
                 <tr>
                   <th>chain</th>
+                  <th>source</th>
                   <th>on</th>
                   <th>server</th>
                 </tr>
@@ -345,6 +358,7 @@ function WalletSettings({
                 {chains.map((chain) => (
                   <tr key={chain}>
                     <td>{chain}</td>
+                    <td>{getChainSource(chain)}</td>
                     <td>
                       <input
                         type="checkbox"
