@@ -627,11 +627,15 @@ function Wallet({
   function toggleChain(chain) {
     setActiveChain((prev) => {
       const next = prev == chain ? "" : chain;
-      setCookie(activeChainCookie, next, {
-        maxAge: cookieMaxAge,
-        path: "/",
-      });
+      saveActiveChainCookie(next);
       return next;
+    });
+  }
+
+  function saveActiveChainCookie(chain = "") {
+    setCookie(activeChainCookie, chain, {
+      maxAge: cookieMaxAge,
+      path: "/",
     });
   }
 
@@ -906,6 +910,7 @@ function Wallet({
       const chainNames = chainNameKey ? chainNameKey.split("|") : [];
       if (!chain || !chainNames.includes(chain)) return;
 
+      saveActiveChainCookie(chain);
       setActiveChain(chain);
     }
 
