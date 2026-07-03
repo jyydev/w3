@@ -1,4 +1,4 @@
-const loginCookieName = "login";
+const loginCookieName = "w3_login";
 const loginMaxAge = 365 * 24 * 60 * 60;
 
 function getLoginSecret() {
