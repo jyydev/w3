@@ -1,8 +1,14 @@
 import Client from "./Client";
+import { cookies } from "next/headers";
+import { loginCookieName, verifyLoginSession } from "./session";
 
 async function Login() {
   console.log("render");
   let ck = await getNxCookies();
+  const cookieStore = await cookies();
+  ck.login = (await verifyLoginSession(cookieStore.get(loginCookieName)?.value))
+    ? "1"
+    : "";
 
   return (
     <div>

@@ -3,8 +3,6 @@ import "ygb/react";
 import sv from "@/sv";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
-import { setCookie, deleteCookie } from "cookies-next";
-const setCk = (ck, v, op = {}) => setCookie(ck, v, { maxAge: 365 * 24 * 60 * 60, ...op });
 
 function Client({ ck }) {
   const router = useRouter();
@@ -31,14 +29,14 @@ function Client({ ck }) {
     if (!r.ok) toast.error(r.msg); // if (["below min qty"].includes(r)) toast.error(r);
     else {
       toast.success("Welcome, JY");
-      setCk("login", 1);
       router.push("/");
+      router.refresh();
     }
     e.target.disabled = false;
   }
   async function logout() {
+    await sv.logout();
     toast.success("logged out");
-    deleteCookie("login");
     router.refresh();
   }
 
