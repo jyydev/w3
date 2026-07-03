@@ -26,6 +26,7 @@ import {
 } from "./walletSettingData";
 import {
   defaultWalletType,
+  getAlchemyWalletTokenCache,
   getHyperliquidWalletBalances,
   getWalletBalances,
   getSolanaWalletBalances,
@@ -336,6 +337,23 @@ async function WPage({
         }
       : null,
   );
+  const alchemyTokenCacheChains =
+    selectedWalletType == "solana"
+      ? disabledChainM.has("Solana")
+        ? []
+        : ["Solana"]
+      : chains;
+  const alchemyTokenCache = await getAlchemyWalletTokenCache({
+    chains: alchemyTokenCacheChains,
+    walletFile: selectedWalletFile,
+    walletType: selectedWalletType,
+    walletAddress: selectedWalletAddress,
+    walletName: selectedWalletName,
+    walletEntryList,
+    disabledWallets,
+    disabledWalletNames: offAddrs,
+    useAlchemy,
+  }).catch(() => null);
   const data =
     selectedWalletType == "solana"
       ? disabledChainM.has("Solana")
@@ -356,6 +374,7 @@ async function WPage({
               useAlchemy,
               alchemyMinUsd,
               usdPriceQuery,
+              alchemyTokenCache,
             }),
           ]
       : await Promise.all(
@@ -378,6 +397,7 @@ async function WPage({
                 useAlchemy,
                 alchemyMinUsd,
                 usdPriceQuery,
+                alchemyTokenCache,
               }),
             ),
             ...(includeHyperliquid

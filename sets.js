@@ -30,23 +30,25 @@ exports.sets = {
   alchemyMinUsd: 0.01,
 };
 
+// exports.offChains = ["Fantom", "XLayer", "Soneium", "Metis", "Mantle"];
+
 exports.alchemyNetworks = {
   Ethereum: "eth-mainnet",
   BSC: "bnb-mainnet",
   Polygon: "polygon-mainnet",
   Gnosis: "gnosis-mainnet",
-  Fantom: "fantom-mainnet",
+  // Fantom: "fantom-mainnet",
   Sonic: "sonic-mainnet",
-  XLayer: "xlayer-mainnet",
-  Metis: "metis-mainnet",
-  Soneium: "soneium-mainnet",
+  // XLayer: "xlayer-mainnet",
+  // Metis: "metis-mainnet",
+  // Soneium: "soneium-mainnet",
   Mantle: "mantle-mainnet",
   Celo: "celo-mainnet",
   Arbitrum: "arb-mainnet",
   Optimism: "opt-mainnet",
   Base: "base-mainnet",
-  Linea: "linea-mainnet",
-  Scroll: "scroll-mainnet",
+  // Linea: "linea-mainnet",
+  // Scroll: "scroll-mainnet",
   Avalanche: "avax-mainnet",
   zkSyncEra: "zksync-mainnet",
   Solana: "solana-mainnet",
@@ -60,99 +62,101 @@ function alchemyRpc(network) {
 
 exports.rpcs = {
   BSC: [
-    alchemyRpc("bnb-mainnet"),
+    "https://bsc-dataseed.bnbchain.org",
     "https://bsc-rpc.publicnode.com",
     "https://bsc-mainnet.public.blastapi.io",
     "https://bsc.meowrpc.com",
-    "https://bsc-dataseed.bnbchain.org",
-    // "https://bsc-dataseed1.bnbchain.org",
-    // "https://bsc-dataseed2.bnbchain.org",
-    // "https://bsc-dataseed3.bnbchain.org",
-    // "https://bsc-dataseed4.bnbchain.org",
+    "https://bsc-dataseed1.bnbchain.org",
+    "https://bsc-dataseed2.bnbchain.org",
+    "https://bsc-dataseed3.bnbchain.org",
+    "https://bsc-dataseed4.bnbchain.org",
     "https://rpc.nodeflare.app/bnb/public",
+    alchemyRpc("bnb-mainnet"),
   ],
   Arbitrum: [
-    alchemyRpc("arb-mainnet"),
     "https://arb1.arbitrum.io/rpc",
     "https://arbitrum-one-rpc.publicnode.com",
     "https://arbitrum-one.public.blastapi.io",
+    alchemyRpc("arb-mainnet"),
   ],
   Ethereum: [
-    alchemyRpc("eth-mainnet"),
     "https://ethereum-rpc.publicnode.com",
     "https://eth-mainnet.public.blastapi.io",
     "https://eth.llamarpc.com",
+    alchemyRpc("eth-mainnet"),
   ],
   Optimism: [
-    alchemyRpc("opt-mainnet"),
     "https://mainnet.optimism.io",
     "https://optimism-rpc.publicnode.com",
     "https://optimism-mainnet.public.blastapi.io",
+    alchemyRpc("opt-mainnet"),
   ],
   Base: [
-    alchemyRpc("base-mainnet"),
     "https://mainnet.base.org",
     "https://base-rpc.publicnode.com",
     "https://base-mainnet.public.blastapi.io",
+    alchemyRpc("base-mainnet"),
   ],
   Polygon: [
-    alchemyRpc("polygon-mainnet"),
-    "https://polygon-rpc.com",
+    "https://polygon.drpc.org",
     "https://polygon-bor-rpc.publicnode.com",
+    // "https://polygon-rpc.com", //401 Unauthorized
+    alchemyRpc("polygon-mainnet"),
   ],
   Gnosis: [
-    alchemyRpc("gnosis-mainnet"),
     "https://rpc.gnosischain.com",
     "https://gnosis-rpc.publicnode.com",
+    alchemyRpc("gnosis-mainnet"),
   ],
-  Fantom: [
-    alchemyRpc("fantom-mainnet"),
-    "https://rpc.ftm.tools",
-    "https://fantom-rpc.publicnode.com",
-  ],
+  // Fantom: [
+  //   "https://rpc.ftm.tools",
+  //   "https://fantom-rpc.publicnode.com",
+  //   // alchemyRpc("fantom-mainnet"),
+  // ],
   Sonic: [
-    alchemyRpc("sonic-mainnet"),
     "https://rpc.soniclabs.com",
     "https://sonic-rpc.publicnode.com",
+    alchemyRpc("sonic-mainnet"),
   ],
   XLayer: [
-    alchemyRpc("xlayer-mainnet"),
+    "https://xlayer.drpc.org",
     "https://rpc.xlayer.tech",
+    alchemyRpc("xlayer-mainnet"),
   ],
   Metis: [
-    alchemyRpc("metis-mainnet"),
     "https://andromeda.metis.io/?owner=1088",
     "https://metis-rpc.publicnode.com",
+    alchemyRpc("metis-mainnet"),
   ],
   Soneium: [
-    alchemyRpc("soneium-mainnet"),
     "https://rpc.soneium.org",
     "https://soneium.drpc.org",
+    alchemyRpc("soneium-mainnet"),
   ],
   Mantle: [
-    alchemyRpc("mantle-mainnet"),
     "https://rpc.mantle.xyz",
     "https://mantle-rpc.publicnode.com",
+    alchemyRpc("mantle-mainnet"),
   ],
   Celo: [
-    alchemyRpc("celo-mainnet"),
     "https://forno.celo.org",
     "https://celo-rpc.publicnode.com",
+    alchemyRpc("celo-mainnet"),
   ],
   Linea: [
-    alchemyRpc("linea-mainnet"),
     "https://rpc.linea.build",
     "https://linea-rpc.publicnode.com",
+    alchemyRpc("linea-mainnet"),
   ],
   Scroll: [
-    alchemyRpc("scroll-mainnet"),
     "https://rpc.scroll.io",
     "https://scroll-rpc.publicnode.com",
+    alchemyRpc("scroll-mainnet"),
   ],
   zkSyncEra: [
-    alchemyRpc("zksync-mainnet"),
     "https://mainnet.era.zksync.io",
     "https://zksync-era-rpc.publicnode.com",
+    alchemyRpc("zksync-mainnet"),
   ],
   Kaia: [
     "https://public-en.node.kaia.io",
@@ -165,18 +169,18 @@ exports.rpcs = {
     "https://api.wemix.com", //403 forbidden
   ],
   Avalanche: [
-    alchemyRpc("avax-mainnet"),
     "https://avalanche-c-chain-rpc.publicnode.com",
     "https://api.avax.network/ext/bc/C/rpc",
     "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc",
+    alchemyRpc("avax-mainnet"),
   ],
   Solana: [
-    alchemyRpc("solana-mainnet"),
     "https://solana-rpc.publicnode.com",
     "https://api.mainnet-beta.solana.com",
     "https://api.mainnet.solana.com",
     // "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY",
     // "https://rpc.ankr.com/solana", // neeed key
+    alchemyRpc("solana-mainnet"),
   ],
 };
 exports.scanners = {

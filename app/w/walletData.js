@@ -4,7 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ethers } from "ethers";
 import baseHyperliquidVaults from "@/data/defi/hyperliquid";
-import { defaultMulticallAddress, multicalls } from "@/data/basic";
+import { chainIds, defaultMulticallAddress, multicalls } from "@/data/basic";
 import getCoinM from "@/fn/getCoinM";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
 import { getWalletDisableKey } from "./walletSettingData";
@@ -99,6 +99,12 @@ const priceFetchTimeoutMs = 3500;
 const alchemyFetchTimeoutMs = 10000;
 const alchemyWalletChunkSize = 2;
 const alchemyPortfolioBaseUrl = "https://api.g.alchemy.com/data/v1";
+const failedRpcCooldownMs = 60_000;
+const failedRpcM = globalThis.__w3FailedRpcM || new Map();
+globalThis.__w3FailedRpcM = failedRpcM;
+const rpcLogCooldownMs = 60_000;
+const rpcLogM = globalThis.__w3RpcLogM || new Map();
+globalThis.__w3RpcLogM = rpcLogM;
 const hyperliquidApiBase =
   process.env.HYPERLIQUID_API_BASE ||
   process.env.hyperliquid_api_base ||
@@ -149,12 +155,14 @@ function getChainE(chain) {
   if (!chainRpc) return null;
   if (Array.isArray(chainRpc) || typeof chainRpc == "string") {
     return {
+      chain,
       rpc: chainRpc,
       multicall: multicalls?.[chain] ?? defaultMulticallAddress,
     };
   }
 
   return {
+    chain,
     rpc: chainRpc.rpc ?? chainRpc.rpcs ?? chainRpc.urls,
     multicall:
       chainRpc.multicall ??
@@ -168,7 +176,51 @@ function getRpcs(chainE) {
   const rpcs = Array.isArray(chainE.rpc) ? chainE.rpc : [chainE.rpc];
   return rpcs
     .map((rpc) => (typeof rpc == "string" ? rpc : rpc?.rpc))
-    .filter(Boolean);
+    .map((rpc) => String(rpc || "").trim())
+    .filter((rpc) => /^https?:\/\//i.test(rpc));
+}
+
+function getLiveRpcs(chainE) {
+  const now = Date.now();
+  return getRpcs(chainE).filter((rpc) => {
+    const failedAt = failedRpcM.get(rpc) || 0;
+    if (!failedAt || now - failedAt > failedRpcCooldownMs) {
+      if (failedAt) failedRpcM.delete(rpc);
+      return true;
+    }
+
+    return false;
+  });
+}
+
+function getChainNetwork(chainE) {
+  const chainId = chainIds?.[chainE?.chain];
+  return Number.isInteger(chainId) ? { chainId, name: chainE.chain } : undefined;
+}
+
+function logRpcFailure({ chain = "", rpc = "", error = null } = {}) {
+  const key = `${chain}:${rpc}`;
+  const now = Date.now();
+  const lastLogAt = rpcLogM.get(key) || 0;
+  if (lastLogAt && now - lastLogAt < rpcLogCooldownMs) return;
+
+  rpcLogM.set(key, now);
+  console.warn(
+    `[wallet rpc failed] chain=${chain || "-"} rpc=${getRpcOrigin(rpc) || "-"} error=${
+      error?.shortMessage || error?.message || String(error || "unknown")
+    }`,
+  );
+}
+
+function getRpcOrigin(rpc = "") {
+  const text = String(rpc || "");
+  if (!text) return "";
+
+  try {
+    return new URL(text).origin;
+  } catch {
+    return text.split(/[/?#]/)[0] || text;
+  }
 }
 
 function normalizeCustomCoinM(input = []) {
@@ -305,19 +357,24 @@ function isReservedWalletPath(file) {
 
 async function getProvider(chainE, { timeoutMs = 0 } = {}) {
   let lastError;
+  const network = getChainNetwork(chainE);
 
-  for (const rpc of getRpcs(chainE)) {
-    const provider = new ethers.JsonRpcProvider(rpc);
+  for (const rpc of getLiveRpcs(chainE)) {
+    const provider = new ethers.JsonRpcProvider(rpc, network, {
+      staticNetwork: !!network,
+    });
     try {
       const blockPromise = provider.getBlockNumber();
       if (timeoutMs) {
         await withTimeout(blockPromise, timeoutMs, "rpc block timeout");
       } else {
-        await blockPromise;
+        await withTimeout(blockPromise, 6000, "rpc block timeout");
       }
       return provider;
     } catch (e) {
       lastError = e;
+      failedRpcM.set(rpc, Date.now());
+      logRpcFailure({ chain: chainE?.chain, rpc, error: e });
       provider.destroy?.();
     }
   }
@@ -880,6 +937,13 @@ function getAlchemyNetwork(chain) {
   return alchemyNetworks?.[chain] || "";
 }
 
+function getAlchemyEnabledNetworkEntries(chains = [], useAlchemy = null) {
+  return [...new Set(chains)]
+    .filter((chain) => isAlchemyEnabled(chain, useAlchemy))
+    .map((chain) => [chain, getAlchemyNetwork(chain)])
+    .filter(([, network]) => network);
+}
+
 function isAlchemyEnabled(chain, useAlchemy = null) {
   const enabled =
     useAlchemy === null || useAlchemy === undefined
@@ -1060,10 +1124,22 @@ function getAlchemyBalanceE({
   };
 }
 
-async function fetchAlchemyTokens({ chain, rows }) {
+function getAlchemyTokenNetwork(token = {}) {
+  return String(
+    token.network ||
+      token.networkId ||
+      token.blockchain ||
+      token.chain ||
+      token.chainId ||
+      "",
+  ).trim();
+}
+
+async function fetchAlchemyTokensByNetworks({ networks = [], rows }) {
   const apiKey = getAlchemyApiKey();
-  const network = getAlchemyNetwork(chain);
   const tokens = [];
+  const networkList = [...new Set(networks.filter(Boolean))];
+  if (!apiKey || !networkList.length || !rows.length) return tokens;
 
   for (const batch of chunkList(rows, alchemyWalletChunkSize)) {
     const res = await fetchWithTimeout(
@@ -1075,7 +1151,7 @@ async function fetchAlchemyTokens({ chain, rows }) {
         body: JSON.stringify({
           addresses: batch.map((row) => ({
             address: row.address,
-            networks: [network],
+            networks: networkList,
           })),
           withMetadata: true,
           withPrices: true,
@@ -1095,6 +1171,88 @@ async function fetchAlchemyTokens({ chain, rows }) {
   return tokens;
 }
 
+async function fetchAlchemyTokens({ chain, rows }) {
+  return fetchAlchemyTokensByNetworks({
+    networks: [getAlchemyNetwork(chain)],
+    rows,
+  });
+}
+
+function getAlchemyCachedTokens({ chain, rows, alchemyTokenCache = null }) {
+  const network = getAlchemyNetwork(chain);
+  if (!network || !alchemyTokenCache?.networkSet?.has(network)) return null;
+
+  const tokens = alchemyTokenCache.tokensByNetwork?.[network] || [];
+  const rowKeys = new Set(rows.map((row) => getAddressKey(chain, row.address)));
+  return tokens.filter((token) =>
+    rowKeys.has(getAddressKey(chain, token.address)),
+  );
+}
+
+export async function getAlchemyWalletTokenCache({
+  chains = [],
+  walletFile = "",
+  walletType = defaultWalletType,
+  walletAddress = "",
+  walletName = "",
+  walletEntryList = null,
+  disabledWallets = [],
+  disabledWalletNames = [],
+  useAlchemy = null,
+} = {}) {
+  const networkEntries = getAlchemyEnabledNetworkEntries(chains, useAlchemy);
+  const networks = [...new Set(networkEntries.map(([, network]) => network))];
+  if (!networks.length) return null;
+
+  const wallets = await loadWallets(walletFile, walletType, {
+    walletAddress,
+    walletName,
+    walletEntryList,
+    disabledWallets,
+    disabledWalletNames,
+  });
+  const rows = Object.entries(wallets)
+    .map(([name, address]) =>
+      walletType == "solana"
+        ? isSolanaAddress(address)
+          ? { name, address }
+          : null
+        : ethers.isAddress(address)
+          ? { name, address: ethers.getAddress(address) }
+          : null,
+    )
+    .filter(Boolean);
+  if (!rows.length) return null;
+
+  const tokens = await fetchAlchemyTokensByNetworks({ networks, rows });
+  const tokensByNetwork = Object.fromEntries(
+    networks.map((network) => [network, []]),
+  );
+  let unscopedTokenCount = 0;
+
+  for (const token of tokens) {
+    const network = getAlchemyTokenNetwork(token);
+    if (!network || !tokensByNetwork[network]) {
+      if (networks.length == 1) {
+        tokensByNetwork[networks[0]].push(token);
+        continue;
+      }
+
+      unscopedTokenCount += 1;
+      continue;
+    }
+
+    tokensByNetwork[network].push(token);
+  }
+
+  if (unscopedTokenCount && networks.length > 1) return null;
+
+  return {
+    networkSet: new Set(networks),
+    tokensByNetwork,
+  };
+}
+
 async function getAlchemyBalances({
   chain,
   rows,
@@ -1103,6 +1261,7 @@ async function getAlchemyBalances({
   disabledCoins = [],
   useAlchemy = null,
   usdPriceQuery = false,
+  alchemyTokenCache = null,
 }) {
   if (!isAlchemyEnabled(chain, useAlchemy) || !rows.length) return null;
 
@@ -1120,7 +1279,12 @@ async function getAlchemyBalances({
     rows.map((row) => [getAddressKey(chain, row.address), row]),
   );
   const priceM = {};
-  const tokens = await fetchAlchemyTokens({ chain, rows });
+  const cachedTokens = getAlchemyCachedTokens({
+    chain,
+    rows,
+    alchemyTokenCache,
+  });
+  const tokens = cachedTokens ?? (await fetchAlchemyTokens({ chain, rows }));
 
   for (const token of tokens) {
     const row = rowM[getAddressKey(chain, token.address)];
@@ -1296,6 +1460,7 @@ async function buildAlchemyWalletResult({
   useAlchemy = null,
   alchemyMinUsd = 0.01,
   usdPriceQuery = false,
+  alchemyTokenCache = null,
 }) {
   const alchemy = await getAlchemyBalances({
     chain,
@@ -1305,6 +1470,7 @@ async function buildAlchemyWalletResult({
     disabledCoins,
     useAlchemy,
     usdPriceQuery,
+    alchemyTokenCache,
   });
   if (!alchemy) return null;
 
@@ -2064,6 +2230,7 @@ export async function getSolanaWalletBalances({
   useAlchemy = null,
   alchemyMinUsd = 0.01,
   usdPriceQuery = false,
+  alchemyTokenCache = null,
 } = {}) {
   const chain = "Solana";
   const chainE = getChainE(chain);
@@ -2100,7 +2267,7 @@ export async function getSolanaWalletBalances({
   }
   if (!walletEntries.length) return { chain, coins: [], allCoins, coinInfoM, scanner, rows: [] };
 
-  const rpcList = getRpcs(chainE);
+  const rpcList = getLiveRpcs(chainE);
   if (!rpcList.length) {
     return {
       chain,
@@ -2132,6 +2299,7 @@ export async function getSolanaWalletBalances({
       useAlchemy,
       alchemyMinUsd,
       usdPriceQuery,
+      alchemyTokenCache,
     }).catch(() => null);
 
     if (alchemyResult) return { ...alchemyResult, rows };
@@ -2395,6 +2563,7 @@ export async function getWalletBalances({
   useAlchemy = null,
   alchemyMinUsd = 0.01,
   usdPriceQuery = false,
+  alchemyTokenCache = null,
 } = {}) {
   const chainE = getChainE(chain);
   const wallets = await loadWallets(walletFile, walletType, {
@@ -2432,7 +2601,7 @@ export async function getWalletBalances({
     return { chain, coins: [], allCoins, coinInfoM, scanner, rows: [] };
   }
 
-  const rpcList = getRpcs(chainE);
+  const rpcList = getLiveRpcs(chainE);
   if (!rpcList.length) {
     return {
       chain,
@@ -2466,6 +2635,7 @@ export async function getWalletBalances({
       useAlchemy,
       alchemyMinUsd,
       usdPriceQuery,
+      alchemyTokenCache,
     }).catch(() => null);
 
     if (alchemyResult) return { ...alchemyResult, rows };

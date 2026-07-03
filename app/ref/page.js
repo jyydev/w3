@@ -139,7 +139,7 @@ function Table({ rows }) {
 
 function List({ items }) {
   return (
-    <ul>
+    <ul className="refDashList">
       {items.map((item) => (
         <li key={item}>{item}</li>
       ))}
@@ -185,6 +185,11 @@ function Page() {
       </Section>
 
       <Section title="balances and prices">
+        <p>
+          <a className="refLink" href="/ref/rpc">
+            RPC and Alchemy loading details
+          </a>
+        </p>
         <List items={balanceNotes} />
       </Section>
 
