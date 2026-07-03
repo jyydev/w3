@@ -933,7 +933,7 @@ function Panels({
             </label>
           </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}
-          {loadingLocalWalletData && (
+          {loadingLocalWalletData && !localWalletData && (
             <span className="yellow">loading balance...</span>
           )}
           {privateKeyMissing && <span className="red">no private key</span>}

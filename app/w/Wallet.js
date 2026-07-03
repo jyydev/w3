@@ -2916,7 +2916,7 @@ function Wallet({
             >
               {">"}
             </button>
-            {(loadingWallet || loadingLocalWallet) && (
+            {(loadingWallet || (loadingLocalWallet && !displayRows.length)) && (
               <span className="yellow">loading...</span>
             )}
             <span>coins:</span>

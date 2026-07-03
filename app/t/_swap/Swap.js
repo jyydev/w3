@@ -331,7 +331,8 @@ export default function SwapPanel({
   const recipientBalanceLoading =
     isRecipientBalanceMode() &&
     recipientBalanceE.key == recipientBalanceKey &&
-    recipientBalanceE.loading;
+    recipientBalanceE.loading &&
+    !hasLoadedBalance(recipientBalance);
   const recipientBalanceError =
     isRecipientBalanceMode() && recipientBalanceE.key == recipientBalanceKey
       ? recipientBalanceE.error
