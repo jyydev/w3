@@ -18,7 +18,9 @@ const jupiterApiBase =
 const jupiterTokenApiBase =
   process.env.JUPITER_TOKEN_API_BASE ||
   process.env.jupiter_token_api_base ||
-  "https://lite-api.jup.ag/tokens/v2";const jupiterNativeSolAddress = "So11111111111111111111111111111111111111112";const defaultSlippageBps = 50n;
+  "https://lite-api.jup.ag/tokens/v2";
+const jupiterNativeSolAddress = "So11111111111111111111111111111111111111112";
+const defaultSlippageBps = 50n;
 
 function getJupiterToken(coin = "") {
   const coinE = coinM?.Solana?.[coin];
@@ -178,6 +180,16 @@ function assertJupiterRoute({
   }
   getSolanaPublicKey(walletAddress, "Solana wallet address");
   if (fromCoin == toCoin) throw new Error("sell coin and buy coin are the same");
+}
+
+function getJupiterAmountIn({ fromCoin, amount }) {
+  const amountIn = ethers.parseUnits(
+    String(amount || "0"),
+    getCoinDecimals("Solana", fromCoin),
+  );
+  if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
+
+  return amountIn;
 }
 
 async function getJupiterQuote({

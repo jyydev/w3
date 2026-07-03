@@ -96,8 +96,8 @@ const hyperliquidStaticRouteFeeM = {
     "arbitrum_cctp:usdc": { fee: "0.2" },
   },
   withdraw: {
-    "arbitrum:usdc": { fee: "0.2", eta: "5m" },
-    "arbitrum_cctp:usdc": { fee: "0.2", eta: "5m" },
+    "arbitrum:usdc": { fee: "1", eta: "5m" },
+    "arbitrum_cctp:usdc": { fee: "1", eta: "5m" },
   },
 };
 
@@ -114,7 +114,12 @@ function getHyperliquidUnitFeeGroup(route = "", asset = "") {
   return route;
 }
 
-function getHyperliquidUnitFeeValue(fees = {}, route = "", asset = "", action = "deposit") {
+function getHyperliquidUnitFeeValue(
+  fees = {},
+  route = "",
+  asset = "",
+  action = "deposit",
+) {
   const group = getHyperliquidUnitFeeGroup(route, asset);
   const entry = fees?.[group] || {};
   const actionKey = action == "withdraw" ? "withdrawal" : "deposit";
@@ -234,7 +239,8 @@ function buildHyperliquidUnitDiscovery({ action = "deposit", fees = {} } = {}) {
         route: route.value,
       });
       chainCoinE.added = chainCoinE.added || !!localCoinE;
-      chainCoinE.actionSupported = chainCoinE.actionSupported || actionSupported;
+      chainCoinE.actionSupported =
+        chainCoinE.actionSupported || actionSupported;
       chainCoinE.fee = chainCoinE.fee || feeE.fee;
       chainCoinE.eta = chainCoinE.eta || feeE.eta;
     }
@@ -418,7 +424,9 @@ function getHyperliquidUserSignedTypedData({
   };
 }
 
-function normalizeHyperliquidSignatureChainId(value = hyperliquidSignatureChainIdHex) {
+function normalizeHyperliquidSignatureChainId(
+  value = hyperliquidSignatureChainIdHex,
+) {
   const chainId = BigInt(value || hyperliquidSignatureChainIdHex);
 
   return {
@@ -439,7 +447,8 @@ function splitSignature(signature = "") {
 
 function parseHyperliquidUsdAmount(amount = "") {
   const text = String(amount || "0").trim();
-  if (!text || Number(text) <= 0) throw new Error("amount must be greater than 0");
+  if (!text || Number(text) <= 0)
+    throw new Error("amount must be greater than 0");
   const [intPart, decimalPart = ""] = text.split(".");
   const cleanText = decimalPart
     ? `${intPart}.${decimalPart.slice(0, 6)}`
@@ -455,7 +464,8 @@ function normalizeUsdAmount(amount = "") {
   if (!/^\d*(\.\d*)?$/.test(text) || !text.replace(".", "")) {
     throw new Error("amount invalid");
   }
-  if (!text || Number(text) <= 0) throw new Error("amount must be greater than 0");
+  if (!text || Number(text) <= 0)
+    throw new Error("amount must be greater than 0");
   const [intPart = "0", decimalPart = ""] = text.split(".");
   const cleanInt = String(BigInt(intPart || "0"));
   const cleanDecimal = decimalPart.slice(0, 6).replace(/0+$/, "");
@@ -471,9 +481,12 @@ function normalizeUsdAmount(amount = "") {
 
 function getHyperliquidBridgeConfig({ chain = "", coin = "" } = {}) {
   const bridgeE = hyperliquidBridgeM[chain];
-  if (!bridgeE) throw new Error(`Hyperliquid spot bridge unsupported: ${chain}`);
+  if (!bridgeE)
+    throw new Error(`Hyperliquid spot bridge unsupported: ${chain}`);
   if (coin != bridgeE.coin) {
-    throw new Error(`Hyperliquid spot bridge supports ${chain} ${bridgeE.coin}`);
+    throw new Error(
+      `Hyperliquid spot bridge supports ${chain} ${bridgeE.coin}`,
+    );
   }
 
   const coinE = coinM?.[chain]?.[coin];
@@ -575,7 +588,9 @@ async function postHyperliquidExchange({
   );
   const data = await res.json().catch(() => null);
   if (!res.ok || data?.status == "err" || data?.error) {
-    throw new Error(data?.response || data?.error || `${res.status} ${res.statusText}`);
+    throw new Error(
+      data?.response || data?.error || `${res.status} ${res.statusText}`,
+    );
   }
 
   return data;
@@ -696,7 +711,9 @@ export async function buildHyperliquidSpotDepositTxs({
   const bridgeE = getHyperliquidBridgeConfig({ chain, coin });
   const { amountIn, amountText } = normalizeUsdAmount(amount);
   if (Number(amountText) < bridgeE.minAmount) {
-    throw new Error(`Hyperliquid deposits must be at least $${bridgeE.minAmount}`);
+    throw new Error(
+      `Hyperliquid deposits must be at least $${bridgeE.minAmount}`,
+    );
   }
 
   const chainId = relayChainIds[chain];

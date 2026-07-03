@@ -242,16 +242,6 @@ function getAcrossAmountIn({ chain, fromCoin, amount }) {
   return amountIn;
 }
 
-function getJupiterAmountIn({ fromCoin, amount }) {
-  const amountIn = ethers.parseUnits(
-    String(amount || "0"),
-    getCoinDecimals("Solana", fromCoin),
-  );
-  if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
-
-  return amountIn;
-}
-
 function getAcrossChainId(chain = "") {
   const chainId = acrossChainIds[chain];
   if (!chainId) throw new Error(`Across chain unsupported: ${chain}`);
