@@ -128,6 +128,7 @@ export default function SendPanel({
   const [coinSort, setCoinSort] = useState("");
   const [loadedWalletSort, setLoadedWalletSort] = useState("");
   const [allWalletSort, setAllWalletSort] = useState("");
+  const [copiedAddress, setCopiedAddress] = useState("");
   const coinPickerRef = useRef(null);
   const toWalletPickerRef = useRef(null);
   const [fromWallet, setFromWallet] = useState(
@@ -197,8 +198,10 @@ export default function SendPanel({
     toEntry,
     fallbackBalanceM,
   );
-  const fromBalanceLoading = !!balanceLoadingM[fromBalanceKey] && !fromHasTableBalance;
-  const toBalanceLoading = !!balanceLoadingM[toBalanceKey] && !toHasTableBalance;
+  const fromBalanceLoading =
+    !!balanceLoadingM[fromBalanceKey] && !fromHasTableBalance;
+  const toBalanceLoading =
+    !!balanceLoadingM[toBalanceKey] && !toHasTableBalance;
   const fromBalanceError = balanceErrorM[fromBalanceKey] || "";
   const toBalanceError = balanceErrorM[toBalanceKey] || "";
   const coinDecimals = getQtyDecimals(chainE?.coinInfoM?.[coin]?.decimals);
@@ -488,9 +491,13 @@ export default function SendPanel({
 
   function saveSendCoinCookie(coin) {
     if (!chain || !coin) return;
-    setCookie(getChainCoinCookie(tradeSendCoinCookie, walletType, chain), coin, {
-      maxAge: cookieMaxAge,
-    });
+    setCookie(
+      getChainCoinCookie(tradeSendCoinCookie, walletType, chain),
+      coin,
+      {
+        maxAge: cookieMaxAge,
+      },
+    );
   }
 
   function CoinQty({ coinName = "" }) {
@@ -565,7 +572,12 @@ export default function SendPanel({
   }
 
   function updateQty(value) {
-    const qty = normalizeSignedQtyInput(value, maxSend, currentToBal, coinDecimals);
+    const qty = normalizeSignedQtyInput(
+      value,
+      maxSend,
+      currentToBal,
+      coinDecimals,
+    );
     setQty(qty);
   }
 
@@ -604,7 +616,10 @@ export default function SendPanel({
       );
     }
 
-    const targetEnd = formatTradeQty(fromEndDraft || fromEndInputValue, coinDecimals);
+    const targetEnd = formatTradeQty(
+      fromEndDraft || fromEndInputValue,
+      coinDecimals,
+    );
     if (!walletEntry?.address) return "0";
     if (sameAddress(walletEntry.address, fromEntry?.address)) {
       return getTradeEndDiffQty(maxSendQty, targetEnd, coinDecimals);
@@ -623,6 +638,70 @@ export default function SendPanel({
         coinDecimals,
       ),
       coinDecimals,
+    );
+  }
+
+  async function copySendAddress(e, address = "") {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!address) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(address);
+      } else {
+        const input = document.createElement("textarea");
+        input.value = address;
+        input.setAttribute("readonly", "");
+        input.style.position = "fixed";
+        input.style.left = "-9999px";
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      }
+
+      setCopiedAddress(address);
+      setTimeout(() => {
+        setCopiedAddress((prev) => (prev == address ? "" : prev));
+      }, 1200);
+    } catch (err) {
+      toast.error(err?.message || "copy failed");
+    }
+  }
+
+  function renderSendWalletTail(address = "", label = "wallet") {
+    if (!address) return null;
+    const copied = copiedAddress == address;
+
+    return (
+      <span className="infoHover sendWalletAddressHover">
+        <span className="gray sendWalletTail">{shortTail(address)}</span>
+        <span className="infoCard sendWalletAddressCard">
+          <span className="infoCardTitle">{label}</span>
+          <span className="sendWalletAddressRow">
+            <span
+              className="copyAddressText"
+              onClick={(e) => copySendAddress(e, address)}
+            >
+              {address}
+            </span>
+            <button
+              type="button"
+              className={`copyAddressBtn ${copied ? "copied" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => copySendAddress(e, address)}
+              aria-label="copy address"
+            >
+              <span className="copyIcon" aria-hidden="true"></span>
+              <span className="copyTick" aria-hidden="true"></span>
+            </button>
+          </span>
+        </span>
+      </span>
     );
   }
 
@@ -718,6 +797,10 @@ export default function SendPanel({
         });
       }
 
+      if (res?.ok === false) {
+        throw new Error(res.error || "send failed");
+      }
+
       setSendResult(res);
       tradeToast.success(`Send submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
@@ -747,7 +830,9 @@ export default function SendPanel({
       getLoopWalletEntries,
       selectedWalletEntry: fromEntry,
       actionLabel: `send ${
-        fromEndWith ? `end ${formatTradeQty(fromEndInputValue, coinDecimals)}` : formatTradeQty(qty, coinDecimals)
+        fromEndWith
+          ? `end ${formatTradeQty(fromEndInputValue, coinDecimals)}`
+          : formatTradeQty(qty, coinDecimals)
       } ${coin}`,
       runOne: runSendForWallet,
     });
@@ -779,14 +864,10 @@ export default function SendPanel({
       addr: (entry) => entry.address,
     },
   );
-  const sortedAllWallets = sortTradePickerRows(
-    toWallets,
-    allWalletSort,
-    {
-      wallet: (entry) => entry.label,
-      addr: (entry) => entry.address,
-    },
-  );
+  const sortedAllWallets = sortTradePickerRows(toWallets, allWalletSort, {
+    wallet: (entry) => entry.label,
+    addr: (entry) => entry.address,
+  });
 
   return (
     <div className="tradePane swapPane sendPane">
@@ -946,9 +1027,7 @@ export default function SendPanel({
               >
                 {">"}
               </button>
-              <span className="gray sendWalletTail">
-                {shortTail(fromEntry?.address)}
-              </span>
+              {renderSendWalletTail(fromEntry?.address, "from")}
             </span>
           </div>
           <div className="swapBalanceLine">
@@ -1029,7 +1108,12 @@ export default function SendPanel({
               value={sliderValue}
               onChange={(e) =>
                 updateQty(
-                  rangeQtyInput(e.target.value, maxSend, maxSendQty, coinDecimals),
+                  rangeQtyInput(
+                    e.target.value,
+                    maxSend,
+                    maxSendQty,
+                    coinDecimals,
+                  ),
                 )
               }
               disabled={!maxSend}
@@ -1175,9 +1259,7 @@ export default function SendPanel({
               >
                 {">"}
               </button>
-              <span className="gray sendWalletTail">
-                {shortTail(toEntry?.address)}
-              </span>
+              {renderSendWalletTail(toEntry?.address, "to")}
             </div>
           </div>
           <div className="swapBalanceLine">
@@ -1223,7 +1305,7 @@ export default function SendPanel({
               onClick={switchWallets}
               disabled={!canSwitchWallets}
             >
-              {"→"}
+              {"⇆"}
             </button>
           </div>
         </div>
@@ -1235,10 +1317,16 @@ export default function SendPanel({
             <>
               <span className="gray">Send:</span>{" "}
               {sendResult.txs?.map((tx, index) => (
-                <SwapTxLink key={`${tx.walletLabel || ""}_${tx.hash}_${index}`} tx={tx} />
+                <SwapTxLink
+                  key={`${tx.walletLabel || ""}_${tx.hash}_${index}`}
+                  tx={tx}
+                />
               ))}
               {sendResult.loopErrors?.map((entry) => (
-                <span key={`${entry.walletLabel}_${entry.error}`} className="red">
+                <span
+                  key={`${entry.walletLabel}_${entry.error}`}
+                  className="red"
+                >
                   {" "}
                   {entry.walletLabel}: {entry.error}
                 </span>

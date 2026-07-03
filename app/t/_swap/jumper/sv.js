@@ -3,6 +3,7 @@
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import {
+  assertWhitelistedRecipient,
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
@@ -597,6 +598,17 @@ export async function executeJumperSwap({
   if (fromChain != "Solana" && !privateKey) {
     throw new Error(`private key missing: pk_${walletName}`);
   }
+  try {
+    assertWhitelistedRecipient({ address: recipient || walletAddress });
+  } catch (e) {
+    return {
+      ok: false,
+      dex: "Jumper",
+      error: e?.message || "recipient not whitelisted",
+      txs: [],
+    };
+  }
+
   const built = await buildJumperSwapTxs({
     walletAddress,
     fromChain,

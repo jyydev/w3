@@ -1162,6 +1162,23 @@ span.chainIcon {
 .sendWalletTail {
   white-space: nowrap;
 }
+.sendWalletAddressHover {
+  cursor: default;
+}
+.sendWalletAddressCard {
+  min-width: max-content;
+  max-width: calc(100vw - 32px);
+}
+.sendWalletAddressRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sendWalletAddressRow .copyAddressText {
+  max-width: min(620px, 82vw);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 .selectCycle select {
   min-width: 0;
 }

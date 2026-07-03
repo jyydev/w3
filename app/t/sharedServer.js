@@ -7,7 +7,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import coinM from "@/fn/coinM";
-import { rpcs } from "@/sets";
+import { onWhitelist, rpcs, whitelists } from "@/sets";
 import { getCoinUsdPrice } from "../w/walletData";
 
 const relayApiBase = "https://api.relay.link";
@@ -88,6 +88,43 @@ export function sameEvmAddress(a = "", b = "") {
     ethers.isAddress(b) &&
     ethers.getAddress(a) == ethers.getAddress(b)
   );
+}
+
+function getWhitelistAddressKey(address = "") {
+  const value = String(address || "").trim();
+  if (!value) return "";
+  if (ethers.isAddress(value)) return `evm:${ethers.getAddress(value).toLowerCase()}`;
+
+  try {
+    return `solana:${new PublicKey(value).toBase58()}`;
+  } catch {
+    return `raw:${value.toLowerCase()}`;
+  }
+}
+
+export function isWhitelistedAddress(address = "") {
+  if (!onWhitelist) return true;
+
+  const addressKey = getWhitelistAddressKey(address);
+  if (!addressKey) return false;
+
+  const whitelistKeys = new Set(
+    (Array.isArray(whitelists) ? whitelists : [])
+      .map(getWhitelistAddressKey)
+      .filter(Boolean),
+  );
+
+  return whitelistKeys.has(addressKey);
+}
+
+export function assertWhitelistedRecipient({
+  address = "",
+  label = "recipient",
+} = {}) {
+  if (!onWhitelist) return;
+  if (isWhitelistedAddress(address)) return;
+
+  throw new Error(`${label} not whitelisted`);
 }
 
 export async function mapWithConcurrency(items = [], limit = 3, fn) {

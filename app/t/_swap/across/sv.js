@@ -5,6 +5,7 @@ import coinM from "@/fn/coinM";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
+  assertWhitelistedRecipient,
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
@@ -551,6 +552,16 @@ export async function executeAcrossSwap({
     fromChain == "Solana" ? getSolanaKeypair(walletName) : null;
   if (fromChain != "Solana" && !privateKey) {
     throw new Error(`private key missing: pk_${walletName}`);
+  }
+  try {
+    assertWhitelistedRecipient({ address: recipient || walletAddress });
+  } catch (e) {
+    return {
+      ok: false,
+      dex: "Across",
+      error: e?.message || "recipient not whitelisted",
+      txs: [],
+    };
   }
 
   const { amountIn, quote } = await getAcrossQuote({

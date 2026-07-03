@@ -10,6 +10,7 @@ import {
 import coinM from "@/fn/coinM";
 import {
   erc20Interface,
+  assertWhitelistedRecipient,
   executeRawEvmTx,
   executeSolanaTx,
   getCoinDecimals,
@@ -165,6 +166,19 @@ export async function executeSend({
   amount = "",
   recipient = "",
 } = {}) {
+  try {
+    assertWhitelistedRecipient({ address: recipient });
+  } catch (e) {
+    return {
+      ok: false,
+      action: "Send",
+      chain,
+      coin,
+      error: e?.message || "recipient not whitelisted",
+      txs: [],
+    };
+  }
+
   const built = await buildSendTx({
     walletAddress,
     chain,

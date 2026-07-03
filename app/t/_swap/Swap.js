@@ -1256,6 +1256,10 @@ export default function SwapPanel({
         }
       }
 
+      if (res?.ok === false) {
+        throw new Error(res.error || `${defiE.label} swap failed`);
+      }
+
       setSwapResult(res);
       tradeToast.success(
         `${res.dex || defiE.label} submitted ${res.txs?.length || 0} tx`,

@@ -9,6 +9,7 @@ import {
 import { ed25519 } from "@noble/curves/ed25519";
 import coinM from "@/fn/coinM";
 import {
+  assertWhitelistedRecipient,
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
@@ -540,6 +541,17 @@ export async function executeRelaySwap({
     fromChain == "Solana" ? getSolanaKeypair(walletName) : null;
   if (fromChain != "Solana" && !privateKey) {
     throw new Error(`private key missing: pk_${walletName}`);
+  }
+  try {
+    assertWhitelistedRecipient({ address: recipient || walletAddress });
+  } catch (e) {
+    return {
+      ok: false,
+      dex: "Relay",
+      error: e?.message || "recipient not whitelisted",
+      txs: [],
+      signatures: [],
+    };
   }
 
   const built = await buildRelaySwapSteps({
