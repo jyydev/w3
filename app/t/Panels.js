@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
+import { CycleButton } from "@/components/Shared";
 import {
   getAllLocalCustomCoinM,
   localEditorStorageEvent,
@@ -827,13 +828,10 @@ function Panels({
           <span className="gray">Trade</span>
           <label htmlFor="tradeWallet">
             {wallets.length != 1 && (
-              <button
-                type="button"
-                className="btn small bgGray"
+              <CycleButton
+                direction="prev"
                 onClick={() => cycleWallet("prev")}
-              >
-                {"<"}
-              </button>
+              />
             )}
             <select
               id="tradeWallet"
@@ -850,13 +848,9 @@ function Panels({
               ))}
             </select>
             {wallets.length != 1 && (
-              <button
-                type="button"
-                className="btn small bgGray"
+              <CycleButton
                 onClick={() => cycleWallet("next")}
-              >
-                {">"}
-              </button>
+              />
             )}
           </label>
           {loopWalletEntries.length > 0 && (
@@ -923,13 +917,7 @@ function Panels({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className="btn small bgGray"
-                onClick={cyclePane}
-              >
-                {">"}
-              </button>
+              <CycleButton onClick={cyclePane} />
             </label>
           </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}

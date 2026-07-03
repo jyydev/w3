@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import { CycleButton } from "@/components/Shared";
 import {
   LendMarketPicker,
   getBalanceQty,
@@ -553,6 +554,7 @@ export default function LendPanel({
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
+    (defi == "aave" && underlyingPrice ? underlyingPrice : 0) ||
     ((defi == "venus" || defi == "jupiter" || defi == "morpho") &&
     underlyingPrice &&
     marketReceiptRate
@@ -1548,7 +1550,7 @@ export default function LendPanel({
 
   return (
     <ProtocolClient>
-      <div className="tradePane swapPane lendPane">
+      <div className="tradePane tradeWidePane lendPane">
       <CustomCoinConfirmModal
         preview={customCoinPreview}
         draft={customCoinDraft}
@@ -1572,13 +1574,7 @@ export default function LendPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
-            onClick={onCycleTradeType}
-          >
-            {">"}
-          </button>
+          <CycleButton size="nx" onClick={onCycleTradeType} />
         </label>
         <label htmlFor="lendDefi">
           <span className="gray">DeFi:</span>
@@ -1597,14 +1593,11 @@ export default function LendPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
+          <CycleButton
+            size="nx"
             onClick={nextDefi}
             disabled={availableLendingOptions.length < 2}
-          >
-            {">"}
-          </button>
+          />
         </label>
         <span className="selectCycle">
           <select
@@ -1621,14 +1614,10 @@ export default function LendPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn small bgGray"
+          <CycleButton
             onClick={nextChain}
             disabled={marketChains.length < 2}
-          >
-            {">"}
-          </button>
+          />
         </span>
         {hasProtocolAllMarkets ? (
           <LendMarketPicker
@@ -1678,30 +1667,26 @@ export default function LendPanel({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="btn small bgGray"
+            <CycleButton
               onClick={nextMarket}
               disabled={markets.length < 2}
-            >
-              {">"}
-            </button>
+            />
           </span>
         )}
       </div>
 
-      <div className="swapRows">
-        <div className="swapBox">
-          <div className="swapAssetLine">
+      <div className="tradeRows">
+        <div className="tradeBox">
+          <div className="tradeAssetLine">
             <span>{underlyingCoin || "-"}</span>
-            <span className="swapCoinPrice">
+            <span className="tradeCoinPrice">
               <span className="gray">{fmtPrice(underlyingPrice)}</span>
             </span>
           </div>
-          <div className="swapBalanceLine">
+          <div className="tradeBalanceLine">
             <button
               type="button"
-              className="tradeTextButton swapAssetBalance"
+              className="tradeTextButton tradeAssetBalance"
               onClick={setMaxLend}
             >
               <span className="gray">{underlyingCoin}: </span>
@@ -1711,9 +1696,9 @@ export default function LendPanel({
               )}
             </button>
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={lendEndWith}
@@ -1722,7 +1707,7 @@ export default function LendPanel({
               <span className="slider" />
             </label>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -1737,10 +1722,10 @@ export default function LendPanel({
               <span className="gray">${fmt(underlyingEndUsd, 2)}</span>
             )}
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">lend</span>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               step="any"
@@ -1753,9 +1738,9 @@ export default function LendPanel({
               <span className="gray">${fmt(underlyingQtyUsd, 2)}</span>
             )}
           </div>
-          <div className="lendBoxControls">
+          <div className="tradeBoxControls">
             <input
-              className="swapMiddleRange"
+              className="tradeMiddleRange"
               type="range"
               min="0"
               max={maxUnderlying || 0}
@@ -1783,7 +1768,7 @@ export default function LendPanel({
             </button>
             <button
               type="button"
-              className="btn swapActionButton bgCyan"
+              className="btn tradeActionButton bgCyan"
               onClick={() => runLend("lend")}
               disabled={lendPending}
             >
@@ -1792,9 +1777,9 @@ export default function LendPanel({
           </div>
         </div>
 
-        <div className="swapMiddle">
+        <div className="tradeMiddle">
           {showGasAutoLabel && (
-            <label className="swapGasSelect">
+            <label className="tradeGasSelect">
               <span className="gray">gas:</span>
               <select value="default" disabled>
                 <option value="default">auto</option>
@@ -1802,7 +1787,7 @@ export default function LendPanel({
             </label>
           )}
           {!selectedWalletEntry?.isBrowserWallet && defi != "jupiter" && (
-            <label className="swapAutoApproval">
+            <label className="tradeAutoApproval">
               <input
                 type="checkbox"
                 checked={autoApproval}
@@ -1811,7 +1796,7 @@ export default function LendPanel({
               <span className="gray">auto approve</span>
             </label>
           )}
-          <span className="swapRateLine">
+          <span className="tradeRateLine">
             <span className="gray">rate:</span>{" "}
             {underlyingCoin && lendCoin
               ? `1 ${underlyingCoin} = ${fmtRate(receiptRate)} ${lendCoin}`
@@ -1820,18 +1805,18 @@ export default function LendPanel({
           </span>
         </div>
 
-        <div className="swapBox">
-          <div className="swapAssetLine">
+        <div className="tradeBox">
+          <div className="tradeAssetLine">
             <span>{lendCoin || "-"}</span>
             {lendName && lendName != lendCoin && (
               <span className="gray">({lendName})</span>
             )}
-            <span className="swapCoinPrice">
+            <span className="tradeCoinPrice">
               <span className="gray">{fmtPrice(receiptPrice)}</span>
             </span>
           </div>
-          <div className="swapBalanceLine">
-            <span className="swapAssetBalance">
+          <div className="tradeBalanceLine">
+            <span className="tradeAssetBalance">
               <span className="gray">{lendCoin}: </span>
               {receiptBalanceLoading ? "..." : maxReceiptQty}
               {receiptUsd > 0 && (
@@ -1839,9 +1824,9 @@ export default function LendPanel({
               )}
             </span>
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={redeemEndWith}
@@ -1850,7 +1835,7 @@ export default function LendPanel({
               <span className="slider" />
             </label>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -1865,10 +1850,10 @@ export default function LendPanel({
               <span className="gray">${fmt(receiptEndUsd, 2)}</span>
             )}
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">redeem</span>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               step="any"
@@ -1881,9 +1866,9 @@ export default function LendPanel({
               <span className="gray">${fmt(receiptQtyUsd, 2)}</span>
             )}
           </div>
-          <div className="lendBoxControls">
+          <div className="tradeBoxControls">
             <input
-              className="swapMiddleRange"
+              className="tradeMiddleRange"
               type="range"
               min="0"
               max={maxReceipt || 0}
@@ -1911,7 +1896,7 @@ export default function LendPanel({
             </button>
             <button
               type="button"
-              className="btn swapActionButton bgCyan"
+              className="btn tradeActionButton bgCyan"
               onClick={() => runLend("redeem")}
               disabled={lendPending}
             >
@@ -1921,7 +1906,7 @@ export default function LendPanel({
         </div>
       </div>
       {lendResult && (
-        <div className="swapResult">
+        <div className="tradeResult">
           {lendResult.ok ? (
             <>
               <span className="gray">

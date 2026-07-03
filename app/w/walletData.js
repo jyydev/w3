@@ -1417,6 +1417,11 @@ async function getHyperliquidSpotMeta() {
   const data = await hyperliquidInfo({ type: "spotMetaAndAssetCtxs" });
   const meta = Array.isArray(data) ? data[0] : {};
   const contexts = Array.isArray(data) ? data[1] || [] : [];
+  const contextM = Object.fromEntries(
+    contexts
+      .filter((ctx) => ctx?.coin)
+      .map((ctx) => [String(ctx.coin), ctx]),
+  );
   const tokenM = {};
   const priceM = { USDC: 1 };
 
@@ -1428,11 +1433,14 @@ async function getHyperliquidSpotMeta() {
     }
   }
 
-  (meta?.universe || []).forEach((market, index) => {
+  (meta?.universe || []).forEach((market) => {
     const [baseToken, quoteToken] = market?.tokens || [];
     const base = tokenM[baseToken];
     const quote = tokenM[quoteToken];
-    const price = getHyperliquidSpotPrice(contexts[index]);
+    const ctx =
+      contextM[String(market?.name || "")] ||
+      contextM[`@${market?.index}`];
+    const price = getHyperliquidSpotPrice(ctx);
     if (!base || !quote || !(price > 0)) return;
 
     const quoteName = String(quote.name || "").toUpperCase();

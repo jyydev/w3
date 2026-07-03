@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import { CycleButton } from "@/components/Shared";
 import {
   MarketCoinBalance,
   YieldMarketPicker,
@@ -102,9 +103,9 @@ import {
   getTradeMarketSyncedQty,
   getTradePickerButtonWidth,
   getTradeWalletMarketBalance,
-  yieldOptions as lendingOptions,
+  yieldOptions,
   nextValue,
-  noYield as noLending,
+  noYield,
   priceKey,
   qtyInputSize,
   qtyInputStyle,
@@ -354,13 +355,13 @@ export default function YieldPanel({
   });
   const availableYieldOptions = useMemo(
     () =>
-      lendingOptions.filter((option) =>
+      yieldOptions.filter((option) =>
         isYieldProtocolSupportedForWallet(option, walletType),
       ),
     [walletType],
   );
-  const lendingE =
-    availableYieldOptions.find((entry) => entry.value == defi) || noLending;
+  const yieldE =
+    availableYieldOptions.find((entry) => entry.value == defi) || noYield;
   const markets = chainMarketsM[chainE?.chain] || [];
   const addedMarkets = markets;
   const addedMarketAddressM = useMemo(() => {
@@ -887,7 +888,7 @@ export default function YieldPanel({
     const savedDefi = getCookie(
       getTradeModeCookie(tradeYieldDefiCookie, walletType),
     );
-    if (savedDefi && lendingOptions.some((entry) => entry.value == savedDefi)) {
+    if (savedDefi && yieldOptions.some((entry) => entry.value == savedDefi)) {
       setDefi(savedDefi);
     }
   }, [walletType]);
@@ -1867,7 +1868,7 @@ export default function YieldPanel({
       tradeToast.error(
         isHyperliquid
           ? "Hyperliquid: no vault selected"
-          : `${lendingE.label}: no lending market selected`,
+          : `${yieldE.label}: no yield market selected`,
       );
       return;
     }
@@ -1876,7 +1877,7 @@ export default function YieldPanel({
     const isHyperliquidAction = defi == "hyperliquid";
 
     if (!isSpark && !isVenusFluxAction && !isHyperliquidAction) {
-      tradeToast.show(`${lendingE.label}: lending not wired yet`);
+      tradeToast.show(`${yieldE.label}: yield market not wired yet`);
       return;
     }
     const protocol = isHyperliquidAction
@@ -2228,7 +2229,7 @@ export default function YieldPanel({
       loopWallets,
       getLoopWalletEntries,
       selectedWalletEntry,
-      actionLabel: `${lendingE.label} ${
+      actionLabel: `${yieldE.label} ${
         action == "redeem" ? "redeem" : "lend"
       } ${
         action == "redeem"
@@ -2244,7 +2245,7 @@ export default function YieldPanel({
     });
     if (Array.isArray(result)) {
       const loopResult = createTradeLoopResult(result, {
-        defi: lendingE.label,
+        defi: yieldE.label,
         action: action == "redeem" ? "redeem" : "lend",
       });
       if (loopResult) setLendResult(loopResult);
@@ -2255,7 +2256,7 @@ export default function YieldPanel({
 
   return (
     <ProtocolClient>
-    <div className="tradePane swapPane lendPane">
+    <div className="tradePane tradeWidePane yieldPane">
       <CustomCoinConfirmModal
         preview={customCoinPreview}
         draft={customCoinDraft}
@@ -2279,13 +2280,7 @@ export default function YieldPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
-            onClick={onCycleTradeType}
-          >
-            {">"}
-          </button>
+          <CycleButton size="nx" onClick={onCycleTradeType} />
         </label>
         <label htmlFor="lendDefi">
           <span className="gray">DeFi:</span>
@@ -2302,14 +2297,11 @@ export default function YieldPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
+          <CycleButton
+            size="nx"
             onClick={nextDefi}
             disabled={availableYieldOptions.length < 2}
-          >
-            {">"}
-          </button>
+          />
         </label>
         {isHyperliquid ? (
           <>
@@ -2321,13 +2313,7 @@ export default function YieldPanel({
                 <option value="vault">vault</option>
                 <option value="deposit">deposit</option>
               </select>
-              <button
-                type="button"
-                className="btn small bgGray"
-                onClick={nextHyperliquidMode}
-              >
-                {">"}
-              </button>
+              <CycleButton onClick={nextHyperliquidMode} />
             </span>
           </>
         ) : (
@@ -2346,14 +2332,10 @@ export default function YieldPanel({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="btn small bgGray"
+            <CycleButton
               onClick={nextChain}
               disabled={marketChains.length < 2}
-            >
-              {">"}
-            </button>
+            />
           </span>
         )}
         {!isHyperliquidDepositMode && hasProtocolAllMarkets ? (
@@ -2402,21 +2384,17 @@ export default function YieldPanel({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="btn small bgGray"
+            <CycleButton
               onClick={nextMarket}
               disabled={markets.length < 2}
-            >
-              {">"}
-            </button>
+            />
           </span>
         ) : null}
       </div>
 
-      <div className="swapRows">
-        <div className="swapBox">
-          <div className="swapAssetLine">
+      <div className="tradeRows">
+        <div className="tradeBox">
+          <div className="tradeAssetLine">
             {isHyperliquidDepositMode ? (
               <>
                 <span className="gray">wallet</span>
@@ -2476,14 +2454,14 @@ export default function YieldPanel({
             ) : (
               <span>{displayUnderlyingCoin || "-"}</span>
             )}
-            <span className="swapCoinPrice">
+            <span className="tradeCoinPrice">
               <span className="gray">{fmtPrice(underlyingPrice)}</span>
             </span>
           </div>
-          <div className="swapBalanceLine">
+          <div className="tradeBalanceLine">
             <button
               type="button"
-              className="tradeTextButton swapAssetBalance"
+              className="tradeTextButton tradeAssetBalance"
               onClick={setMaxLend}
             >
               <span className="gray">{displayUnderlyingCoin}: </span>
@@ -2495,9 +2473,9 @@ export default function YieldPanel({
               )}
             </button>
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={lendEndWith}
@@ -2506,7 +2484,7 @@ export default function YieldPanel({
               <span className="slider" />
             </label>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -2521,10 +2499,10 @@ export default function YieldPanel({
               <span className="gray">${fmt(underlyingEndUsd, 2)}</span>
             )}
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">{depositLabel}</span>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               step="any"
@@ -2537,9 +2515,9 @@ export default function YieldPanel({
               <span className="gray">${fmt(underlyingQtyUsd, 2)}</span>
             )}
           </div>
-          <div className="lendBoxControls">
+          <div className="tradeBoxControls">
             <input
-              className="swapMiddleRange"
+              className="tradeMiddleRange"
               type="range"
               min="0"
               max={maxUnderlying || 0}
@@ -2567,7 +2545,7 @@ export default function YieldPanel({
             </button>
             <button
               type="button"
-              className="btn swapActionButton bgCyan"
+              className="btn tradeActionButton bgCyan"
               onClick={() =>
                 isHyperliquidDepositMode
                   ? runHyperliquidSpotTransfer("deposit")
@@ -2592,9 +2570,9 @@ export default function YieldPanel({
           )}
         </div>
 
-        <div className="swapMiddle">
+        <div className="tradeMiddle">
           {showGasAutoLabel && (
-            <label className="swapGasSelect">
+            <label className="tradeGasSelect">
               <span className="gray">gas:</span>
               <select value="default" disabled>
                 <option value="default">auto</option>
@@ -2602,7 +2580,7 @@ export default function YieldPanel({
             </label>
           )}
           {!isHyperliquid && !selectedWalletEntry?.isBrowserWallet && (
-            <label className="swapAutoApproval">
+            <label className="tradeAutoApproval">
               <input
                 type="checkbox"
                 checked={autoApproval}
@@ -2612,7 +2590,7 @@ export default function YieldPanel({
             </label>
           )}
           {!isHyperliquidDepositMode && (
-            <span className="swapRateLine">
+            <span className="tradeRateLine">
               <span className="gray">rate:</span>{" "}
               {displayUnderlyingCoin && displayReceiptCoin
                 ? `1 ${displayUnderlyingCoin} = ${fmtRate(receiptRate)} ${displayReceiptCoin}`
@@ -2622,8 +2600,8 @@ export default function YieldPanel({
           )}
         </div>
 
-        <div className="swapBox">
-          <div className="swapAssetLine">
+        <div className="tradeBox">
+          <div className="tradeAssetLine">
             {isHyperliquidDepositMode ? (
               <>
                 <span className="gray">spot</span>
@@ -2683,12 +2661,12 @@ export default function YieldPanel({
             {displayReceiptName && displayReceiptName != displayReceiptCoin && (
               <span className="gray">({displayReceiptName})</span>
             )}
-            <span className="swapCoinPrice">
+            <span className="tradeCoinPrice">
               <span className="gray">{fmtPrice(receiptPrice)}</span>
             </span>
           </div>
-          <div className="swapBalanceLine">
-            <span className="swapAssetBalance">
+          <div className="tradeBalanceLine">
+            <span className="tradeAssetBalance">
               <span className="gray">{displayReceiptCoin}: </span>
               {showReceiptBalanceLoading
                 ? "..."
@@ -2701,9 +2679,9 @@ export default function YieldPanel({
               )}
             </span>
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={redeemEndWith}
@@ -2712,7 +2690,7 @@ export default function YieldPanel({
               <span className="slider" />
             </label>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -2727,10 +2705,10 @@ export default function YieldPanel({
               <span className="gray">${fmt(receiptEndUsd, 2)}</span>
             )}
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">{withdrawLabel}</span>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               step="any"
@@ -2743,9 +2721,9 @@ export default function YieldPanel({
               <span className="gray">${fmt(receiptQtyUsd, 2)}</span>
             )}
           </div>
-          <div className="lendBoxControls">
+          <div className="tradeBoxControls">
             <input
-              className="swapMiddleRange"
+              className="tradeMiddleRange"
               type="range"
               min="0"
               max={withdrawMaxReceipt || 0}
@@ -2773,7 +2751,7 @@ export default function YieldPanel({
             </button>
             <button
               type="button"
-              className="btn swapActionButton bgCyan"
+              className="btn tradeActionButton bgCyan"
               onClick={() =>
                 isHyperliquidDepositMode
                   ? runHyperliquidSpotTransfer("withdraw")
@@ -2802,11 +2780,11 @@ export default function YieldPanel({
         </div>
       </div>
       {lendResult && (
-        <div className="swapResult">
+        <div className="tradeResult">
           {lendResult.ok ? (
             <>
               <span className="gray">
-                {lendResult.defi || lendingE.label} {lendResult.action}:
+                {lendResult.defi || yieldE.label} {lendResult.action}:
               </span>{" "}
               {lendResult.txs?.map((tx, index) => (
                 <SwapTxLink key={`${tx.walletLabel || ""}_${tx.hash}_${index}`} tx={tx} />

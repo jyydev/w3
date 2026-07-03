@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import { CycleButton } from "@/components/Shared";
 import {
   SwapChainSelect,
   SwapCoinSelect,
@@ -1786,13 +1787,7 @@ export default function SwapPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
-            onClick={onCycleTradeType}
-          >
-            {">"}
-          </button>
+          <CycleButton size="nx" onClick={onCycleTradeType} />
         </label>
         <label htmlFor="swapDefi">
           <span className="gray">DEX:</span>
@@ -1809,14 +1804,11 @@ export default function SwapPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
+          <CycleButton
+            size="nx"
             onClick={nextDex}
             disabled={availableDexOptions.length < 2}
-          >
-            {">"}
-          </button>
+          />
         </label>
         <span className="gray">
           {defiE.bridge ? "bridge swap" : "same-chain swap"}
@@ -1902,7 +1894,7 @@ export default function SwapPanel({
           </div>
           <div className="swapAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={sellEndWith}
@@ -2097,7 +2089,7 @@ export default function SwapPanel({
           </div>
           <div className="swapAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={buyEndWith}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
+import { CycleButton } from "@/components/Shared";
 import {
   buildSendTx,
   executeSend,
@@ -870,7 +871,7 @@ export default function SendPanel({
   });
 
   return (
-    <div className="tradePane swapPane sendPane">
+    <div className="tradePane tradeWidePane sendPane">
       <div className="flex tradePaneTop">
         <label htmlFor="tradeTypeSend">
           <select
@@ -884,13 +885,7 @@ export default function SendPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn nx bgGray"
-            onClick={onCycleTradeType}
-          >
-            {">"}
-          </button>
+          <CycleButton size="nx" onClick={onCycleTradeType} />
         </label>
         <span className="selectCycle">
           <select
@@ -905,20 +900,16 @@ export default function SendPanel({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn small bgGray"
+          <CycleButton
             onClick={nextChain}
             disabled={chainNames.length < 2}
-          >
-            {">"}
-          </button>
+          />
         </span>
         <span className="selectCycle sendCoinCycle">
-          <div className="sendWalletPicker" ref={coinPickerRef}>
+          <div className="tradePicker" ref={coinPickerRef}>
             <button
               type="button"
-              className="sendWalletPickerButton"
+              className="tradePickerButton"
               style={{ width: coinButtonWidth }}
               disabled={!coins.length}
               onClick={() => setShowCoinMenu((show) => !show)}
@@ -954,8 +945,8 @@ export default function SendPanel({
                             key={coinName}
                             className={
                               coinName == coin
-                                ? "lendMarketRow on"
-                                : "lendMarketRow"
+                                ? "tradePickerRow on"
+                                : "tradePickerRow"
                             }
                             onClick={() => selectCoin(coinName)}
                           >
@@ -978,34 +969,27 @@ export default function SendPanel({
               </TradePickerMenu>
             )}
           </div>
-          <button
-            type="button"
-            className="btn small bgGray"
+          <CycleButton
             onClick={nextCoin}
             disabled={coins.length < 2}
-          >
-            {">"}
-          </button>
+          />
         </span>
-        <span className="swapCoinPrice">
+        <span className="tradeCoinPrice">
           <span className="gray">{fmtPrice(price)}</span>
           {priceStatus && <span className="gray"> {priceStatus}</span>}
         </span>
       </div>
 
-      <div className="swapRows">
-        <div className="swapBox">
-          <div className="swapAssetLine">
+      <div className="tradeRows">
+        <div className="tradeBox">
+          <div className="tradeAssetLine">
             <span className="gray">from:</span>
             <span className="selectCycle walletCycle">
-              <button
-                type="button"
-                className="btn small bgGray"
+              <CycleButton
+                direction="prev"
                 onClick={() => cycleFromWallet("prev")}
                 disabled={fromWallets.length < 2}
-              >
-                {"<"}
-              </button>
+              />
               <select
                 value={fromWallet}
                 onChange={(e) => selectFromWallet(e.target.value)}
@@ -1019,21 +1003,17 @@ export default function SendPanel({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className="btn small bgGray"
+              <CycleButton
                 onClick={() => cycleFromWallet("next")}
                 disabled={fromWallets.length < 2}
-              >
-                {">"}
-              </button>
+              />
               {renderSendWalletTail(fromEntry?.address, "from")}
             </span>
           </div>
-          <div className="swapBalanceLine">
+          <div className="tradeBalanceLine">
             <button
               type="button"
-              className="tradeTextButton swapAssetBalance"
+              className="tradeTextButton tradeAssetBalance"
               onClick={setMaxSend}
             >
               <span className="gray">{coin}: </span>
@@ -1044,9 +1024,9 @@ export default function SendPanel({
               )}
             </button>
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={fromEndWith}
@@ -1059,7 +1039,7 @@ export default function SendPanel({
               <span className="slider" />
             </label>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -1072,10 +1052,10 @@ export default function SendPanel({
             />
             {price > 0 && <span className="gray">${fmt(fromEndUsd, 2)}</span>}
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">qty</span>
             <input
-              className="sendQtyInput swapQtyInput"
+              className="sendQtyInput tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -1089,10 +1069,10 @@ export default function SendPanel({
           </div>
         </div>
 
-        <div className="swapMiddle">
+        <div className="tradeMiddle">
           <div className="sendQtyControl">
             {showGasAutoLabel && (
-              <label className="swapGasSelect">
+              <label className="tradeGasSelect">
                 <span className="gray">gas:</span>
                 <select value="default" disabled>
                   <option value="default">auto</option>
@@ -1100,7 +1080,7 @@ export default function SendPanel({
               </label>
             )}
             <input
-              className="swapMiddleRange"
+              className="tradeMiddleRange"
               type="range"
               min="0"
               max={maxSend || 0}
@@ -1128,7 +1108,7 @@ export default function SendPanel({
             </button>
             <button
               type="button"
-              className="btn swapActionButton bgCyan"
+              className="btn tradeActionButton bgCyan"
               onClick={runSend}
               disabled={sendPending}
             >
@@ -1137,22 +1117,19 @@ export default function SendPanel({
           </div>
         </div>
 
-        <div className="swapBox">
-          <div className="swapAssetLine">
+        <div className="tradeBox">
+          <div className="tradeAssetLine">
             <span className="gray">to:</span>
             <div className="selectCycle walletCycle toWalletCycle">
-              <button
-                type="button"
-                className="btn small bgGray"
+              <CycleButton
+                direction="prev"
                 onClick={() => cycleToWallet("prev")}
                 disabled={currentToWallets.length < 2}
-              >
-                {"<"}
-              </button>
-              <div className="sendWalletPicker" ref={toWalletPickerRef}>
+              />
+              <div className="tradePicker" ref={toWalletPickerRef}>
                 <button
                   type="button"
-                  className="sendWalletPickerButton"
+                  className="tradePickerButton"
                   style={{ width: toWalletButtonWidth }}
                   onClick={() => setShowToWalletMenu((show) => !show)}
                 >
@@ -1187,8 +1164,8 @@ export default function SendPanel({
                                 key={`loaded_${entry.value}_${entry.address}`}
                                 className={
                                   entry.value == toWallet
-                                    ? "lendMarketRow on"
-                                    : "lendMarketRow"
+                                    ? "tradePickerRow on"
+                                    : "tradePickerRow"
                                 }
                                 onClick={() => selectToWallet(entry.value)}
                               >
@@ -1234,8 +1211,8 @@ export default function SendPanel({
                               key={`all_${entry.value}_${entry.address}`}
                               className={
                                 entry.value == toWallet
-                                  ? "lendMarketRow on"
-                                  : "lendMarketRow"
+                                  ? "tradePickerRow on"
+                                  : "tradePickerRow"
                               }
                               onClick={() => selectToWallet(entry.value)}
                             >
@@ -1251,28 +1228,24 @@ export default function SendPanel({
                   </TradePickerMenu>
                 )}
               </div>
-              <button
-                type="button"
-                className="btn small bgGray"
+              <CycleButton
                 onClick={() => cycleToWallet("next")}
                 disabled={currentToWallets.length < 2}
-              >
-                {">"}
-              </button>
+              />
               {renderSendWalletTail(toEntry?.address, "to")}
             </div>
           </div>
-          <div className="swapBalanceLine">
-            <span className="swapAssetBalance">
+          <div className="tradeBalanceLine">
+            <span className="tradeAssetBalance">
               <span className="gray">{coin}: </span>
               {toBalanceLoading ? "..." : currentToQty}
               {toUsd > 0 && <span className="gray"> ${fmt(toUsd, 2)}</span>}
               {toBalanceError && <span className="red"> {toBalanceError}</span>}
             </span>
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <span className="gray">end</span>
-            <label className="switch small lendEndSwitch">
+            <label className="switch small tradeEndSwitch">
               <input
                 type="checkbox"
                 checked={toEndWith}
@@ -1285,7 +1258,7 @@ export default function SendPanel({
               <span className="slider" />
             </label>
             <input
-              className="swapQtyInput"
+              className="tradeQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
@@ -1298,10 +1271,10 @@ export default function SendPanel({
             />
             {price > 0 && <span className="gray">${fmt(toEndUsd, 2)}</span>}
           </div>
-          <div className="swapAmountLine">
+          <div className="tradeAmountLine">
             <button
               type="button"
-              className="swapDownButton"
+              className="tradeSwitchButton"
               onClick={switchWallets}
               disabled={!canSwitchWallets}
             >
@@ -1312,7 +1285,7 @@ export default function SendPanel({
       </div>
 
       {sendResult && (
-        <div className="swapResult">
+        <div className="tradeResult">
           {sendResult.ok ? (
             <>
               <span className="gray">Send:</span>{" "}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { pc } from "@/fn/basic";
+import { CycleButton } from "@/components/Shared";
 import { isAcrossSupportedForChain } from "./across/Client";
 import { isJumperSupportedForChain } from "./jumper/Client";
 import { isJupiterSwapSupportedForChain } from "./jupiter/Client";
@@ -331,10 +332,10 @@ function DiscoveryChainMenu({
   );
 
   return (
-    <TradePickerMenu className="swapChainMenu">
+    <TradePickerMenu className="tradeChainMenu">
       <TradePickerColumn title="added">
         <TradePickerTable
-          className="swapChainAddedTable"
+          className="tradeChainAddedTable"
           headers={[
             <PickerSortHeader
               defi={defi}
@@ -364,7 +365,7 @@ function DiscoveryChainMenu({
                   <tr
                     key={`${side}_added_${chain}`}
                     className={[
-                      "lendMarketRow",
+                      "tradePickerRow",
                       chain == selectedChain ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -374,7 +375,7 @@ function DiscoveryChainMenu({
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapChainAllSelect"
+                        className="tradePickerSelect tradeChainAllSelect"
                         onClick={() =>
                           supported
                             ? selectDiscoveryChain(
@@ -403,7 +404,7 @@ function DiscoveryChainMenu({
       </TradePickerColumn>
       <TradePickerColumn title="all">
         <TradePickerTable
-          className="swapChainAllTable"
+          className="tradeChainAllTable"
           headers={[
             <PickerSortHeader
               defi={defi}
@@ -474,14 +475,14 @@ function DiscoveryChainMenu({
                     key={`${side}_all_${entry.chainId || label}`}
                     className={
                       entry.chain == selectedChain
-                        ? "lendMarketRow on"
-                        : "lendMarketRow"
+                        ? "tradePickerRow on"
+                        : "tradePickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapChainAllSelect"
+                        className="tradePickerSelect tradeChainAllSelect"
                         onClick={() => selectDiscoveryChain(entry, side)}
                         disabled={!canSelect}
                       >
@@ -556,24 +557,20 @@ export function SwapChainSelect({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          className="btn small bgGray"
+        <CycleButton
           onClick={onNext}
           disabled={disabled || addedChains.length < 2}
-        >
-          {">"}
-        </button>
+        />
       </span>
     );
   }
 
   return (
     <div className="selectCycle walletCycle swapChainCycle">
-      <div className="sendWalletPicker" ref={pickerRef}>
+      <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"
-          className="sendWalletPickerButton"
+          className="tradePickerButton"
           style={{ width: buttonWidth }}
           disabled={disabled}
           title={title}
@@ -603,14 +600,10 @@ export function SwapChainSelect({
           />
         )}
       </div>
-      <button
-        type="button"
-        className="btn small bgGray"
+      <CycleButton
         onClick={onNext}
         disabled={disabled || addedChains.length < 2}
-      >
-        {">"}
-      </button>
+      />
     </div>
   );
 }
@@ -710,10 +703,10 @@ function DiscoveryCoinMenu({
   );
 
   return (
-    <TradePickerMenu className="swapCoinMenu">
+    <TradePickerMenu className="tradeCoinMenu">
       <TradePickerColumn title="added">
         <TradePickerTable
-          className="swapCoinAddedTable"
+          className="tradeCoinAddedTable"
           headers={[
             <PickerSortHeader
               defi={defi}
@@ -752,7 +745,7 @@ function DiscoveryCoinMenu({
                   <tr
                     key={`${side}_added_coin_${coin}`}
                     className={[
-                      "lendMarketRow",
+                      "tradePickerRow",
                       coin == selectedCoin ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -762,7 +755,7 @@ function DiscoveryCoinMenu({
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapCoinAllSelect"
+                        className="tradePickerSelect tradeCoinAllSelect"
                         onClick={() =>
                           supported
                             ? selectDiscoveryCoin({ symbol: coin }, side)
@@ -804,7 +797,7 @@ function DiscoveryCoinMenu({
           </form>
         )}
         <TradePickerTable
-          className="swapCoinAllTable"
+          className="tradeCoinAllTable"
           headers={[
             <PickerSortHeader
               defi={defi}
@@ -903,14 +896,14 @@ function DiscoveryCoinMenu({
                     key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
                     className={
                       localCoin == selectedCoin
-                        ? "lendMarketRow on"
-                        : "lendMarketRow"
+                        ? "tradePickerRow on"
+                        : "tradePickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapCoinAllSelect"
+                        className="tradePickerSelect tradeCoinAllSelect"
                         onClick={() =>
                           localCoin
                             ? selectDiscoveryCoin(entry, side)
@@ -998,24 +991,20 @@ export function SwapCoinSelect({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          className="btn small bgGray"
+        <CycleButton
           onClick={onNext}
           disabled={addedCoins.length < 2}
-        >
-          {">"}
-        </button>
+        />
       </span>
     );
   }
 
   return (
     <div className="selectCycle walletCycle swapCoinCycle">
-      <div className="sendWalletPicker" ref={pickerRef}>
+      <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"
-          className="sendWalletPickerButton"
+          className="tradePickerButton"
           style={{ width: buttonWidth }}
           onClick={() => {
             const nextShow = !showMenu;
@@ -1056,14 +1045,10 @@ export function SwapCoinSelect({
           />
         )}
       </div>
-      <button
-        type="button"
-        className="btn small bgGray"
+      <CycleButton
         onClick={onNext}
         disabled={addedCoins.length < 2}
-      >
-        {">"}
-      </button>
+      />
     </div>
   );
 }

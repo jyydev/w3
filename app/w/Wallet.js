@@ -10,6 +10,7 @@ import solanaIcon from "@/data/img/solana.svg";
 import { pc } from "@/fn/basic";
 import permanentCoinM from "@/fn/coinM";
 import { ckPrefix, scanners } from "@/sets";
+import { CycleButton } from "@/components/Shared";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
 import {
@@ -28,7 +29,11 @@ import {
   useLocalStorageEditor,
 } from "../browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
-import { addCustomCoin, deleteCustomCoin, previewCustomCoin } from "./coinActions";
+import {
+  addCustomCoin,
+  deleteCustomCoin,
+  previewCustomCoin,
+} from "./coinActions";
 import { getLocalWalletBalanceData } from "./localWalletActions";
 import {
   addWalletEntry,
@@ -62,7 +67,9 @@ function sameWalletAddress(a = "", b = "") {
   const addressB = String(b || "").trim();
   if (!addressA || !addressB) return false;
 
-  return addressA == addressB || addressA.toLowerCase() == addressB.toLowerCase();
+  return (
+    addressA == addressB || addressA.toLowerCase() == addressB.toLowerCase()
+  );
 }
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
@@ -321,7 +328,9 @@ function Wallet({
   );
   let [loadingWallet, setLoadingWallet] = useState(false);
   let [coinLimit, setCoinLimit] = useState(() => {
-    const savedCoinLimit = Number(getInitialCookie(initialCookieM, coinLimitCookie));
+    const savedCoinLimit = Number(
+      getInitialCookie(initialCookieM, coinLimitCookie),
+    );
     return Number.isInteger(savedCoinLimit) && savedCoinLimit >= 0
       ? savedCoinLimit
       : 1;
@@ -381,7 +390,9 @@ function Wallet({
     Boolean(requestedWallet || selectedWallet == "all" || selectedWalletName) &&
       !selectedAddress,
   );
-  const editableCustomCoinM = useLocalEditorStore ? localCustomCoinM : customCoinM;
+  const editableCustomCoinM = useLocalEditorStore
+    ? localCustomCoinM
+    : customCoinM;
   const basePath = String(routeBase || "/w").startsWith("/")
     ? String(routeBase || "/w").replace(/\/+$/, "") || "/w"
     : "/w";
@@ -410,9 +421,9 @@ function Wallet({
   const localWalletName = String(selectedWalletName || "").trim();
   const localWalletNameEntries =
     useLocalEditorStore && localWalletName
-      ? readLocalWalletEntries(walletType, "", { includeReserved: true }).filter(
-          (entry) => entry.name == localWalletName,
-        )
+      ? readLocalWalletEntries(walletType, "", {
+          includeReserved: true,
+        }).filter((entry) => entry.name == localWalletName)
       : [];
   const localFavWalletEntries =
     useLocalEditorStore &&
@@ -420,14 +431,15 @@ function Wallet({
     !localWalletName &&
     !effectiveRequestedWallet &&
     selectedWallet != "all"
-      ? readLocalWalletEntries(walletType, "", { includeReserved: true }).filter(
-          (entry) =>
-            favAddrs.some(
-              (fav) =>
-                fav.type == walletType &&
-                getFavAddrKey(fav.type, fav.address) ==
-                  getFavAddrKey(walletType, entry.address),
-            ),
+      ? readLocalWalletEntries(walletType, "", {
+          includeReserved: true,
+        }).filter((entry) =>
+          favAddrs.some(
+            (fav) =>
+              fav.type == walletType &&
+              getFavAddrKey(fav.type, fav.address) ==
+                getFavAddrKey(walletType, entry.address),
+          ),
         )
       : [];
   const effectiveSelectedWallet =
@@ -441,8 +453,13 @@ function Wallet({
     ]),
   ].sort((a, b) => a.localeCompare(b));
   const serverChainList = Array.isArray(data) ? data : data ? [data] : [];
-  const serverChainNameKey = serverChainList.map((chainE) => chainE.chain).join("|");
-  const activeData = applyBalancePatches(localWalletData || data, balancePatchM);
+  const serverChainNameKey = serverChainList
+    .map((chainE) => chainE.chain)
+    .join("|");
+  const activeData = applyBalancePatches(
+    localWalletData || data,
+    balancePatchM,
+  );
   const chainList = Array.isArray(activeData)
     ? activeData
     : activeData
@@ -511,7 +528,9 @@ function Wallet({
   const offCoinKey = JSON.stringify(offCoinM || {});
   const walletFileKey = walletFileOptions.join("|");
   const coinTypeOptions = getCoinTypeOptions();
-  const selectableWalletFiles = allWalletFiles.filter(isVisibleWalletSelectionFile);
+  const selectableWalletFiles = allWalletFiles.filter(
+    isVisibleWalletSelectionFile,
+  );
   const specialWalletFiles = selectableWalletFiles.filter(isSpecialWalletFile);
   const normalWalletFiles = selectableWalletFiles.filter(
     (file) => !isSpecialWalletFile(file),
@@ -579,7 +598,8 @@ function Wallet({
     const localOffChainSet = new Set(localOffChains);
     const chains = activeChain
       ? chainList.filter(
-          (chainE) => chainE.chain == activeChain && !localOffChainSet.has(chainE.chain),
+          (chainE) =>
+            chainE.chain == activeChain && !localOffChainSet.has(chainE.chain),
         )
       : chainList.filter((chainE) => !localOffChainSet.has(chainE.chain));
 
@@ -651,11 +671,15 @@ function Wallet({
     const localOffAddrs = readLocalLineFileValues("cookie/offAddr.txt");
     setOffAddrList([...new Set([...(offAddrs || []), ...localOffAddrs])]);
 
-    setLocalOffChains(readLocalLineFileValues("cookie/offChains.txt", chainNames));
+    setLocalOffChains(
+      readLocalLineFileValues("cookie/offChains.txt", chainNames),
+    );
 
     const nextOffCoinsM = { ...(offCoinM || {}) };
     for (const chain of chainNames) {
-      const localCoins = readLocalLineFileValues(`cookie/offCoins/${chain}.txt`);
+      const localCoins = readLocalLineFileValues(
+        `cookie/offCoins/${chain}.txt`,
+      );
       if (!localCoins.length) continue;
       nextOffCoinsM[chain] = [
         ...new Set([...(nextOffCoinsM[chain] || []), ...localCoins]),
@@ -693,7 +717,12 @@ function Wallet({
       setBalancePatchM((patchM) => {
         const next = { ...patchM };
         for (const patch of patches) {
-          if (!patch?.chain || !patch?.coin || !patch?.address || !patch?.balance) {
+          if (
+            !patch?.chain ||
+            !patch?.coin ||
+            !patch?.address ||
+            !patch?.balance
+          ) {
             continue;
           }
           next[getBalancePatchKey(patch)] = patch;
@@ -710,11 +739,18 @@ function Wallet({
 
   useEffect(() => {
     setCheckingLocalWallet(
-      Boolean(requestedWallet || selectedWallet == "all" || selectedWalletName) &&
-        !selectedAddress,
+      Boolean(
+        requestedWallet || selectedWallet == "all" || selectedWalletName,
+      ) && !selectedAddress,
     );
     setLocalEditorStoreChecked(false);
-  }, [requestedWallet, selectedWallet, selectedAddress, selectedWalletName, walletType]);
+  }, [
+    requestedWallet,
+    selectedWallet,
+    selectedAddress,
+    selectedWalletName,
+    walletType,
+  ]);
 
   useEffect(() => {
     const useLocal = useLocalStorageEditor();
@@ -731,7 +767,10 @@ function Wallet({
       refreshLocalStorageEditorData(true);
     }
 
-    window.addEventListener(localEditorStorageEvent, handleLocalEditorStorageChange);
+    window.addEventListener(
+      localEditorStorageEvent,
+      handleLocalEditorStorageChange,
+    );
     window.addEventListener("storage", handleLocalEditorStorageChange);
     return () => {
       window.removeEventListener(
@@ -740,7 +779,13 @@ function Wallet({
       );
       window.removeEventListener("storage", handleLocalEditorStorageChange);
     };
-  }, [useLocalEditorStore, walletType, serverChainNameKey, offAddrKey, offCoinKey]);
+  }, [
+    useLocalEditorStore,
+    walletType,
+    serverChainNameKey,
+    offAddrKey,
+    offCoinKey,
+  ]);
 
   useEffect(() => {
     setLocalWalletData(null);
@@ -764,7 +809,7 @@ function Wallet({
       ? localWalletNameEntries
       : localFavWalletEntries.length
         ? localFavWalletEntries
-      : readLocalWalletEntries(walletType, localWalletLoadSource);
+        : readLocalWalletEntries(walletType, localWalletLoadSource);
     if (!entries.length) {
       setCheckingLocalWallet(false);
       return;
@@ -879,7 +924,12 @@ function Wallet({
     const nextDefault = defaultAddWalletFile || saveWalletFileOptions[0] || "";
     setAddWalletFile(nextDefault);
     setDraftWalletFile(nextDefault);
-  }, [defaultAddWalletFile, walletFileKey, walletType, localWalletFiles.join("|")]);
+  }, [
+    defaultAddWalletFile,
+    walletFileKey,
+    walletType,
+    localWalletFiles.join("|"),
+  ]);
 
   useEffect(() => {
     setDisabledWalletList(disabledWallets || []);
@@ -1124,7 +1174,11 @@ function Wallet({
     setOffCoinsM(next);
     try {
       if (useLocalEditorStore) {
-        const res = setLocalLineFileValue(`cookie/offCoins/${chain}.txt`, coin, off);
+        const res = setLocalLineFileValue(
+          `cookie/offCoins/${chain}.txt`,
+          coin,
+          off,
+        );
         if (!res.ok) throw new Error(res.msg || "local coin update failed");
         toast.success(`saved ${chain} ${coin} locally`);
         return;
@@ -1221,14 +1275,18 @@ function Wallet({
   function isVisibleWalletSelectionFile(file = "") {
     if (String(file).endsWith("/")) return true;
 
-    return !allWalletFiles.includes(`${getWalletValue(file).replace(/\/+$/, "")}/`);
+    return !allWalletFiles.includes(
+      `${getWalletValue(file).replace(/\/+$/, "")}/`,
+    );
   }
 
   function isSpecialWalletFile(file = "") {
     return String(file)
       .split(/[\\/]+/)
       .filter(Boolean)
-      .some((part) => part.replace(/\.(txt|json)$/i, "").toLowerCase() == "watch");
+      .some(
+        (part) => part.replace(/\.(txt|json)$/i, "").toLowerCase() == "watch",
+      );
   }
 
   function hasWalletFile(wallet, type = walletType) {
@@ -1437,7 +1495,13 @@ function Wallet({
 
   function clearCustomCoinPreview() {
     setCustomCoinPreview(null);
-    setCustomCoinDraft({ coin: "", name: "", type: "", customType: "", ref: "" });
+    setCustomCoinDraft({
+      coin: "",
+      name: "",
+      type: "",
+      customType: "",
+      ref: "",
+    });
   }
 
   function setCustomCoinPreviewData(res) {
@@ -1446,7 +1510,8 @@ function Wallet({
       coin: res.coin || "",
       name: res.entry?.name || "",
       type: res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
-      customType: res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
+      customType:
+        res.entry?.type || (res.chain == "Hyperliquid" ? "vault" : "token"),
       ref: res.entry?.ref || "",
     });
   }
@@ -1508,7 +1573,9 @@ function Wallet({
     setAddingCoin(true);
     try {
       if (useLocalEditorStore) {
-        const coin = String(customCoinDraft.coin || customCoinPreview.coin || "").trim();
+        const coin = String(
+          customCoinDraft.coin || customCoinPreview.coin || "",
+        ).trim();
         const entry = {
           address: customCoinPreview.entry?.address,
           decimals: customCoinPreview.entry?.decimals,
@@ -1877,8 +1944,8 @@ function Wallet({
         [...discoveredCoins].map((coin, index) => [coin, index]),
       ),
     };
-    const coinRows = Object.entries(chainE.coinInfoM || {})
-      .map(([coin, coinE], index) => ({
+    const coinRows = Object.entries(chainE.coinInfoM || {}).map(
+      ([coin, coinE], index) => ({
         coin,
         name: coinE?.name || "",
         index,
@@ -1888,7 +1955,8 @@ function Wallet({
           : discoveredCoins.has(coin) || coinE?.source == "alchemy"
             ? "alchemy"
             : "permanent",
-      }));
+      }),
+    );
     const groupList = [
       ["permanent", "server"],
       ["editor", "added"],
@@ -2245,9 +2313,7 @@ function Wallet({
                         source={`settings:${entryKey}`}
                       />
                     </td>
-                    <td>
-                      {renderWalletRefInput(entry, true)}
-                    </td>
+                    <td>{renderWalletRefInput(entry, true)}</td>
                     <td>
                       <input
                         type="checkbox"
@@ -2283,7 +2349,11 @@ function Wallet({
           <>
             <div>
               {pc(bal.balance, { pc: show ? 5 : 3 })}{" "}
-              {bal.usd > 0 && <span className="gray">${pc(bal.usd)}</span>}
+              {bal.usd > 0 && (
+                <span className="gray">
+                  ${pc(bal.usd, { pc: show ? 5 : 3 })}
+                </span>
+              )}
             </div>
 
             {show && <div className="gray">{bal.balance}</div>}
@@ -2367,7 +2437,9 @@ function Wallet({
     const chain = chainE.chain;
     const allCoins = getAllCoins(chainE);
     const balanceCoins = allCoins.filter((coin) =>
-      rows.some((row) => toNum(row.chainM[chain]?.balances?.[coin]?.balance) > 0),
+      rows.some(
+        (row) => toNum(row.chainM[chain]?.balances?.[coin]?.balance) > 0,
+      ),
     );
     const noPriceCoins = balanceCoins.filter((coin) =>
       rows.some((row) => {
@@ -2818,7 +2890,11 @@ function Wallet({
             >
               cancel
             </button>
-            <button type="submit" className="btn small bgCyan" disabled={addingCoin}>
+            <button
+              type="submit"
+              className="btn small bgCyan"
+              disabled={addingCoin}
+            >
               {addingCoin ? "..." : "confirm"}
             </button>
           </div>
@@ -2844,26 +2920,21 @@ function Wallet({
                 </option>
               ))}
             </select>
-            <button
-              className="btn small bgGray"
+            <CycleButton
               onClick={nextWalletType}
               disabled={loadingWallet || !canCycleWalletType}
-            >
-              {">"}
-            </button>
+            />
             <span className="infoHover">
               <span>wallets:</span>
               <span className="infoCard">
                 <span>option 'all' excludes watch</span>
               </span>
             </span>
-            <button
-              className="btn small bgGray"
+            <CycleButton
+              direction="prev"
               onClick={prevWallet}
               disabled={loadingWallet}
-            >
-              {"<"}
-            </button>
+            />
             <select
               value={walletSelectValue}
               onChange={selectWallet}
@@ -2895,11 +2966,13 @@ function Wallet({
                   w: {selectedWalletName}
                 </option>
               )}
-              {!effectiveSelectedWallet && !selectedWalletName && selectedAddress && (
-                <option value={walletFilterValue}>
-                  addr: {shortAddr(selectedAddress)}
-                </option>
-              )}
+              {!effectiveSelectedWallet &&
+                !selectedWalletName &&
+                selectedAddress && (
+                  <option value={walletFilterValue}>
+                    addr: {shortAddr(selectedAddress)}
+                  </option>
+                )}
               {normalWalletFiles.map((file) => {
                 const value = getWalletValue(file);
                 return (
@@ -2909,13 +2982,7 @@ function Wallet({
                 );
               })}
             </select>
-            <button
-              className="btn small bgGray"
-              onClick={nextWallet}
-              disabled={loadingWallet}
-            >
-              {">"}
-            </button>
+            <CycleButton onClick={nextWallet} disabled={loadingWallet} />
             {(loadingWallet || loadingLocalWallet) && (
               <span className="yellow">loading...</span>
             )}
@@ -3171,7 +3238,8 @@ function Wallet({
               colSpan={
                 3 +
                 visibleChainList.reduce(
-                  (sum, chainE) => sum + Math.max(getVisibleCoins(chainE).length + 1, 1),
+                  (sum, chainE) =>
+                    sum + Math.max(getVisibleCoins(chainE).length + 1, 1),
                   0,
                 ) +
                 (hasError ? 1 : 0)
@@ -3264,7 +3332,9 @@ function Wallet({
   return (
     <div>
       {renderTable(renderRows())}
-      {!rows.length && !showLocalWalletLoading && <div className="gray">no wallets</div>}
+      {!rows.length && !showLocalWalletLoading && (
+        <div className="gray">no wallets</div>
+      )}
       <NoBalanceMsg />
       {CustomCoinConfirmModal()}
     </div>

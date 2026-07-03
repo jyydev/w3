@@ -1106,9 +1106,11 @@ span.chainIcon {
 .tradePaneTop {
   align-items: center;
 }
+.tradeWidePane,
 .swapPane {
   max-width: none;
 }
+.tradeRows,
 .swapRows {
   display: grid;
   grid-template-columns: max-content max-content;
@@ -1119,28 +1121,34 @@ span.chainIcon {
   align-items: stretch;
   margin-top: 8px;
 }
+.tradeRows > .tradeBox:first-child,
 .swapRows > .swapBox:first-child {
   grid-area: sell;
 }
+.tradeRows > .tradeBox:last-child,
 .swapRows > .swapBox:last-child {
   grid-area: buy;
 }
+.tradeBox,
 .swapBox {
   padding: 7px;
   border: 1px solid rgb(45, 45, 45);
   border-radius: 6px;
   background: rgb(10, 10, 10);
 }
+.tradeAssetLine,
 .swapAssetLine {
   display: flex;
   gap: 5px;
   align-items: center;
 }
+.tradeAssetBalance,
 .swapAssetBalance {
   justify-self: end;
   text-align: right;
   white-space: nowrap;
 }
+.tradeBalanceLine,
 .swapBalanceLine {
   display: flex;
   gap: 8px;
@@ -1182,33 +1190,41 @@ span.chainIcon {
 .selectCycle select {
   min-width: 0;
 }
+.tradeAmountLine,
 .swapAmountLine {
   display: flex;
   gap: 6px;
   align-items: center;
   margin-top: 6px;
 }
-.switch.small.lendEndSwitch {
+.switch.small.tradeEndSwitch {
   --switch-width: 30px;
   flex: 0 0 var(--switch-width);
   margin: 0;
 }
+.tradeAmountLine input[type="number"],
+.tradeAmountLine input[type="range"],
 .swapAmountLine input[type="number"],
 .swapAmountLine input[type="range"] {
   width: 170px;
 }
+.tradeAmountLine input[type="number"],
 .swapAmountLine input[type="number"] {
   min-width: 150px;
 }
+.tradeAmountLine .tradeQtyInput,
 .swapAmountLine .swapQtyInput {
   width: auto;
   min-width: 100px;
   max-width: 320px;
 }
+.tradeCoinPrice,
+.tradeRateLine,
 .swapCoinPrice,
 .swapRateLine {
   white-space: nowrap;
 }
+.tradeMiddle,
 .swapMiddle {
   grid-area: middle;
   display: flex;
@@ -1216,24 +1232,28 @@ span.chainIcon {
   gap: 6px;
   align-items: center;
 }
+.tradeMiddleRange,
 .swapMiddleRange {
   width: 120px;
 }
+.tradeGasSelect,
 .swapGasSelect {
   display: inline-flex;
   gap: 4px;
   align-items: center;
 }
+.tradeAutoApproval,
 .swapAutoApproval {
   display: inline-flex;
   gap: 4px;
   align-items: center;
   white-space: nowrap;
 }
+.tradeAutoApproval input,
 .swapAutoApproval input {
   margin: 0;
 }
-.sendPane .swapMiddle {
+.sendPane .tradeMiddle {
   align-items: flex-start;
   flex-direction: column;
   flex-wrap: nowrap;
@@ -1244,7 +1264,7 @@ span.chainIcon {
   gap: 6px;
   align-items: center;
 }
-.lendBoxControls {
+.tradeBoxControls {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -1259,11 +1279,11 @@ span.chainIcon {
   width: 170px;
   min-width: 150px;
 }
-.sendWalletPicker {
+.tradePicker {
   position: relative;
   min-width: 0;
 }
-.sendWalletPickerButton {
+.tradePickerButton {
   position: relative;
   height: 24px;
   padding: 1px 7px 1px 2px;
@@ -1278,7 +1298,7 @@ span.chainIcon {
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.sendWalletPickerButton::after {
+.tradePickerButton::after {
   position: absolute;
   top: 50%;
   right: -1px;
@@ -1286,7 +1306,7 @@ span.chainIcon {
   content: "▾";
   color: rgb(250, 204, 15);
 }
-.sendWalletMenu {
+.tradePickerMenu {
   position: absolute;
   z-index: 3000;
   top: calc(100% + 4px);
@@ -1304,47 +1324,29 @@ span.chainIcon {
   background: rgb(12, 12, 12);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
 }
-.sendWalletMenuCol {
+.tradePickerColumn {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.sendWalletMenuTitle {
+.tradePickerColumnTitle {
   margin-bottom: 2px;
   color: rgb(150, 150, 150);
   font-size: 12px;
 }
-.sendWalletMenuItem {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 3px 5px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.sendWalletMenuItem:hover,
-.sendWalletMenuItem.on {
-  background: rgb(35, 35, 35);
-}
-.lendMarketMenu {
+.tradeMarketMenu {
   grid-template-columns: max-content max-content;
   min-width: 0;
   max-width: min(1180px, 96vw);
 }
-.lendMarketTable {
+.tradePickerDataTable {
   width: max-content;
   max-width: min(560px, 46vw);
   border-collapse: collapse;
   table-layout: auto;
 }
-.lendMarketAllTable {
+.tradePickerAllTable {
   max-width: min(720px, 56vw);
 }
 .tradePickerTable {
@@ -1353,16 +1355,16 @@ span.chainIcon {
 .tradePickerTable td:first-child {
   max-width: 260px;
 }
-.swapChainAddedTable td:nth-child(2),
-.swapChainAllTable td:nth-child(2),
-.swapCoinAddedTable td:nth-child(3),
-.swapCoinAllTable td:nth-child(4) {
+.tradeChainAddedTable td:nth-child(2),
+.tradeChainAllTable td:nth-child(2),
+.tradeCoinAddedTable td:nth-child(3),
+.tradeCoinAllTable td:nth-child(4) {
   max-width: 28px;
   padding-left: 2px;
   padding-right: 2px;
   text-align: center;
 }
-.tradePickerTable .lendMarketAllSelect {
+.tradePickerTable .tradePickerSelect {
   grid-template-columns: max-content max-content;
   column-gap: 6px;
 }
@@ -1377,7 +1379,7 @@ span.chainIcon {
 .sendCoinTable td:nth-child(2) {
   white-space: nowrap;
 }
-.lendMarketTable th {
+.tradePickerDataTable th {
   padding: 0 5px 2px;
   color: rgb(150, 150, 150);
   font-weight: 400;
@@ -1386,7 +1388,7 @@ span.chainIcon {
   text-align: left;
   white-space: nowrap;
 }
-.lendMarketSortHeader {
+.tradePickerSortHeader {
   padding: 0;
   border: 0;
   background: transparent;
@@ -1394,42 +1396,42 @@ span.chainIcon {
   font: inherit;
   cursor: pointer;
 }
-.lendMarketSortHeader.on {
+.tradePickerSortHeader.on {
   color: rgb(210, 210, 210);
 }
-.lendMarketSortHeader.on::after {
+.tradePickerSortHeader.on::after {
   content: "↓";
   margin-left: 2px;
 }
-.lendMarketTable td {
+.tradePickerDataTable td {
   max-width: 220px;
   padding: 3px 5px;
   vertical-align: middle;
   white-space: nowrap;
 }
-.lendMarketAllTable td:nth-child(3),
-.lendMarketAllTable td:nth-child(6) {
+.tradePickerAllTable td:nth-child(3),
+.tradePickerAllTable td:nth-child(6) {
   max-width: 24px;
   padding-left: 2px;
   padding-right: 2px;
   text-align: center;
 }
-.lendMarketTable .btn {
+.tradePickerDataTable .btn {
   min-width: 16px;
   padding-left: 3px;
   padding-right: 3px;
 }
-.lendMarketRow {
+.tradePickerRow {
   cursor: pointer;
 }
-.lendMarketRow:hover,
-.lendMarketRow.on {
+.tradePickerRow:hover,
+.tradePickerRow.on {
   background: rgb(35, 35, 35);
 }
-.lendMarketRow.unsupported {
+.tradePickerRow.unsupported {
   opacity: 0.72;
 }
-.lendSelectedApr {
+.tradeSelectedApr {
   display: inline-flex;
   align-items: center;
   margin-left: 4px;
@@ -1441,7 +1443,7 @@ span.chainIcon {
   margin-left: 2px;
   white-space: nowrap;
 }
-.lendMarketAllSelect {
+.tradePickerSelect {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0;
@@ -1456,141 +1458,93 @@ span.chainIcon {
   text-align: left;
   cursor: pointer;
 }
-.lendMarketAllLendSelect {
+.tradePickerSecondarySelect {
   margin-left: 4px;
 }
-.lendMarketCoinHover {
+.tradePickerCoinHover {
   display: block;
   min-width: 0;
   overflow: hidden;
 }
-.lendMarketCoinHover .infoCard {
+.tradePickerCoinHover .infoCard {
   top: 0;
   left: 100%;
   margin-left: 6px;
 }
-.lendMarketCoinHover .infoCard::before {
+.tradePickerCoinHover .infoCard::before {
   top: 0;
   left: -6px;
   right: auto;
   width: 6px;
   height: 100%;
 }
-.lendMarketAllToken .lendMarketAllSelect {
+.tradePickerAllToken .tradePickerSelect {
   display: block;
   width: 100%;
 }
-.lendMarketAllSelect span {
+.tradePickerSelect span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lendMarketCoinWithBalance {
+.tradePickerCoinWithBalance {
   display: inline-flex;
   align-items: baseline;
   gap: 3px;
   min-width: 0;
   max-width: 100%;
 }
-.lendMarketCoinWithBalance > span:first-child {
+.tradePickerCoinWithBalance > span:first-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lendMarketAllSelect:disabled {
+.tradePickerSelect:disabled {
   cursor: default;
   opacity: 0.85;
 }
-.swapChainMenu {
+.tradeChainMenu {
   grid-template-columns: max-content max-content;
   min-width: 0;
   max-width: min(760px, 94vw);
 }
-.swapChainAddedItem {
-  grid-template-columns: minmax(0, max-content) 3ch;
-  column-gap: 4px;
-  max-width: 150px;
-  width: max-content;
-}
-.swapChainAddedItem.unsupported {
-  opacity: 0.72;
-}
-.swapChainAddedItem span:first-child,
-.swapCoinAddedItem span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.swapChainAllItem {
-  display: grid;
-  grid-template-columns: minmax(120px, max-content) 18px;
-  column-gap: 4px;
-  align-items: center;
-  width: max-content;
-}
-.swapChainAllItem > .btn {
-  min-width: 16px;
-  padding-left: 3px;
-  padding-right: 3px;
-}
-.swapChainAllSelect {
+.tradeChainAllSelect {
   grid-template-columns: max-content max-content;
   column-gap: 6px;
 }
-.swapCoinMenu {
+.tradeCoinMenu {
   grid-template-columns: max-content max-content;
   min-width: 0;
   max-width: min(620px, 94vw);
 }
-.swapCoinMenu .tradePickerTable {
+.tradeCoinMenu .tradePickerTable {
   width: max-content;
   max-width: none;
   table-layout: auto;
 }
-.swapCoinMenu .lendMarketAllSelect {
+.tradeCoinMenu .tradePickerSelect {
   display: block;
 }
-.swapCoinMenu .lendMarketTable th,
-.swapCoinMenu .lendMarketTable td {
+.tradeCoinMenu .tradePickerDataTable th,
+.tradeCoinMenu .tradePickerDataTable td {
   overflow: hidden;
 }
-.swapCoinAllTable td:nth-child(2) {
+.tradeCoinAllTable td:nth-child(2) {
   max-width: 170px;
   text-align: left;
 }
-.swapCoinAllTable td:nth-child(4) {
+.tradeCoinAllTable td:nth-child(4) {
   max-width: 22px;
 }
-.swapCoinAddedTable td:nth-child(3) {
+.tradeCoinAddedTable td:nth-child(3) {
   max-width: 22px;
 }
-.swapCoinMenu .lendMarketAllSelect span {
+.tradeCoinMenu .tradePickerSelect span {
   display: block;
 }
-.swapCoinAddedItem {
-  grid-template-columns: minmax(0, max-content) 3ch;
-  column-gap: 4px;
-  max-width: 150px;
-  width: max-content;
-}
-.swapCoinAddedItem.unsupported {
-  opacity: 0.72;
-}
-.swapCoinAllItem {
-  display: grid;
-  grid-template-columns: minmax(120px, max-content) 18px;
-  column-gap: 4px;
-  align-items: center;
-  width: max-content;
-}
-.swapCoinAllItem > .btn {
-  min-width: 16px;
-  padding-left: 3px;
-  padding-right: 3px;
-}
-.swapCoinAllSelect {
+.tradeCoinAllSelect {
   grid-template-columns: max-content max-content;
   column-gap: 6px;
 }
@@ -1605,6 +1559,7 @@ span.chainIcon {
   height: 22px;
   padding: 1px 4px;
 }
+.tradeSwitchButton,
 .swapDownButton {
   width: 30px;
   height: 24px;
@@ -1616,9 +1571,11 @@ span.chainIcon {
   line-height: 1;
   cursor: pointer;
 }
+.tradeSwitchButton:hover,
 .swapDownButton:hover {
   background: rgb(55, 55, 55);
 }
+.tradeSwitchButton:disabled,
 .swapDownButton:disabled {
   background: rgb(70, 70, 70);
   color: rgb(145, 145, 145);
@@ -1651,6 +1608,7 @@ span.chainIcon {
   padding-left: 8px;
   padding-right: 8px;
 }
+.tradeResult,
 .swapResult {
   display: flex;
   flex-wrap: wrap;
@@ -1671,6 +1629,7 @@ span.chainIcon {
   align-items: center;
   margin-top: 8px;
 }
+.tradeActionButton,
 .swapActionButton {
   min-width: 120px;
   font-weight: bold;

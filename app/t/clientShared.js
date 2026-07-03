@@ -6,6 +6,7 @@ import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
+import { CycleButton } from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
@@ -689,6 +690,18 @@ export function hasLoadedBalance(balance = {}) {
   return Object.prototype.hasOwnProperty.call(balance || {}, "balance");
 }
 
+export function getKnownCoinPrice(chainE, coin = "") {
+  if (!chainE || !coin) return 0;
+
+  for (const row of chainE.rows || []) {
+    const balance = row?.balances?.[coin];
+    const price = toNum(balance?.price);
+    if (price > 0) return price;
+  }
+
+  return 0;
+}
+
 export function getSelectedBalance(chainE, coin, selectedWalletEntry) {
   if (!chainE || !coin || !selectedWalletEntry) return {};
 
@@ -698,7 +711,20 @@ export function getSelectedBalance(chainE, coin, selectedWalletEntry) {
       entry.name == selectedWalletEntry.name,
   );
 
-  return row?.balances?.[coin] || {};
+  const balance = row?.balances?.[coin];
+  if (hasLoadedBalance(balance)) return balance;
+
+  if (
+    row &&
+    row.balances &&
+    Object.prototype.hasOwnProperty.call(chainE?.coinInfoM || {}, coin) &&
+    !row.errors?.[coin]
+  ) {
+    const price = getKnownCoinPrice(chainE, coin);
+    return { balance: 0, price, usd: 0 };
+  }
+
+  return {};
 }
 
 export function getCoinByAddress(chainE, address = "") {
@@ -729,13 +755,13 @@ export function getCoinBalanceByAddress(
 }
 
 export function TradePickerMenu({ className = "", children }) {
-  return <div className={cn("sendWalletMenu", className)}>{children}</div>;
+  return <div className={cn("tradePickerMenu", className)}>{children}</div>;
 }
 
 export function TradePickerColumn({ title = "", children }) {
   return (
-    <div className="sendWalletMenuCol">
-      <span className="sendWalletMenuTitle">{title}</span>
+    <div className="tradePickerColumn">
+      <span className="tradePickerColumnTitle">{title}</span>
       {children}
     </div>
   );
@@ -743,7 +769,7 @@ export function TradePickerColumn({ title = "", children }) {
 
 export function TradePickerTable({ className = "", headers = [], children }) {
   return (
-    <table className={cn("lendMarketTable", "tradePickerTable", className)}>
+    <table className={cn("tradePickerDataTable", "tradePickerTable", className)}>
       <thead>
         <tr>
           {headers.map((header, index) => (
@@ -765,7 +791,7 @@ export function TradePickerRow({
   return (
     <tr
       className={cn(
-        "lendMarketRow",
+        "tradePickerRow",
         active ? "on" : "",
         unsupported ? "unsupported" : "",
       )}
@@ -837,8 +863,8 @@ export function TradePickerSortHeader({
       type="button"
       className={
         activeSort == sortKey
-          ? "lendMarketSortHeader on"
-          : "lendMarketSortHeader"
+          ? "tradePickerSortHeader on"
+          : "tradePickerSortHeader"
       }
       onClick={() => onSort(sortKey)}
     >
@@ -1074,19 +1100,16 @@ export function TradeMarketPicker({
     showAllAddedOnError && allError && visibleAddedMarkets.length > 0;
 
   return (
-    <div className="selectCycle walletCycle lendMarketCycle">
-      <button
-        type="button"
-        className="btn small bgGray"
+    <div className="selectCycle walletCycle tradeMarketCycle">
+      <CycleButton
+        direction="prev"
         onClick={prevMarket}
         disabled={visibleAddedMarkets.length < 2}
-      >
-        {"<"}
-      </button>
-      <div className="sendWalletPicker" ref={marketPickerRef}>
+      />
+      <div className="tradePicker" ref={marketPickerRef}>
         <button
           type="button"
-          className="sendWalletPickerButton"
+          className="tradePickerButton"
           style={{ width: marketButtonWidth }}
           disabled={!chainName}
           onClick={() => setShowMarketMenu((show) => !show)}
@@ -1094,10 +1117,10 @@ export function TradeMarketPicker({
           {marketE ? getMarketLabel(marketE) : "no coin"}
         </button>
         {showMarketMenu && (
-          <TradePickerMenu className="lendMarketMenu">
+          <TradePickerMenu className="tradeMarketMenu">
             <TradePickerColumn title="added">
               <TradePickerTable
-                className="lendMarketAddedTable"
+                className="tradePickerAddedTable"
                 headers={[
                   <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
                   <SortHeader sortKey="underlyingQty">qty</SortHeader>,
@@ -1114,8 +1137,8 @@ export function TradeMarketPicker({
                           key={`wallet_${entry.value}`}
                           className={
                             entry.value == market
-                              ? "lendMarketRow on"
-                              : "lendMarketRow"
+                              ? "tradePickerRow on"
+                              : "tradePickerRow"
                           }
                           onClick={() => selectMarket(entry.value)}
                         >
@@ -1128,7 +1151,7 @@ export function TradeMarketPicker({
                             />
                           </td>
                           <td>
-                            <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
+                            <span className="infoHover hoverOnlyInfo tradePickerCoinHover">
                               <span className="gray">{entry.lendCoin}</span>
                               <LendCoinInfoCard
                                 coin={entry.lendCoin}
@@ -1161,7 +1184,7 @@ export function TradeMarketPicker({
             </TradePickerColumn>
             <TradePickerColumn title="all">
               <TradePickerTable
-                className="lendMarketAllTable"
+                className="tradePickerAllTable"
                 headers={[
                   <SortHeader section="all" sortKey="underlyingCoin">
                     coin
@@ -1240,14 +1263,14 @@ export function TradeMarketPicker({
                           key={`${defi}_${entry.value}`}
                           className={
                             selectedValue == market
-                              ? "lendMarketRow on"
-                              : "lendMarketRow"
+                              ? "tradePickerRow on"
+                              : "tradePickerRow"
                           }
                         >
                           <td>
                             <button
                               type="button"
-                              className="lendMarketAllSelect"
+                              className="tradePickerSelect"
                               onClick={() => selectMarket(selectedValue)}
                               title={entry.underlyingName}
                             >
@@ -1277,10 +1300,10 @@ export function TradeMarketPicker({
                             </button>
                           </td>
                           <td>
-                            <span className="infoHover hoverOnlyInfo lendMarketCoinHover">
+                            <span className="infoHover hoverOnlyInfo tradePickerCoinHover">
                               <button
                                 type="button"
-                                className="lendMarketAllSelect lendMarketAllLendSelect"
+                                className="tradePickerSelect tradePickerSecondarySelect"
                                 onClick={() => selectMarket(selectedValue)}
                               >
                                 <span className="gray">{entry.lendCoin}</span>
@@ -1326,15 +1349,11 @@ export function TradeMarketPicker({
           </TradePickerMenu>
         )}
       </div>
-      <button
-        type="button"
-        className="btn small bgGray"
+      <CycleButton
         onClick={nextMarket}
         disabled={visibleAddedMarkets.length < 2}
-      >
-        {">"}
-      </button>
-      <span className="lendSelectedApr">
+      />
+      <span className="tradeSelectedApr">
         <AprText apr={marketSupplyApr} />
       </span>
     </div>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
+import { CycleButton } from "@/components/Shared";
 import { getHyperliquidSpotBridgeDiscovery } from "./sv";
 import {
   emitTradeChainSelect,
@@ -563,10 +564,10 @@ export function HyperliquidCoinMenu({
   );
 
   return (
-    <TradePickerMenu className="swapCoinMenu">
+    <TradePickerMenu className="tradeCoinMenu">
       <TradePickerColumn title="added">
         <TradePickerTable
-          className="swapCoinAddedTable"
+          className="tradeCoinAddedTable"
           headers={["coin", "qty", "on"]}
         >
           <tbody>
@@ -578,7 +579,7 @@ export function HyperliquidCoinMenu({
                   <tr
                     key={`hl_${side}_added_coin_${coin}`}
                     className={[
-                      "lendMarketRow",
+                      "tradePickerRow",
                       coin == selectedCoin ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -588,7 +589,7 @@ export function HyperliquidCoinMenu({
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapCoinAllSelect"
+                        className="tradePickerSelect tradeCoinAllSelect"
                         onClick={() =>
                           supported
                             ? onSelect(coin)
@@ -617,7 +618,7 @@ export function HyperliquidCoinMenu({
       </TradePickerColumn>
       <TradePickerColumn title="all">
         <TradePickerTable
-          className="swapCoinAllTable"
+          className="tradeCoinAllTable"
           headers={["coin", "qty", "add"]}
         >
           <tbody>
@@ -672,14 +673,14 @@ export function HyperliquidCoinMenu({
                     key={`hl_${side}_all_coin_${coin}`}
                     className={
                       coin == selectedCoin
-                        ? "lendMarketRow on"
-                        : "lendMarketRow"
+                        ? "tradePickerRow on"
+                        : "tradePickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapCoinAllSelect"
+                        className="tradePickerSelect tradeCoinAllSelect"
                         onClick={() => onSelect(coin)}
                       >
                         <span>{coin}</span>
@@ -728,10 +729,10 @@ export function HyperliquidChainMenu({
   onRetry = () => {},
 }) {
   return (
-    <TradePickerMenu className="swapChainMenu">
+    <TradePickerMenu className="tradeChainMenu">
       <TradePickerColumn title="added">
         <TradePickerTable
-          className="swapChainAddedTable"
+          className="tradeChainAddedTable"
           headers={["chain", "on"]}
         >
           <tbody>
@@ -742,7 +743,7 @@ export function HyperliquidChainMenu({
                   <tr
                     key={`hl_${side}_added_chain_${chain}`}
                     className={[
-                      "lendMarketRow",
+                      "tradePickerRow",
                       chain == selectedChain ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -752,7 +753,7 @@ export function HyperliquidChainMenu({
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapChainAllSelect"
+                        className="tradePickerSelect tradeChainAllSelect"
                         onClick={() =>
                           supported
                             ? onSelect(chain)
@@ -778,7 +779,7 @@ export function HyperliquidChainMenu({
       </TradePickerColumn>
       <TradePickerColumn title="all">
         <TradePickerTable
-          className="swapChainAllTable"
+          className="tradeChainAllTable"
           headers={["chain", "add"]}
         >
           <tbody>
@@ -828,14 +829,14 @@ export function HyperliquidChainMenu({
                     key={`hl_${side}_all_chain_${chain}`}
                     className={
                       chain == selectedChain
-                        ? "lendMarketRow on"
-                        : "lendMarketRow"
+                        ? "tradePickerRow on"
+                        : "tradePickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="lendMarketAllSelect swapChainAllSelect"
+                        className="tradePickerSelect tradeChainAllSelect"
                         onClick={() => onSelect(chain)}
                       >
                         <span>{chain}</span>
@@ -884,11 +885,11 @@ export function HyperliquidCoinSelect({
   MarketCoinBalance = NoopBalance,
 }) {
   return (
-    <div className="selectCycle walletCycle swapCoinCycle">
-      <div className="sendWalletPicker" ref={pickerRef}>
+    <div className="selectCycle walletCycle tradeCoinCycle">
+      <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"
-          className="sendWalletPickerButton"
+          className="tradePickerButton"
           style={{
             width: getHyperliquidPickerWidth(
               [...addedCoins, ...allCoins],
@@ -916,14 +917,10 @@ export function HyperliquidCoinSelect({
           />
         )}
       </div>
-      <button
-        type="button"
-        className="btn small bgGray"
+      <CycleButton
         onClick={onNext}
         disabled={addedCoins.length < 2 && allCoins.length < 2}
-      >
-        {">"}
-      </button>
+      />
     </div>
   );
 }
@@ -942,11 +939,11 @@ export function HyperliquidChainSelect({
   onRetry = () => {},
 }) {
   return (
-    <div className="selectCycle walletCycle swapChainCycle">
-      <div className="sendWalletPicker" ref={pickerRef}>
+    <div className="selectCycle walletCycle tradeChainCycle">
+      <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"
-          className="sendWalletPickerButton"
+          className="tradePickerButton"
           style={{
             width: getHyperliquidPickerWidth(
               [...addedChains, ...allChains],
@@ -974,14 +971,10 @@ export function HyperliquidChainSelect({
           />
         )}
       </div>
-      <button
-        type="button"
-        className="btn small bgGray"
+      <CycleButton
         onClick={onNext}
         disabled={addedChains.length < 2 && allChains.length < 2}
-      >
-        {">"}
-      </button>
+      />
     </div>
   );
 }
