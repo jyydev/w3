@@ -40,6 +40,7 @@ export async function getLocalWalletBalanceData({
   disabledWalletNames = [],
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  usdPriceQuery = false,
 } = {}) {
   const type = getWalletType(walletType);
   const entries = (Array.isArray(walletEntries) ? walletEntries : [])
@@ -63,6 +64,7 @@ export async function getLocalWalletBalanceData({
         disabledWalletNames,
         useAlchemy: useAlchemyValue,
         alchemyMinUsd: Number.isFinite(minUsd) ? minUsd : 0.01,
+        usdPriceQuery,
       }),
     ];
   }
@@ -89,6 +91,7 @@ export async function getLocalWalletBalanceData({
             disabledWalletNames,
             useAlchemy: useAlchemyValue,
             alchemyMinUsd: Number.isFinite(minUsd) ? minUsd : 0.01,
+            usdPriceQuery,
           }),
     ),
   );

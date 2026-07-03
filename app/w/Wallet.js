@@ -315,6 +315,7 @@ function Wallet({
   walletType = "evm",
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  usdPriceQuery = false,
   initialCookieM = {},
 }) {
   const router = useRouter();
@@ -836,6 +837,7 @@ function Wallet({
       customCoinM: localCustomCoinM,
       useAlchemy,
       alchemyMinUsd,
+      usdPriceQuery,
     })
       .then((nextData) => {
         if (!cancelled) setLocalWalletData(nextData);
@@ -871,6 +873,7 @@ function Wallet({
     offAddrKey,
     useAlchemy,
     alchemyMinUsd,
+    usdPriceQuery,
   ]);
 
   useEffect(() => {

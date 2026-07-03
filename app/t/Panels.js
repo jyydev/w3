@@ -170,6 +170,7 @@ function Panels({
   offAddrs = [],
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  usdPriceQuery = false,
   showGasAutoLabel = false,
   walletEntries = [],
   walletEntriesM = {},
@@ -521,6 +522,7 @@ function Panels({
       disabledWalletNames: [...(offAddrs || []), ...localOffAddrs],
       useAlchemy,
       alchemyMinUsd,
+      usdPriceQuery,
     })
       .then((nextData) => {
         if (!cancelled) setLocalWalletData(nextData);
@@ -548,6 +550,7 @@ function Panels({
     JSON.stringify(localOffAddrs),
     useAlchemy,
     alchemyMinUsd,
+    usdPriceQuery,
   ]);
 
   useEffect(() => {

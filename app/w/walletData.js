@@ -329,10 +329,19 @@ async function getProvider(chainE, { timeoutMs = 0 } = {}) {
   throw new Error(lastError?.shortMessage ?? lastError?.message ?? "all rpcs failed");
 }
 
-function getUsdPrice(coin, priceM) {
-  if (stableCoins.has(String(coin || "").toUpperCase())) return 1;
+function getUsdPrice(coin, priceM, { usdPriceQuery = false } = {}) {
+  const isStable = stableCoins.has(String(coin || "").toUpperCase());
+  const queriedPrice = Number(priceM[coin] ?? 0);
+  if (isStable) return usdPriceQuery && queriedPrice > 0 ? queriedPrice : 1;
 
-  return Number(priceM[coin] ?? 0);
+  return queriedPrice;
+}
+
+function hasUsdPrice(coin, priceM, { usdPriceQuery = false } = {}) {
+  const isStable = stableCoins.has(String(coin || "").toUpperCase());
+  if (isStable && usdPriceQuery) return Number(priceM[coin] ?? 0) > 0;
+
+  return getUsdPrice(coin, priceM, { usdPriceQuery }) > 0;
 }
 
 function toFiniteNumber(value) {
@@ -369,9 +378,18 @@ function normalizePriceAddress(chain, address) {
   return chain == "Solana" ? address : address.toLowerCase();
 }
 
-function getPriceAddressCoins({ chain, coinEntries, excludeCoins = new Set() }) {
+function getPriceAddressCoins({
+  chain,
+  coinEntries,
+  excludeCoins = new Set(),
+  usdPriceQuery = false,
+}) {
   return coinEntries
-    .filter(([coin]) => !stableCoins.has(coin) && !excludeCoins.has(coin))
+    .filter(
+      ([coin]) =>
+        (usdPriceQuery || !stableCoins.has(String(coin || "").toUpperCase())) &&
+        !excludeCoins.has(coin),
+    )
     .map(([coin, coinE]) => [coin, getTokenAddress({ chain, coin, coinE })])
     .filter(([, address]) => isTokenAddress(chain, address));
 }
@@ -392,11 +410,11 @@ function getPairTokenPrice(pair, address) {
   return 0;
 }
 
-async function getDexScreenerPrices({ chain, coinEntries }) {
+async function getDexScreenerPrices({ chain, coinEntries, usdPriceQuery = false }) {
   const chainId = dexChainM[chain];
   if (!chainId) return {};
 
-  const addressCoins = getPriceAddressCoins({ chain, coinEntries });
+  const addressCoins = getPriceAddressCoins({ chain, coinEntries, usdPriceQuery });
 
   const priceM = {};
 
@@ -444,11 +462,21 @@ async function getDexScreenerPrices({ chain, coinEntries }) {
   );
 }
 
-async function getDefiLlamaPrices({ chain, coinEntries, excludeCoins }) {
+async function getDefiLlamaPrices({
+  chain,
+  coinEntries,
+  excludeCoins,
+  usdPriceQuery = false,
+}) {
   const chainId = llamaChainM[chain];
   if (!chainId) return {};
 
-  const addressCoins = getPriceAddressCoins({ chain, coinEntries, excludeCoins });
+  const addressCoins = getPriceAddressCoins({
+    chain,
+    coinEntries,
+    excludeCoins,
+    usdPriceQuery,
+  });
   const priceM = {};
 
   for (let i = 0; i < addressCoins.length; i += 100) {
@@ -479,7 +507,7 @@ async function getDefiLlamaPrices({ chain, coinEntries, excludeCoins }) {
   return priceM;
 }
 
-async function getPriceM({ chain, coinEntries }) {
+async function getPriceM({ chain, coinEntries, usdPriceQuery = false }) {
   let priceM = {};
 
   try {
@@ -487,6 +515,7 @@ async function getPriceM({ chain, coinEntries }) {
       chain,
       coinEntries,
       excludeCoins: new Set(),
+      usdPriceQuery,
     });
   } catch {
     priceM = {};
@@ -499,6 +528,7 @@ async function getPriceM({ chain, coinEntries }) {
       ...(await getDexScreenerPrices({
         chain,
         coinEntries: coinEntries.filter(([coin]) => !excludeCoins.has(coin)),
+        usdPriceQuery,
       })),
     };
   } catch {
@@ -506,14 +536,18 @@ async function getPriceM({ chain, coinEntries }) {
   }
 }
 
-export async function getCoinUsdPrice({ chain = "", coin = "" } = {}) {
+export async function getCoinUsdPrice({
+  chain = "",
+  coin = "",
+  usdPriceQuery = false,
+} = {}) {
   const coinM = getCoinM(chain);
   const coinE = coinM?.[coin];
   if (!coinE) return 0;
 
   const coinEntries = [[coin, coinE]];
-  let priceM = await getPriceM({ chain, coinEntries });
-  let price = getUsdPrice(coin, priceM);
+  let priceM = await getPriceM({ chain, coinEntries, usdPriceQuery });
+  let price = getUsdPrice(coin, priceM, { usdPriceQuery });
   if (price > 0) return price;
   if (chain == "Solana") return 0;
 
@@ -531,13 +565,14 @@ export async function getCoinUsdPrice({ chain = "", coin = "" } = {}) {
         coinEntries,
         allCoinEntries: Object.entries(coinM),
         priceM,
+        usdPriceQuery,
       }),
       priceFetchTimeoutMs,
       "price rpc timeout",
     );
 
     priceM = { ...priceM, ...exchangePriceM };
-    price = getUsdPrice(coin, priceM);
+    price = getUsdPrice(coin, priceM, { usdPriceQuery });
     return price > 0 ? price : 0;
   } catch {
     return 0;
@@ -797,10 +832,10 @@ export async function loadWallets(
   );
 }
 
-function getBalanceE({ raw, coin, coinE, priceM = {} }) {
+function getBalanceE({ raw, coin, coinE, priceM = {}, usdPriceQuery = false }) {
   const decimals = coinE.decimals ?? 18;
   const balance = ethers.formatUnits(raw, decimals);
-  const price = getUsdPrice(coin, priceM);
+  const price = getUsdPrice(coin, priceM, { usdPriceQuery });
 
   return {
     coin,
@@ -812,16 +847,16 @@ function getBalanceE({ raw, coin, coinE, priceM = {} }) {
   };
 }
 
-function applyPriceMToBalance(balance, priceM) {
-  const price = getUsdPrice(balance.coin, priceM);
+function applyPriceMToBalance(balance, priceM, { usdPriceQuery = false } = {}) {
+  const price = getUsdPrice(balance.coin, priceM, { usdPriceQuery });
   balance.price = price;
   balance.usd = price ? Number(balance.balance) * price : 0;
 }
 
-function applyPriceMToRows(rows, priceM) {
+function applyPriceMToRows(rows, priceM, { usdPriceQuery = false } = {}) {
   for (const row of rows) {
     for (const balance of Object.values(row.balances || {})) {
-      applyPriceMToBalance(balance, priceM);
+      applyPriceMToBalance(balance, priceM, { usdPriceQuery });
     }
   }
 }
@@ -1001,11 +1036,22 @@ function getAlchemyDecimals(token, coinE = {}) {
   return Number.isFinite(decimals) ? decimals : 18;
 }
 
-function getAlchemyBalanceE({ chain, token, coin, coinE }) {
+function getAlchemyBalanceE({
+  chain,
+  token,
+  coin,
+  coinE,
+  usdPriceQuery = false,
+}) {
   const decimals = getAlchemyDecimals(token, coinE);
   const raw = parseAlchemyRawBalance(token.tokenBalance, decimals);
   const balance = ethers.formatUnits(raw, decimals);
-  const price = getAlchemyUsdPrice(token) || getUsdPrice(coin, {});
+  const alchemyPrice = getAlchemyUsdPrice(token);
+  const price =
+    (!stableCoins.has(String(coin || "").toUpperCase()) || usdPriceQuery) &&
+    alchemyPrice > 0
+      ? alchemyPrice
+      : getUsdPrice(coin, {}, { usdPriceQuery });
 
   return {
     coin,
@@ -1060,6 +1106,7 @@ async function getAlchemyBalances({
   allCoinEntries,
   disabledCoins = [],
   useAlchemy = null,
+  usdPriceQuery = false,
 }) {
   if (!isAlchemyEnabled(chain, useAlchemy) || !rows.length) return null;
 
@@ -1107,7 +1154,13 @@ async function getAlchemyBalances({
 
     if (disabled.has(coin)) continue;
 
-    const balance = getAlchemyBalanceE({ chain, token, coin, coinE });
+    const balance = getAlchemyBalanceE({
+      chain,
+      token,
+      coin,
+      coinE,
+      usdPriceQuery,
+    });
     if (BigInt(balance.raw) <= 0n) continue;
 
     balancesM[row.name][coin] = balance;
@@ -1136,23 +1189,28 @@ async function applyFallbackPrices({
   priceM = {},
   provider = null,
   multicallAddress = "",
+  usdPriceQuery = false,
 }) {
   let nextPriceM = { ...priceM };
   const balanceCoinEntries = getBalanceCoinEntries({ rows, coinEntries });
   const missingPriceCoinEntries = balanceCoinEntries.filter(
-    ([coin]) => !getUsdPrice(coin, nextPriceM),
+    ([coin]) => !hasUsdPrice(coin, nextPriceM, { usdPriceQuery }),
   );
 
   if (missingPriceCoinEntries.length) {
     nextPriceM = {
       ...nextPriceM,
-      ...(await getPriceM({ chain, coinEntries: missingPriceCoinEntries })),
+      ...(await getPriceM({
+        chain,
+        coinEntries: missingPriceCoinEntries,
+        usdPriceQuery,
+      })),
     };
   }
 
   if (chain != "Solana" && provider && multicallAddress) {
     const missingExchangeCoinEntries = balanceCoinEntries.filter(
-      ([coin]) => !getUsdPrice(coin, nextPriceM),
+      ([coin]) => !hasUsdPrice(coin, nextPriceM, { usdPriceQuery }),
     );
 
     if (missingExchangeCoinEntries.length) {
@@ -1166,13 +1224,14 @@ async function applyFallbackPrices({
             coinEntries: missingExchangeCoinEntries,
             allCoinEntries: coinEntries,
             priceM: nextPriceM,
+            usdPriceQuery,
           })),
         };
       } catch {}
     }
   }
 
-  applyPriceMToRows(rows, nextPriceM);
+  applyPriceMToRows(rows, nextPriceM, { usdPriceQuery });
   return nextPriceM;
 }
 
@@ -1240,6 +1299,7 @@ async function buildAlchemyWalletResult({
   scanner,
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  usdPriceQuery = false,
 }) {
   const alchemy = await getAlchemyBalances({
     chain,
@@ -1248,6 +1308,7 @@ async function buildAlchemyWalletResult({
     allCoinEntries,
     disabledCoins,
     useAlchemy,
+    usdPriceQuery,
   });
   if (!alchemy) return null;
 
@@ -1261,6 +1322,7 @@ async function buildAlchemyWalletResult({
     rows,
     coinEntries: alchemy.coinEntries,
     priceM: alchemy.priceM,
+    usdPriceQuery,
   });
 
   if (chain != "Solana" && chainE && hasMissingBalancePrices(rows)) {
@@ -1274,6 +1336,7 @@ async function buildAlchemyWalletResult({
         priceM,
         provider,
         multicallAddress: ethers.getAddress(chainE.multicall),
+        usdPriceQuery,
       });
     } catch {
     } finally {
@@ -1535,7 +1598,12 @@ function getOneTokenRaw(coinE) {
   return 10n ** BigInt(coinE.decimals ?? 18);
 }
 
-function getStableUnderlyingM({ chain, coinEntries, priceM }) {
+function getStableUnderlyingM({
+  chain,
+  coinEntries,
+  priceM,
+  usdPriceQuery = false,
+}) {
   const underlyingM = {};
 
   for (const [coin, coinE] of coinEntries) {
@@ -1544,7 +1612,7 @@ function getStableUnderlyingM({ chain, coinEntries, priceM }) {
     const address = getTokenAddress({ chain, coin, coinE });
     if (!isTokenAddress(chain, address)) continue;
 
-    const price = getUsdPrice(coin, priceM);
+    const price = getUsdPrice(coin, priceM, { usdPriceQuery });
     if (!price) continue;
 
     underlyingM[normalizePriceAddress(chain, address)] = {
@@ -1564,18 +1632,20 @@ async function getExchangeRatePrices({
   coinEntries,
   allCoinEntries = coinEntries,
   priceM,
+  usdPriceQuery = false,
 }) {
   const underlyingM = getStableUnderlyingM({
     chain,
     coinEntries: allCoinEntries,
     priceM,
+    usdPriceQuery,
   });
   if (!Object.keys(underlyingM).length) return {};
 
   const calls = [];
 
   for (const [coin, coinE] of coinEntries) {
-    if (getUsdPrice(coin, priceM)) continue;
+    if (hasUsdPrice(coin, priceM, { usdPriceQuery })) continue;
     if (!ethers.isAddress(coinE.address)) continue;
 
     const target = ethers.getAddress(coinE.address);
@@ -1677,6 +1747,7 @@ async function getMulticallBalances({
   rows,
   coinEntries,
   priceM,
+  usdPriceQuery = false,
 }) {
   const balancesM = Object.fromEntries(rows.map((row) => [row.name, {}]));
   const errorsM = Object.fromEntries(rows.map((row) => [row.name, {}]));
@@ -1745,6 +1816,7 @@ async function getMulticallBalances({
             coin: callE.coin,
             coinE: callE.coinE,
             priceM,
+            usdPriceQuery,
           });
         }
       } catch (e) {
@@ -1876,6 +1948,7 @@ async function getSolanaRowBalancesWithRpc({
   row,
   coinEntries,
   priceM,
+  usdPriceQuery = false,
   mintCoinM,
   invalidCoins,
 }) {
@@ -1902,6 +1975,7 @@ async function getSolanaRowBalancesWithRpc({
       coin,
       coinE,
       priceM,
+      usdPriceQuery,
     });
   }
 
@@ -1931,6 +2005,7 @@ async function getSolanaRowBalancesWithRpc({
       coin,
       coinE: e.coinE,
       priceM,
+      usdPriceQuery,
     });
   }
 
@@ -1943,7 +2018,13 @@ async function getSolanaRowBalances(args) {
   );
 }
 
-async function getSolanaBalances({ chainE, rows, coinEntries, priceM }) {
+async function getSolanaBalances({
+  chainE,
+  rows,
+  coinEntries,
+  priceM,
+  usdPriceQuery = false,
+}) {
   const balancesM = Object.fromEntries(rows.map((row) => [row.name, {}]));
   const errorsM = Object.fromEntries(rows.map((row) => [row.name, {}]));
   const coinLookup = getSolanaCoinLookup(coinEntries);
@@ -1956,6 +2037,7 @@ async function getSolanaBalances({ chainE, rows, coinEntries, priceM }) {
           row,
           coinEntries,
           priceM,
+          usdPriceQuery,
           ...coinLookup,
         }).catch((e) => ({
           balances: {},
@@ -1985,6 +2067,7 @@ export async function getSolanaWalletBalances({
   disabledWalletNames = [],
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  usdPriceQuery = false,
 } = {}) {
   const chain = "Solana";
   const chainE = getChainE(chain);
@@ -2052,6 +2135,7 @@ export async function getSolanaWalletBalances({
       scanner,
       useAlchemy,
       alchemyMinUsd,
+      usdPriceQuery,
     }).catch(() => null);
 
     if (alchemyResult) return { ...alchemyResult, rows };
@@ -2061,6 +2145,7 @@ export async function getSolanaWalletBalances({
       rows: validRows,
       coinEntries,
       priceM: {},
+      usdPriceQuery,
     });
 
     for (const row of validRows) {
@@ -2071,7 +2156,12 @@ export async function getSolanaWalletBalances({
       }
     }
 
-    await applyFallbackPrices({ chain, rows: validRows, coinEntries });
+    await applyFallbackPrices({
+      chain,
+      rows: validRows,
+      coinEntries,
+      usdPriceQuery,
+    });
     const coins = getReturnedCoins({ rows, coinEntries });
 
     return { chain, coins, allCoins, coinInfoM, scanner, rows };
@@ -2306,6 +2396,7 @@ export async function getWalletBalances({
   disabledWalletNames = [],
   useAlchemy = null,
   alchemyMinUsd = 0.01,
+  usdPriceQuery = false,
 } = {}) {
   const chainE = getChainE(chain);
   const wallets = await loadWallets(walletFile, walletType, {
@@ -2376,6 +2467,7 @@ export async function getWalletBalances({
       scanner,
       useAlchemy,
       alchemyMinUsd,
+      usdPriceQuery,
     }).catch(() => null);
 
     if (alchemyResult) return { ...alchemyResult, rows };
@@ -2388,6 +2480,7 @@ export async function getWalletBalances({
       rows: validRows,
       coinEntries,
       priceM: {},
+      usdPriceQuery,
     });
 
     for (const row of validRows) {
@@ -2404,6 +2497,7 @@ export async function getWalletBalances({
       coinEntries,
       provider,
       multicallAddress,
+      usdPriceQuery,
     });
     const coins = getReturnedCoins({ rows, coinEntries });
 

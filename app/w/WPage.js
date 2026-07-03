@@ -21,6 +21,7 @@ import {
   parseDisabledCoinM,
   parseDisabledWallets,
   showGasAutoCookie,
+  usdPriceQueryCookie,
   useAlchemyCookie,
 } from "./walletSettingData";
 import {
@@ -245,6 +246,14 @@ async function WPage({
     showGasAutoCookieValue === null
       ? defaultShowGasAuto
       : showGasAutoCookieValue;
+  const defaultUsdPriceQuery = false;
+  const usdPriceQueryCookieValue = parseOptionalBool(
+    cookieStore.get(usdPriceQueryCookie)?.value,
+  );
+  const usdPriceQuery =
+    usdPriceQueryCookieValue === null
+      ? defaultUsdPriceQuery
+      : usdPriceQueryCookieValue;
   const disabledChainM = new Set([...disabledChains, ...offChains]);
   const selectedWalletType =
     requestedWalletType == "solana" && disabledChainM.has("Solana")
@@ -346,6 +355,7 @@ async function WPage({
               disabledWalletNames: offAddrs,
               useAlchemy,
               alchemyMinUsd,
+              usdPriceQuery,
             }),
           ]
       : await Promise.all(
@@ -367,6 +377,7 @@ async function WPage({
                 disabledWalletNames: offAddrs,
                 useAlchemy,
                 alchemyMinUsd,
+                usdPriceQuery,
               }),
             ),
             ...(includeHyperliquid
@@ -429,6 +440,8 @@ async function WPage({
           alchemyMinUsd={alchemyMinUsd}
           defaultShowGasAuto={defaultShowGasAuto}
           showGasAuto={showGasAuto}
+          defaultUsdPriceQuery={defaultUsdPriceQuery}
+          usdPriceQuery={usdPriceQuery}
         />
         <BrowserWalletConnect
           routeBase={routeBase}
@@ -459,6 +472,7 @@ async function WPage({
         walletType={selectedWalletType}
         useAlchemy={useAlchemy}
         alchemyMinUsd={alchemyMinUsd}
+        usdPriceQuery={usdPriceQuery}
         initialCookieM={initialCookieM}
       />
       {isValidElement(afterWallet)
@@ -475,6 +489,7 @@ async function WPage({
             offAddrs,
             useAlchemy,
             alchemyMinUsd,
+            usdPriceQuery,
             showGasAutoLabel: showGasAuto,
             walletFiles,
             walletFilesM,

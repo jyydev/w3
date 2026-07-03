@@ -18,6 +18,7 @@ import {
   alchemyMinUsdCookie,
   disabledChainsCookie,
   showGasAutoCookie,
+  usdPriceQueryCookie,
   useAlchemyCookie,
 } from "./walletSettingData";
 
@@ -45,12 +46,15 @@ function WalletSettings({
   alchemyMinUsd = 0.01,
   defaultShowGasAuto = false,
   showGasAuto = false,
+  defaultUsdPriceQuery = false,
+  usdPriceQuery = false,
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("chains");
   const [useAlchemyState, setUseAlchemyState] = useState(!!useAlchemy);
   const [showGasAutoState, setShowGasAutoState] = useState(!!showGasAuto);
+  const [usdPriceQueryState, setUsdPriceQueryState] = useState(!!usdPriceQuery);
   const [alchemyMinUsdDraft, setAlchemyMinUsdDraft] = useState(
     String(alchemyMinUsd),
   );
@@ -98,6 +102,10 @@ function WalletSettings({
   useEffect(() => {
     setShowGasAutoState(!!showGasAuto);
   }, [showGasAuto]);
+
+  useEffect(() => {
+    setUsdPriceQueryState(!!usdPriceQuery);
+  }, [usdPriceQuery]);
 
   useEffect(() => {
     setAlchemyMinUsdDraft(String(alchemyMinUsd));
@@ -181,6 +189,17 @@ function WalletSettings({
 
     setShowGasAutoState(next);
     setCookie(showGasAutoCookie, next ? "1" : "0", {
+      maxAge: cookieMaxAge,
+      path: "/",
+    });
+    router.refresh();
+  }
+
+  function toggleUsdPriceQuery() {
+    const next = !usdPriceQueryState;
+
+    setUsdPriceQueryState(next);
+    setCookie(usdPriceQueryCookie, next ? "1" : "0", {
       maxAge: cookieMaxAge,
       path: "/",
     });
@@ -398,6 +417,17 @@ function WalletSettings({
                     />
                   </td>
                   <td>{defaultShowGasAuto ? "on" : "off"}</td>
+                </tr>
+                <tr>
+                  <td>USD price query</td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={usdPriceQueryState}
+                      onChange={toggleUsdPriceQuery}
+                    />
+                  </td>
+                  <td>{defaultUsdPriceQuery ? "on" : "off"}</td>
                 </tr>
                 <tr>
                   <td>
