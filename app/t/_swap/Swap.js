@@ -90,6 +90,7 @@ import {
   getTradeEndDiffQty,
   getTradeEndInputValue,
   getTradeModeCookie,
+  getTradePickerButtonWidth,
   getWalletOptions,
   hasLoadedBalance,
   inputQty,
@@ -511,36 +512,38 @@ export default function SwapPanel({
     usesLazyTokenDiscovery ? toRelayCurrencyE.tokens : toDiscoveryTokenEntries;
   const fromChainButtonWidth = useMemo(
     () =>
-      `${Math.max(
-        fromChain.length,
-        ...sellChainNames.map((chain) => chain.length),
-        5,
-      ) + 2}ch`,
+      getTradePickerButtonWidth([fromChain, ...sellChainNames], {
+        minLength: 5,
+        maxLength: Infinity,
+        offset: 2,
+      }),
     [fromChain, sellChainNames],
   );
   const toChainButtonWidth = useMemo(
     () =>
-      `${Math.max(
-        toChain.length,
-        ...chainNames.map((chain) => chain.length),
-        5,
-      ) + 2}ch`,
+      getTradePickerButtonWidth([toChain, ...chainNames], {
+        minLength: 5,
+        maxLength: Infinity,
+        offset: 2,
+      }),
     [chainNames, toChain],
   );
   const fromCoinButtonWidth = useMemo(
     () =>
-      `${Math.min(
-        Math.max(fromCoin.length, ...fromCoins.map((coin) => coin.length), 5) + 2,
-        18,
-      )}ch`,
+      getTradePickerButtonWidth([fromCoin, ...fromCoins], {
+        minLength: 5,
+        maxLength: 18,
+        offset: 2,
+      }),
     [fromCoin, fromCoins],
   );
   const toCoinButtonWidth = useMemo(
     () =>
-      `${Math.min(
-        Math.max(toCoin.length, ...toCoins.map((coin) => coin.length), 5) + 2,
-        18,
-      )}ch`,
+      getTradePickerButtonWidth([toCoin, ...toCoins], {
+        minLength: 5,
+        maxLength: 18,
+        offset: 2,
+      }),
     [toCoin, toCoins],
   );
   const coinTypeOptions = useMemo(

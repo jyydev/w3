@@ -959,8 +959,36 @@ export function getTradeMarketCoinEntry({
     ...(address ? { address } : {}),
     decimals: Number.isInteger(decimals)
       ? decimals
-      : getQtyDecimals(info?.decimals),
+    : getQtyDecimals(info?.decimals),
   };
+}
+
+export function getTradeMarketSideMeta({
+  side = "underlying",
+  marketE = {},
+  underlyingCoin = "",
+  lendCoin = "",
+} = {}) {
+  const receiptSide = side == "lend" || side == "receipt";
+
+  return {
+    coin: receiptSide ? lendCoin : underlyingCoin,
+    address: receiptSide ? marketE?.lendAddress : marketE?.underlyingAddress,
+    decimals: receiptSide ? marketE?.lendDecimals : marketE?.underlyingDecimals,
+  };
+}
+
+export function getTradeMarketSideCoinEntry({
+  chainE,
+  side = "underlying",
+  marketE = {},
+  underlyingCoin = "",
+  lendCoin = "",
+} = {}) {
+  return getTradeMarketCoinEntry({
+    chainE,
+    ...getTradeMarketSideMeta({ side, marketE, underlyingCoin, lendCoin }),
+  });
 }
 
 export function sortTradeMarketRows(rows = [], key = "") {
@@ -2092,6 +2120,39 @@ export function getSignedTradeUnderlyingQty(
     : "0";
 }
 
+export function getTradeMarketQtyConverters({
+  receiptRate = 1,
+  underlyingDecimals = 18,
+  receiptDecimals = 18,
+} = {}) {
+  return {
+    getReceiptQty: (value) =>
+      getTradeReceiptQty(value, receiptRate, receiptDecimals),
+    getUnderlyingQty: (value) =>
+      getTradeUnderlyingQty(value, receiptRate, underlyingDecimals),
+    getSignedReceiptQty: (value) =>
+      getSignedTradeReceiptQty(value, receiptRate, receiptDecimals),
+    getSignedUnderlyingQty: (value) =>
+      getSignedTradeUnderlyingQty(value, receiptRate, underlyingDecimals),
+  };
+}
+
+export function getTradeMarketSyncedQty({
+  qtyInputSide = "lend",
+  lendQty = "0",
+  receiptQty = "0",
+  getSignedReceiptQty = () => "0",
+  getSignedUnderlyingQty = () => "0",
+} = {}) {
+  if (qtyInputSide == "redeem") {
+    const next = getSignedUnderlyingQty(receiptQty);
+    return next != lendQty ? { side: "lend", value: next } : null;
+  }
+
+  const next = getSignedReceiptQty(lendQty);
+  return next != receiptQty ? { side: "receipt", value: next } : null;
+}
+
 export function qtyInputSize(value = "") {
   return Math.max(String(value ?? "").length + 1, 10);
 }
@@ -2101,6 +2162,18 @@ export function qtyInputStyle(value = "") {
     maxWidth: "none",
     width: `${qtyInputSize(value)}ch`,
   };
+}
+
+export function getTradePickerButtonWidth(
+  labels = [],
+  { minLength = 8, maxLength = 32, offset = -1 } = {},
+) {
+  const maxLabelLength = Math.max(
+    minLength,
+    ...labels.map((label) => String(label ?? "").length),
+  );
+
+  return `${Math.min(Math.max(maxLabelLength + offset, 1), maxLength)}ch`;
 }
 
 export function rangeQtyInput(value, maxValue, maxQty, decimals = 18) {
@@ -2137,6 +2210,237 @@ export function normalizeSignedQtyInput(
   }
 
   return negative && n ? `-${qty}` : qty;
+}
+
+export function getTradeMarketSideState({
+  qtyInputSide = "lend",
+  underlyingQty = "0",
+  receiptQty = "0",
+  maxUnderlyingQty = "0",
+  maxReceiptQty = "0",
+  underlyingDecimals = 18,
+  receiptDecimals = 18,
+} = {}) {
+  const underlyingQtyNum = toNum(underlyingQty);
+  const receiptQtyNum = toNum(receiptQty);
+  const signedLendRedeem = qtyInputSide == "lend" && underlyingQtyNum < 0;
+  const signedRedeemLend = qtyInputSide == "redeem" && receiptQtyNum < 0;
+  const isRedeem =
+    signedLendRedeem || (qtyInputSide == "redeem" && !signedRedeemLend);
+
+  return {
+    underlyingQtyNum,
+    receiptQtyNum,
+    signedLendRedeem,
+    signedRedeemLend,
+    isRedeem,
+    underlyingEndInputValue: getTradeEndInputValue(
+      maxUnderlyingQty,
+      underlyingQty,
+      isRedeem,
+      underlyingDecimals,
+    ),
+    receiptEndInputValue: getTradeEndInputValue(
+      maxReceiptQty,
+      receiptQty,
+      !isRedeem,
+      receiptDecimals,
+    ),
+  };
+}
+
+export function getTradeMarketQtyPair({
+  side = "lend",
+  value = "",
+  receiptRate = 1,
+  maxUnderlying = 0,
+  maxReceipt = 0,
+  underlyingDecimals = 18,
+  receiptDecimals = 18,
+} = {}) {
+  if (side == "redeem") {
+    const maxLendReceipt = maxUnderlying * receiptRate;
+    const receiptQty = normalizeSignedQtyInput(
+      value,
+      maxReceipt,
+      maxLendReceipt,
+      receiptDecimals,
+    );
+
+    return {
+      qtyInputSide: "redeem",
+      lendQty: getSignedTradeUnderlyingQty(
+        receiptQty,
+        receiptRate,
+        underlyingDecimals,
+      ),
+      receiptQty,
+    };
+  }
+
+  const maxRedeemUnderlying = receiptRate > 0 ? maxReceipt / receiptRate : 0;
+  const lendQty = normalizeSignedQtyInput(
+    value,
+    maxUnderlying,
+    maxRedeemUnderlying,
+    underlyingDecimals,
+  );
+
+  return {
+    qtyInputSide: "lend",
+    lendQty,
+    receiptQty: getSignedTradeReceiptQty(lendQty, receiptRate, receiptDecimals),
+  };
+}
+
+export function applyTradeMarketQtyState(
+  next = {},
+  {
+    setQtyInputSide = () => {},
+    setLendQty = () => {},
+    setReceiptQty = () => {},
+  } = {},
+) {
+  setQtyInputSide(next.qtyInputSide);
+  if (next.qtyInputSide == "redeem") {
+    setReceiptQty(next.receiptQty);
+    setLendQty(next.lendQty);
+    return;
+  }
+
+  setLendQty(next.lendQty);
+  setReceiptQty(next.receiptQty);
+}
+
+export function getTradeMarketEndPair({
+  side = "lend",
+  value = "",
+  maxQty = "0",
+  receiptRate = 1,
+  underlyingDecimals = 18,
+  receiptDecimals = 18,
+} = {}) {
+  const decimals = side == "redeem" ? receiptDecimals : underlyingDecimals;
+  const endQty = limitQtyInputDecimals(cleanTradeInput(value), decimals);
+  const qty = getTradeEndDiffQty(maxQty, endQty, decimals);
+
+  if (side == "redeem") {
+    return {
+      endQty,
+      qtyInputSide: "redeem",
+      lendQty: getSignedTradeUnderlyingQty(
+        qty,
+        receiptRate,
+        underlyingDecimals,
+      ),
+      receiptQty: qty,
+    };
+  }
+
+  return {
+    endQty,
+    qtyInputSide: "lend",
+    lendQty: qty,
+    receiptQty: getSignedTradeReceiptQty(qty, receiptRate, receiptDecimals),
+  };
+}
+
+export function applyTradeMarketEndState(
+  next = {},
+  {
+    setEndDraft = () => {},
+    formatEnd = false,
+    decimals = 18,
+    setQtyInputSide = () => {},
+    setLendQty = () => {},
+    setReceiptQty = () => {},
+  } = {},
+) {
+  setEndDraft(
+    formatEnd ? formatTradeQty(next.endQty, decimals) : next.endQty,
+  );
+  applyTradeMarketQtyState(next, {
+    setQtyInputSide,
+    setLendQty,
+    setReceiptQty,
+  });
+}
+
+export function getTradeMarketEndTargetText({
+  draft = "",
+  value = "",
+  decimals = 18,
+} = {}) {
+  return formatTradeQty(draft || value, decimals);
+}
+
+export function getTradeMarketEndTarget(args = {}) {
+  return toNum(getTradeMarketEndTargetText(args));
+}
+
+export async function getTradeMarketQtyForWallet({
+  endWith = false,
+  qty = "",
+  decimals = 18,
+  getWalletBalance = async () => ({}),
+  getEndTargetText = () => "0",
+  hasBalance = (balance) => balance?.balance != null,
+} = {}) {
+  if (!endWith) return formatTradeQty(qty, decimals);
+
+  const balance = await getWalletBalance();
+  if (!hasBalance(balance)) return null;
+
+  return formatComputedTradeQty(
+    subtractTradeQtyText(
+      formatTradeQty(balance.balance, decimals),
+      getEndTargetText(),
+      decimals,
+    ),
+    decimals,
+  );
+}
+
+export function getTradeMarketPriceSummary({
+  underlyingPrice = 0,
+  receiptPrice = 0,
+  maxUnderlying = 0,
+  maxReceipt = 0,
+  underlyingQty = 0,
+  receiptQty = 0,
+  underlyingEndQty = "0",
+  receiptEndQty = "0",
+  underlyingLoading = false,
+  receiptLoading = false,
+  marketLoading = false,
+  underlyingLabel = "",
+  receiptLabel = "",
+} = {}) {
+  const priceLoading = !!underlyingLoading || !!receiptLoading;
+  const noPriceCoins = [
+    underlyingLabel && toNum(underlyingPrice) <= 0 ? underlyingLabel : "",
+    receiptLabel && toNum(receiptPrice) <= 0 ? receiptLabel : "",
+  ].filter(Boolean);
+
+  return {
+    underlyingUsd: underlyingPrice ? maxUnderlying * underlyingPrice : 0,
+    receiptUsd: receiptPrice ? maxReceipt * receiptPrice : 0,
+    underlyingQtyUsd: underlyingPrice ? underlyingQty * underlyingPrice : 0,
+    receiptQtyUsd: receiptPrice ? receiptQty * receiptPrice : 0,
+    underlyingEndUsd: underlyingPrice
+      ? toNum(underlyingEndQty) * underlyingPrice
+      : 0,
+    receiptEndUsd: receiptPrice ? toNum(receiptEndQty) * receiptPrice : 0,
+    priceLoading,
+    noPriceCoins,
+    priceStatus: marketLoading
+      ? "querying market..."
+      : priceLoading
+        ? "querying price..."
+        : noPriceCoins.length
+          ? `price n/a: ${[...new Set(noPriceCoins)].join(", ")}`
+          : "",
+  };
 }
 
 function cleanInputValue(value) {

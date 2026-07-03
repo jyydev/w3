@@ -36,6 +36,7 @@ import {
   getTradeEndDiffQty,
   getTradeEndInputValue,
   getTradeModeCookie,
+  getTradePickerButtonWidth,
   getWalletOptions,
   limitQtyInputDecimals,
   nextValue,
@@ -150,21 +151,23 @@ export default function SendPanel({
     [walletEntriesM, walletType],
   );
   const currentToWallets = fromWallets;
-  const coinButtonWidth = useMemo(() => {
-    const maxLength = Math.max(4, ...coins.map((coinName) => coinName.length));
-
-    return `${Math.min(Math.max(maxLength, 4), 18)}ch`;
-  }, [coins]);
-  const toWalletButtonWidth = useMemo(() => {
-    const maxLabelLength = Math.max(
-      6,
-      ...[...currentToWallets, ...toWallets].map(
-        (entry) => String(entry?.label || "").length,
+  const coinButtonWidth = useMemo(
+    () =>
+      getTradePickerButtonWidth(coins, {
+        minLength: 4,
+        maxLength: 18,
+        offset: 0,
+      }),
+    [coins],
+  );
+  const toWalletButtonWidth = useMemo(
+    () =>
+      getTradePickerButtonWidth(
+        [...currentToWallets, ...toWallets].map((entry) => entry?.label || ""),
+        { minLength: 6, maxLength: 38 },
       ),
-    );
-
-    return `${Math.min(Math.max(maxLabelLength - 1, 1), 38)}ch`;
-  }, [currentToWallets, toWallets]);
+    [currentToWallets, toWallets],
+  );
   const fromEntry =
     fromWallets.find((entry) => entry.value == fromWallet) ||
     selectedWalletEntry ||

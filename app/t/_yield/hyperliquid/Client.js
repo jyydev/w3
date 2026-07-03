@@ -244,6 +244,33 @@ export function getHyperliquidAddedCoinsForChain({
   return uniqueCoins.length ? uniqueCoins : fallbackCoins;
 }
 
+export function getNextHyperliquidCoinForSide({
+  chainList = [],
+  discoveryE = {},
+  side = "deposit",
+  chainName = "",
+  currentCoin = "",
+} = {}) {
+  const chainEntry = chainList.find((entry) => entry.chain == chainName);
+  const fallbackCoins = getFallbackHyperliquidCoinsForChain(chainEntry);
+  const coins = getHyperliquidAllCoinsForChain({
+    discoveryE,
+    side,
+    chain: chainName,
+    fallbackCoins,
+  });
+  const addedCoins = getHyperliquidAddedCoinsForChain({
+    chainE: chainEntry,
+    discoveryE,
+    side,
+    fallbackCoins,
+  });
+
+  return coins.includes(currentCoin)
+    ? currentCoin
+    : addedCoins[0] || coins[0] || "";
+}
+
 export function getHyperliquidCoinTokenEntries({
   discoveryE = {},
   side = "deposit",
