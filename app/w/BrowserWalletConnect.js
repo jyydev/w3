@@ -487,6 +487,37 @@ function readWalletMeta(type = "") {
   };
 }
 
+async function refreshWalletMeta(meta) {
+  if (!meta) return null;
+
+  const provider =
+    meta.provider ||
+    (meta.type == "solana"
+      ? await getSolanaProviderReady(meta.wallet)
+      : await getEvmProviderReady(meta.wallet));
+  if (!provider) return meta;
+
+  const currentAddress =
+    meta.type == "solana"
+      ? getCurrentSolanaAddress(provider)
+      : await getCurrentEvmAddress(provider);
+  const nextMeta = {
+    ...meta,
+    provider,
+    address: currentAddress || meta.address,
+  };
+
+  if (
+    currentAddress &&
+    getAddressKey(meta.type, currentAddress) !=
+      getAddressKey(meta.type, meta.address)
+  ) {
+    saveStoredWallet(nextMeta);
+  }
+
+  return nextMeta;
+}
+
 async function getCurrentEvmAddress(provider) {
   if (!provider) return "";
   if (provider.selectedAddress) return provider.selectedAddress;
@@ -539,10 +570,10 @@ async function getSameWalletMetaForType(sourceMeta, targetType) {
 
 async function resolveWalletMeta(walletType = "evm") {
   const targetType = getConnectType(walletType);
-  const stored = readWalletMeta(targetType);
+  const stored = await refreshWalletMeta(readWalletMeta(targetType));
   if (stored) return stored;
 
-  const current = readWalletMeta();
+  const current = await refreshWalletMeta(readWalletMeta());
   const sameWalletMeta = await getSameWalletMetaForType(current, targetType);
   if (sameWalletMeta) {
     saveStoredWallet(sameWalletMeta);
