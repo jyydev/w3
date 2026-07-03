@@ -27,7 +27,6 @@ const walletDataFiles = [
 
 const walletNotes = [
   "Wallet JSON files use an array of { wallet, address, ref } entries.",
-  "Old wallet .txt files are ignored.",
   "The ref field is optional and editable from the address hover card.",
   "The all selection combines JSON files and excludes watch files/folders.",
   "A folder selection loads every JSON file under that folder.",
@@ -37,7 +36,6 @@ const walletNotes = [
 
 const coinNotes = [
   "Coin files use an array of { coin, address, decimals, name, type, ref } entries.",
-  "Old object-style editor coin JSON is ignored.",
   "Common type values are stable, lend, yield, and vault.",
   "The optional ref field is for short notes such as 1:1, increasing qty, or DeFi: Morpho.",
   "Custom discovery coins are saved to data/editor/coins/CHAIN.json locally, or localStorage on deployed sites.",

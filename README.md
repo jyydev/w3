@@ -60,8 +60,6 @@ Coin files under `data/coins` and `data/editor/coins` use array entries:
 
 Common coin `type` values are `stable`, `lend`, `yield`, and `vault`.
 
-Old wallet `.txt` files and old object-style editor coin JSON are ignored by the current app.
-
 ## Local Development
 
 Install dependencies:

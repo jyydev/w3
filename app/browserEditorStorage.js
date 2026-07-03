@@ -573,11 +573,7 @@ function cleanLocalHyperliquidVaultCoin(value = "", address = "") {
 }
 
 function normalizeLocalHyperliquidVaultM(input = []) {
-  const rows = Array.isArray(input)
-    ? input
-    : input && typeof input == "object"
-      ? Object.entries(input).map(([coin, entry]) => ({ coin, ...(entry || {}) }))
-      : [];
+  const rows = Array.isArray(input) ? input : [];
   const used = new Set();
   const vaultM = {};
 
@@ -616,12 +612,6 @@ function getLocalHyperliquidVaultList() {
       readLocalEditorFile("defi/hyperliquid.json", "[]") || "[]",
     );
     if (Array.isArray(parsed)) return parsed;
-    if (parsed && typeof parsed == "object") {
-      return Object.entries(parsed).map(([coin, entry]) => ({
-        coin,
-        ...(entry || {}),
-      }));
-    }
   } catch {}
 
   return [];

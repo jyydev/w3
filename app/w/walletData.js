@@ -223,11 +223,7 @@ function getHyperliquidVaultEntryCoin(entry = {}, fallbackAddress = "") {
 }
 
 function normalizeHyperliquidVaultEntries(input = [], { source = "hyperliquid" } = {}) {
-  const rows = Array.isArray(input)
-    ? input
-    : input && typeof input == "object"
-      ? Object.entries(input).map(([coin, entry]) => ({ coin, ...(entry || {}) }))
-      : [];
+  const rows = Array.isArray(input) ? input : [];
   const vaultM = {};
   const usedCoins = new Set();
 

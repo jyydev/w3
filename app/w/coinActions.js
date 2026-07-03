@@ -416,12 +416,6 @@ function getVaultCoinFromEntry(entry = {}, address = "") {
 
 function normalizeHyperliquidVaultList(input = []) {
   if (Array.isArray(input)) return input.filter(Boolean);
-  if (input && typeof input == "object") {
-    return Object.entries(input).map(([coin, entry]) => ({
-      coin,
-      ...(entry || {}),
-    }));
-  }
 
   return [];
 }

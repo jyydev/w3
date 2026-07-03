@@ -10,10 +10,8 @@ import wemix from "../data/coins/wemix.js";
 import zkSyncEra from "../data/coins/zkSyncEra.js";
 
 function coinListToM(coins = []) {
-  if (!Array.isArray(coins)) return coins || {};
-
   return Object.fromEntries(
-    coins
+    (Array.isArray(coins) ? coins : [])
       .filter((entry) => entry && typeof entry == "object" && entry.coin)
       .map(({ coin, ...entry }) => [String(coin).trim(), entry])
       .filter(([coin]) => coin),
