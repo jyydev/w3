@@ -70,6 +70,20 @@ const aaveTokenMetaTimeoutMs = 10000;
 const aaveMarketFetchConcurrency = 3;
 const venusTokenMetaTimeoutMs = 8000;
 
+function getAaveSupportedChainRows() {
+  const skipAliases = new Set(["BNB", "ZkSync"]);
+
+  return Object.keys(aaveV3PoolM)
+    .filter((chain) => relayChainIds[chain])
+    .filter((chain) => !skipAliases.has(chain))
+    .sort((a, b) => a.localeCompare(b))
+    .map((chain) => ({
+      chain,
+      chainId: relayChainIds[chain],
+      pool: aaveV3PoolM[chain],
+    }));
+}
+
 function getAaveRateApr(rate = 0n) {
   try {
     const apr = Number(ethers.formatUnits(BigInt(rate || 0), 25));
@@ -195,6 +209,13 @@ export async function getAaveAllMarkets({ chain = "" } = {}) {
     markets: bestResult.markets.sort((a, b) =>
       a.underlyingCoin.localeCompare(b.underlyingCoin),
     ),
+  };
+}
+
+export async function getAaveSupportedChains() {
+  return {
+    ok: true,
+    chains: getAaveSupportedChainRows(),
   };
 }
 

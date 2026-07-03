@@ -30,6 +30,7 @@ import {
   getAaveAllMarkets,
   getAaveLendPreview,
   getAaveMarketBalance,
+  getAaveSupportedChains,
 } from "./aave/sv";
 import AaveClient from "./aave/Client";
 import {
@@ -46,6 +47,7 @@ import {
   getMorphoAllMarkets,
   getMorphoLendPreview,
   getMorphoMarketBalance,
+  getMorphoSupportedChains,
 } from "./morpho/sv";
 import MorphoClient from "./morpho/Client";
 import {
@@ -54,6 +56,7 @@ import {
   getVenusAllMarkets,
   getVenusLendPreview,
   getVenusMarketBalance,
+  getVenusSupportedChains,
 } from "./venus/sv";
 import VenusClient from "./venus/Client";
 import {
@@ -92,7 +95,12 @@ import {
   getTradeMarketSideCoinEntry,
   getTradeMarketSyncedQty,
   getTradePickerButtonWidth,
+  sortTradePickerRows,
   getTradeWalletMarketBalance,
+  TradePickerColumn,
+  TradePickerMenu,
+  TradePickerSortHeader,
+  TradePickerTable,
   lendingOptions,
   nextValue,
   noLending,
@@ -113,6 +121,81 @@ import {
 } from "../clientShared";
 
 const withdrawAllTolerance = 0.999999999999;
+const emptyChainDiscovery = {
+  chains: [],
+  loading: false,
+  loaded: false,
+  error: "",
+};
+const aaveMarketNameM = {
+  Ethereum: "proto_mainnet_v3",
+  EthereumEtherFi: "proto_etherfi_v3",
+  EthereumHorizon: "proto_horizon_v3",
+  EthereumLido: "proto_lido_v3",
+  BSC: "proto_bnb_v3",
+  Arbitrum: "proto_arbitrum_v3",
+  Avalanche: "proto_avalanche_v3",
+  Optimism: "proto_optimism_v3",
+  Polygon: "proto_polygon_v3",
+  Base: "proto_base_v3",
+  Celo: "proto_celo_v3",
+  Gnosis: "proto_gnosis_v3",
+  Ink: "proto_ink_v3",
+  Linea: "proto_linea_v3",
+  Mantle: "proto_mantle_v3",
+  Metis: "proto_metis_v3",
+  Plasma: "proto_plasma_v3",
+  Scroll: "proto_scroll_v3",
+  Soneium: "proto_soneium_v3",
+  Sonic: "proto_sonic_v3",
+  XLayer: "proto_xlayer_v3",
+  zkSyncEra: "proto_zksync_v3",
+};
+
+function getAaveMarketUrl(chain = "") {
+  const marketName = aaveMarketNameM[chain];
+  return marketName
+    ? `https://app.aave.com/markets/?marketName=${encodeURIComponent(marketName)}`
+    : "https://app.aave.com/markets/";
+}
+
+function hasLendChainDiscovery(defi = "") {
+  return defi == "aave" || defi == "venus" || defi == "morpho";
+}
+
+function getLendProtocolLabel(defi = "") {
+  if (defi == "venus") return "Venus";
+  if (defi == "morpho") return "Morpho";
+  if (defi == "jupiter") return "Jupiter";
+  return "Aave";
+}
+
+function getLendProtocolChainUrl(defi = "", entry = {}) {
+  if (defi == "aave") return getAaveMarketUrl(entry.chain);
+  if (defi == "morpho" && entry.chainId) {
+    return `https://app.morpho.org/vaults?chains=${encodeURIComponent(entry.chainId)}`;
+  }
+  if (defi == "venus") return "https://app.venus.io/";
+  return "";
+}
+
+function LendProtocolChainLink({ defi = "", entry = {} }) {
+  const url = getLendProtocolChainUrl(defi, entry);
+  if (!url) return null;
+
+  return (
+    <a
+      className="gray"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${getLendProtocolLabel(defi)} ${entry.chain}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      ↗
+    </a>
+  );
+}
 
 export default function LendPanel({
   data = [],
@@ -197,10 +280,14 @@ export default function LendPanel({
   const [autoApproval, setAutoApproval] = useState(
     getInitialAutoApproval(initialCookieM),
   );
+  const [showChainMenu, setShowChainMenu] = useState(false);
+  const [chainPickerSortM, setChainPickerSortM] = useState({});
+  const [chainDiscoveryM, setChainDiscoveryM] = useState({});
   const [showMarketMenu, setShowMarketMenu] = useState(false);
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
   const [addedMarketSort, setAddedMarketSort] = useState("");
   const [allMarketSort, setAllMarketSort] = useState("");
+  const chainPickerRef = useRef(null);
   const marketPickerRef = useRef(null);
   const useLocalEditorStore = useLocalStorageEditor();
   const {
@@ -228,10 +315,43 @@ export default function LendPanel({
     () => getLendMarketChains(chainList, chainMarketsM, defi),
     [chainList, chainMarketsM, defi],
   );
-  const activeChain = marketChains.includes(chain) ? chain : marketChains[0] || "";
+  const chainDiscovery = chainDiscoveryM[defi] || emptyChainDiscovery;
+  const hasChainDiscovery = hasLendChainDiscovery(defi);
+  const discoveredChainInfoM = useMemo(() => {
+    const infoM = {};
+    for (const entry of chainDiscovery.chains || []) {
+      if (entry?.chain) infoM[entry.chain] = entry;
+    }
+    return infoM;
+  }, [chainDiscovery.chains]);
+  const discoveredChainSet = useMemo(
+    () =>
+      new Set(
+        (chainDiscovery.chains || [])
+          .map((entry) => entry.chain)
+          .filter(Boolean),
+      ),
+    [chainDiscovery.chains],
+  );
+  const selectableProtocolChains = useMemo(() => {
+    if (!hasChainDiscovery) return [];
+    const discovered = discoveredChainSet;
+    const chains = chainList
+      .map((chainE) => chainE.chain)
+      .filter(Boolean)
+      .filter((chainName) =>
+        discovered.size ? discovered.has(chainName) : marketChains.includes(chainName),
+      );
+
+    return [...new Set(chains)];
+  }, [chainList, discoveredChainSet, hasChainDiscovery, marketChains]);
+  const selectableChains = hasChainDiscovery ? selectableProtocolChains : marketChains;
+  const activeChain = selectableChains.includes(chain)
+    ? chain
+    : selectableChains[0] || "";
   const chainE =
     chainList.find((entry) => entry.chain == activeChain) ||
-    chainList.find((entry) => marketChains.includes(entry.chain)) ||
+    chainList.find((entry) => selectableChains.includes(entry.chain)) ||
     chainList[0];
   const availableLendingOptions = useMemo(
     () =>
@@ -777,6 +897,58 @@ export default function LendPanel({
   }, [allMarkets, hasProtocolAllMarkets, markets, visibleAddedMarkets]);
 
   useEffect(() => {
+    if (!hasLendChainDiscovery(defi) || chainDiscovery.loaded) {
+      return;
+    }
+
+    let cancelled = false;
+    setChainDiscoveryM((discoveryM) => ({
+      ...discoveryM,
+      [defi]: {
+        ...(discoveryM[defi] || emptyChainDiscovery),
+        loading: true,
+        error: "",
+      },
+    }));
+    const request =
+      defi == "aave"
+        ? getAaveSupportedChains()
+        : defi == "venus"
+          ? getVenusSupportedChains()
+          : getMorphoSupportedChains();
+
+    request
+      .then((res) => {
+        if (cancelled) return;
+        setChainDiscoveryM((discoveryM) => ({
+          ...discoveryM,
+          [defi]: {
+            chains: Array.isArray(res?.chains) ? res.chains : [],
+            loading: false,
+            loaded: true,
+            error: "",
+          },
+        }));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setChainDiscoveryM((discoveryM) => ({
+          ...discoveryM,
+          [defi]: {
+            chains: [],
+            loading: false,
+            loaded: true,
+            error: e?.message || `${getLendProtocolLabel(defi)} chain discovery failed`,
+          },
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chainDiscovery.loaded, defi]);
+
+  useEffect(() => {
     const savedDefi = getCookie(getTradeModeCookie(tradeLendDefiCookie, walletType));
     if (savedDefi && lendingOptions.some((entry) => entry.value == savedDefi)) {
       setDefi(savedDefi);
@@ -795,20 +967,20 @@ export default function LendPanel({
   }, [availableLendingOptions, defi]);
 
   useEffect(() => {
-    if (marketChains.length) {
+    if (selectableChains.length) {
       const savedChain = getCookie(
         getProtocolCookie(tradeLendChainCookie, walletType, defi),
       );
-      const nextChain = marketChains.includes(savedChain)
+      const nextChain = selectableChains.includes(savedChain)
         ? savedChain
-        : marketChains.includes(chain)
+        : selectableChains.includes(chain)
           ? chain
-          : marketChains[0];
+          : selectableChains[0];
       if (nextChain != chain) setChain(nextChain);
-    } else if (!marketChains.length && chain) {
+    } else if (!selectableChains.length && chain) {
       setChain("");
     }
-  }, [defi, marketChains, walletType]);
+  }, [chain, defi, selectableChains, walletType]);
 
   useEffect(() => {
     const marketExists = marketCookieValues.includes(market);
@@ -837,6 +1009,20 @@ export default function LendPanel({
     markets,
     walletType,
   ]);
+
+  useEffect(() => {
+    function closeChainMenu(e) {
+      if (!chainPickerRef.current?.contains(e.target)) {
+        setShowChainMenu(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeChainMenu);
+
+    return () => {
+      document.removeEventListener("mousedown", closeChainMenu);
+    };
+  }, []);
 
   useEffect(() => {
     function closeMarketMenu(e) {
@@ -1110,7 +1296,7 @@ export default function LendPanel({
   }
 
   function nextChain() {
-    const next = nextValue(marketChains, chainE?.chain || chain);
+    const next = nextValue(selectableChains, activeChain || chain);
     if (next) selectChain(next);
   }
 
@@ -1118,18 +1304,315 @@ export default function LendPanel({
     setChain(chain);
     saveLendChainCookie(chain);
     emitTradeChainSelect(chain);
+    setShowChainMenu(false);
   }
 
   function focusSelectedChain() {
-    const currentChain = chainE?.chain || chain;
+    const currentChain = activeChain || chain;
     if (currentChain) emitTradeChainSelect(currentChain);
   }
 
   function saveLendChainCookie(chain) {
-    if (!defi || !chain || !marketChains.includes(chain)) return;
+    if (!defi || !chain || !selectableChains.includes(chain)) return;
     setCookie(getProtocolCookie(tradeLendChainCookie, walletType, defi), chain, {
       maxAge: cookieMaxAge,
     });
+  }
+
+  function retryChainDiscovery() {
+    setChainDiscoveryM((discoveryM) => ({
+      ...discoveryM,
+      [defi]: emptyChainDiscovery,
+    }));
+  }
+
+  function selectProtocolDiscoveryChain(entry = {}) {
+    const chainName = entry.chain || entry.label || "";
+    if (!chainName) return;
+    if (!selectableProtocolChains.includes(chainName)) {
+      toast.error(`${chainName} chain not added`);
+      return;
+    }
+
+    selectChain(chainName);
+  }
+
+  function getChainSort(section = "added") {
+    return chainPickerSortM[section] || "";
+  }
+
+  function toggleChainSort(section = "added", sortKey = "") {
+    setChainPickerSortM((sortM) => ({
+      ...sortM,
+      [section]: sortM[section] == sortKey ? "" : sortKey,
+    }));
+  }
+
+  function ChainSortHeader({ section = "added", sortKey = "", children }) {
+    return (
+      <TradePickerSortHeader
+        activeSort={getChainSort(section)}
+        sortKey={sortKey}
+        onSort={() => toggleChainSort(section, sortKey)}
+      >
+        {children}
+      </TradePickerSortHeader>
+    );
+  }
+
+  function renderProtocolChainMenu() {
+    const protocolLabel = getLendProtocolLabel(defi);
+    const localChainRows = sortTradePickerRows(
+      chainList
+        .map((chainE) => {
+          const chainName = chainE.chain;
+          const supported = discoveredChainSet.size
+            ? discoveredChainSet.has(chainName)
+            : marketChains.includes(chainName);
+          return {
+            ...(discoveredChainInfoM[chainName] || {}),
+            chain: chainName,
+            supported,
+            on: supported ? 1 : 0,
+          };
+        })
+        .filter((entry) => entry.chain),
+      getChainSort("added"),
+      {
+        chain: (entry) => entry.chain,
+        on: (entry) => entry.on,
+      },
+      { on: "desc" },
+    );
+    const discoveryChainRows = sortTradePickerRows(
+      (chainDiscovery.chains || []).map((entry) => ({
+        ...entry,
+        added: selectableProtocolChains.includes(entry.chain),
+        add: selectableProtocolChains.includes(entry.chain) ? 1 : 0,
+      })),
+      getChainSort("discovery"),
+      {
+        chain: (entry) => entry.chain,
+        add: (entry) => entry.add,
+      },
+      { add: "desc" },
+    );
+
+    return (
+      <TradePickerMenu className="tradeChainMenu">
+        <TradePickerColumn title="added">
+          <TradePickerTable
+            className="tradeChainAddedTable"
+            headers={[
+              <ChainSortHeader section="added" sortKey="chain">
+                chain
+              </ChainSortHeader>,
+              <ChainSortHeader section="added" sortKey="on">
+                on
+              </ChainSortHeader>,
+            ]}
+          >
+            <tbody>
+              {localChainRows.length ? (
+                localChainRows.map((entry) => (
+                  <tr
+                    key={`${defi}_added_${entry.chain}`}
+                    className={[
+                      "tradePickerRow",
+                      entry.chain == activeChain ? "on" : "",
+                      entry.supported ? "" : "unsupported",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        className="tradePickerSelect tradeChainAllSelect"
+                        style={{ display: "inline" }}
+                        onClick={() =>
+                          entry.supported
+                            ? selectChain(entry.chain)
+                            : toast.error(`${entry.chain} is not supported by ${protocolLabel}`)
+                        }
+                      >
+                        {entry.chain}
+                      </button>
+                      {entry.supported && (
+                        <>
+                          {" "}
+                          <LendProtocolChainLink defi={defi} entry={entry} />
+                        </>
+                      )}
+                    </td>
+                    <td>{entry.supported ? "" : <span className="gray">off</span>}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={2} className="gray">
+                    -
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+        <TradePickerColumn title="discovery">
+          <TradePickerTable
+            className="tradeChainAllTable"
+            headers={[
+              <ChainSortHeader section="discovery" sortKey="chain">
+                chain
+              </ChainSortHeader>,
+              <ChainSortHeader section="discovery" sortKey="add">
+                add
+              </ChainSortHeader>,
+            ]}
+          >
+            <tbody>
+              {chainDiscovery.loading && (
+                <tr>
+                  <td colSpan={2} className="gray">
+                    loading {protocolLabel}...
+                  </td>
+                </tr>
+              )}
+              {!chainDiscovery.loading && chainDiscovery.error && (
+                <tr>
+                  <td>
+                    <span className="red">{chainDiscovery.error}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={retryChainDiscovery}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!chainDiscovery.loading &&
+                !chainDiscovery.error &&
+                !discoveryChainRows.length && (
+                  <tr>
+                    <td className="gray">-</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn small bgGray"
+                        onClick={retryChainDiscovery}
+                      >
+                        retry
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              {!chainDiscovery.loading &&
+                !chainDiscovery.error &&
+                discoveryChainRows.map((entry) => (
+                  <tr
+                    key={`${defi}_discovery_${entry.chain}`}
+                    className={
+                      entry.chain == activeChain
+                        ? "tradePickerRow on"
+                        : "tradePickerRow"
+                    }
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        className="tradePickerSelect tradeChainAllSelect"
+                        style={{ display: "inline" }}
+                        onClick={() => selectProtocolDiscoveryChain(entry)}
+                      >
+                        {entry.chain}
+                      </button>
+                      {" "}
+                      <LendProtocolChainLink defi={defi} entry={entry} />
+                    </td>
+                    <td>
+                      {entry.added ? (
+                        <span className="gray">✓</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn small bgCyan"
+                          onClick={() => selectProtocolDiscoveryChain(entry)}
+                        >
+                          +
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </TradePickerTable>
+        </TradePickerColumn>
+      </TradePickerMenu>
+    );
+  }
+
+  function renderChainSelect() {
+    if (!hasChainDiscovery) {
+      return (
+        <span className="selectCycle">
+          <select
+            value={marketChains.length ? chainE?.chain || "" : ""}
+            onChange={(e) => selectChain(e.target.value)}
+            onClick={focusSelectedChain}
+            onFocus={focusSelectedChain}
+            disabled={!marketChains.length}
+          >
+            {!marketChains.length && <option value="">no chain</option>}
+            {marketChains.map((chainName) => (
+              <option key={chainName} value={chainName}>
+                {chainName}
+              </option>
+            ))}
+          </select>
+          <CycleButton
+            onClick={nextChain}
+            disabled={marketChains.length < 2}
+          />
+        </span>
+      );
+    }
+
+    const chainButtonWidth = getTradePickerButtonWidth(
+      [
+        ...selectableProtocolChains,
+        ...(chainDiscovery.chains || []).map((entry) => entry.chain),
+      ],
+      { minLength: 7 },
+    );
+
+    return (
+      <div className="selectCycle walletCycle tradeChainCycle">
+        <div className="tradePicker" ref={chainPickerRef}>
+          <button
+            type="button"
+            className="tradePickerButton"
+            style={{ width: chainButtonWidth }}
+            disabled={!chainList.length && !chainDiscovery.chains.length}
+            onClick={() => {
+              focusSelectedChain();
+              setShowChainMenu((show) => !show);
+            }}
+            onFocus={focusSelectedChain}
+          >
+            {activeChain || "no chain"}
+          </button>
+          {showChainMenu && renderProtocolChainMenu()}
+        </div>
+        <CycleButton
+          onClick={nextChain}
+          disabled={selectableProtocolChains.length < 2}
+        />
+      </div>
+    );
   }
 
   function nextMarket() {
@@ -1599,26 +2082,7 @@ export default function LendPanel({
             disabled={availableLendingOptions.length < 2}
           />
         </label>
-        <span className="selectCycle">
-          <select
-            value={marketChains.length ? chainE?.chain || "" : ""}
-            onChange={(e) => selectChain(e.target.value)}
-            onClick={focusSelectedChain}
-            onFocus={focusSelectedChain}
-            disabled={!marketChains.length}
-          >
-            {!marketChains.length && <option value="">no chain</option>}
-            {marketChains.map((chainName) => (
-              <option key={chainName} value={chainName}>
-                {chainName}
-              </option>
-            ))}
-          </select>
-          <CycleButton
-            onClick={nextChain}
-            disabled={marketChains.length < 2}
-          />
-        </span>
+        {renderChainSelect()}
         {hasProtocolAllMarkets ? (
           <LendMarketPicker
             marketPickerRef={marketPickerRef}

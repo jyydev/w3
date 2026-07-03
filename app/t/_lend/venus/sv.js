@@ -95,6 +95,29 @@ function getSavedVenusMarkets(chain = "") {
   });
 }
 
+function getVenusSupportedChainRows() {
+  const chains = new Set(Object.keys(venusBlocksPerYearM));
+
+  for (const chain of Object.keys(coinM || {})) {
+    if (getSavedVenusMarkets(chain).length) chains.add(chain);
+  }
+
+  return [...chains]
+    .filter((chain) => relayChainIds[chain])
+    .sort((a, b) => a.localeCompare(b))
+    .map((chain) => ({
+      chain,
+      chainId: relayChainIds[chain],
+    }));
+}
+
+export async function getVenusSupportedChains() {
+  return {
+    ok: true,
+    chains: getVenusSupportedChainRows(),
+  };
+}
+
 export async function getVenusAllMarkets({ chain = "" } = {}) {
   if (chain == "Solana") return { ok: true, chain, markets: [] };
 

@@ -78,6 +78,22 @@ function getMorphoChainId(chain = "") {
   return morphoChainIds[chain] || relayChainIds[chain];
 }
 
+function getMorphoSupportedChainRows() {
+  return Object.entries(morphoChainIds)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([chain, chainId]) => ({
+      chain,
+      chainId,
+    }));
+}
+
+export async function getMorphoSupportedChains() {
+  return {
+    ok: true,
+    chains: getMorphoSupportedChainRows(),
+  };
+}
+
 function getMorphoAmount({
   chain = "",
   coin = "",
