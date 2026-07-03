@@ -2205,7 +2205,7 @@ function Wallet({
     );
   }
 
-  function AddressSettings() {
+  function renderAddressSettings() {
     const disabled = new Set(disabledWalletList.map(getWalletDisableKey));
     const serverDisabled = new Set(offAddrList.map(getNameDisableKey));
     const wallets = mergedWalletEntries
@@ -3189,7 +3189,7 @@ function Wallet({
             <th rowSpan={2}>
               <span className="addrHeaderTools">
                 <SortHeader sortKey="name">addr</SortHeader>
-                <AddressSettings />
+                {renderAddressSettings()}
               </span>
             </th>
             <th rowSpan={2}>
