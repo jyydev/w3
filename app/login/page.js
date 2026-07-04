@@ -1,6 +1,7 @@
 import Client from "./Client";
 import { cookies } from "next/headers";
 import { loginCookieName, verifyLoginSession } from "./session";
+import Logo from "@/components/Logo";
 
 async function Login() {
   console.log("render");
@@ -13,10 +14,7 @@ async function Login() {
   return (
     <div>
       {console.log("return")}
-      <div className="flex mb-1">
-        <span className="orange">Aster</span>
-        <span className="grey">login</span>
-      </div>
+      <Logo page={"login"} />
       <Client {...{ ck }} />
     </div>
   );
