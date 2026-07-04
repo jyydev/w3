@@ -13,7 +13,7 @@ import { ethers } from "ethers";
 import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import baseCoinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
-import { projectFileWriteBlockedResult } from "../projectFileWrites";
+import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
 
 const customCoinDir = path.join(process.cwd(), "data", "editor", "coins");
 const customDefiDir = path.join(process.cwd(), "data", "editor", "defi");

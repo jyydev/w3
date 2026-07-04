@@ -1157,7 +1157,7 @@ span.chainIcon {
 }
 .selectCycle {
   display: inline-grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto max-content auto;
   gap: 2px;
   align-items: center;
 }

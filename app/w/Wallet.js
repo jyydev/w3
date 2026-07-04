@@ -27,7 +27,7 @@ import {
   setLocalLineFileValue,
   updateLocalWalletEntryRef,
   useLocalStorageEditor,
-} from "../browserEditorStorage";
+} from "../_editorData/browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
 import {
   addCustomCoin,
@@ -384,6 +384,8 @@ const coinLimitCookie = `${ckPrefix ?? ""}coinLimit`;
 const assetSortCookie = `${ckPrefix ?? ""}assetSort`;
 const rowSortCookie = `${ckPrefix ?? ""}rowSort`;
 const activeChainCookie = `${ckPrefix ?? ""}activeChain`;
+const chainSortCookie = `${ckPrefix ?? ""}chainSort`;
+const chainSortCap = 10;
 const lastWalletCookiePrefix = `${ckPrefix ?? ""}lastWallet_`;
 const cookieMaxAge = 365 * 24 * 60 * 60;
 const connectedWalletValue = "__connected__";
@@ -401,6 +403,24 @@ function getInitialActiveChain({ data, initialCookieM = {} } = {}) {
 
   const savedActiveChain = getInitialCookie(initialCookieM, activeChainCookie);
   return chainNames.includes(savedActiveChain) ? savedActiveChain : "";
+}
+
+function parseChainSortOrder(value = "") {
+  return String(value || "")
+    .split("|")
+    .map((entry) => {
+      try {
+        return decodeURIComponent(entry);
+      } catch {
+        return entry;
+      }
+    })
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function encodeChainSortOrder(order = []) {
+  return order.map((entry) => encodeURIComponent(entry)).join("|");
 }
 
 function Wallet({
@@ -436,6 +456,12 @@ function Wallet({
   let [show, setShow] = useState(false);
   let [activeChain, setActiveChain] = useState(() =>
     getInitialActiveChain({ data, initialCookieM }),
+  );
+  let [chainSortOrder, setChainSortOrder] = useState(() =>
+    parseChainSortOrder(getInitialCookie(initialCookieM, chainSortCookie)).slice(
+      0,
+      chainSortCap,
+    ),
   );
   let [loadingWallet, setLoadingWallet] = useState(false);
   let [coinLimit, setCoinLimit] = useState(() => {
@@ -707,6 +733,9 @@ function Wallet({
 
   function getVisibleChainList() {
     const localOffChainSet = new Set(localOffChains);
+    const chainSortIndexM = Object.fromEntries(
+      chainSortOrder.map((chain, index) => [chain, index]),
+    );
     const chains = activeChain
       ? chainList.filter(
           (chainE) =>
@@ -718,11 +747,23 @@ function Wallet({
       .map((chainE, index) => ({
         chainE,
         index,
-        usd: getTotalChainUsd(chainE.chain),
+        total: getTotalChain(chainE.chain),
+        sortIndex: chainSortIndexM[chainE.chain] ?? Infinity,
       }))
       .sort((a, b) => {
-        const usdDiff = b.usd - a.usd;
-        return usdDiff || a.index - b.index;
+        const aHasValue = a.total.usd > 0 || a.total.balance > 0;
+        const bHasValue = b.total.usd > 0 || b.total.balance > 0;
+
+        if (aHasValue || bHasValue) {
+          if (aHasValue && bHasValue) {
+            const usdDiff = b.total.usd - a.total.usd;
+            return usdDiff || a.index - b.index;
+          }
+
+          return bHasValue - aHasValue;
+        }
+
+        return a.sortIndex - b.sortIndex || a.index - b.index;
       })
       .map((e) => e.chainE);
   }
@@ -738,6 +779,7 @@ function Wallet({
     setActiveChain((prev) => {
       const next = prev == chain ? "" : chain;
       saveActiveChainCookie(next);
+      rememberChainSort(next);
       return next;
     });
   }
@@ -746,6 +788,7 @@ function Wallet({
     const chain = e.target.value;
     setActiveChain(chain);
     saveActiveChainCookie(chain);
+    rememberChainSort(chain);
   }
 
   function cycleActiveChain(direction = 1) {
@@ -754,12 +797,40 @@ function Wallet({
     const next = chains[(index + direction + chains.length) % chains.length];
     setActiveChain(next);
     saveActiveChainCookie(next);
+    rememberChainSort(next);
   }
 
   function saveActiveChainCookie(chain = "") {
     setCookie(activeChainCookie, chain, {
       maxAge: cookieMaxAge,
       path: "/",
+    });
+  }
+
+  function saveChainSortCookie(order = []) {
+    setCookie(
+      chainSortCookie,
+      encodeChainSortOrder(order.slice(0, chainSortCap)),
+      {
+        maxAge: cookieMaxAge,
+        path: "/",
+      },
+    );
+  }
+
+  function rememberChainSort(chain = "") {
+    if (!chain) return;
+
+    setChainSortOrder((prev) => {
+      const chainNames = new Set(chainList.map((chainE) => chainE.chain));
+      const next = [
+        chain,
+        ...prev.filter((entry) => entry && entry != chain),
+      ]
+        .filter((entry) => chainNames.has(entry))
+        .slice(0, chainSortCap);
+      saveChainSortCookie(next);
+      return next;
     });
   }
 
@@ -1013,6 +1084,15 @@ function Wallet({
 
   useEffect(() => {
     const chainNames = chainNameKey ? chainNameKey.split("|") : [];
+    setChainSortOrder((prev) => {
+      const available = new Set(chainNames);
+      const next = prev
+        .filter((chain) => available.has(chain))
+        .slice(0, chainSortCap);
+      if (next.length != prev.length) saveChainSortCookie(next);
+      return next;
+    });
+
     if (chainNames.length == 1) {
       setActiveChain((prev) => (prev == chainNames[0] ? prev : chainNames[0]));
       return;
@@ -1035,6 +1115,7 @@ function Wallet({
       if (!chain || !chainNames.includes(chain)) return;
 
       saveActiveChainCookie(chain);
+      rememberChainSort(chain);
       setActiveChain(chain);
     }
 
@@ -1888,11 +1969,19 @@ function Wallet({
     goWallet(prev);
   }
 
-  function nextWalletType() {
+  function cycleWalletType(direction = 1) {
     const types = walletTypeOptions.map(([value]) => value);
     const index = types.indexOf(walletType);
-    const next = types[(index + 1) % types.length];
+    const next = types[(index + direction + types.length) % types.length];
     goWalletType(next);
+  }
+
+  function nextWalletType() {
+    cycleWalletType(1);
+  }
+
+  function prevWalletType() {
+    cycleWalletType(-1);
   }
 
   function decCoinLimit() {
@@ -2543,6 +2632,23 @@ function Wallet({
     return rows.reduce((sum, row) => sum + getAssetUsd(row.chainM[chain]), 0);
   }
 
+  function getTotalChain(chain) {
+    return rows.reduce(
+      (total, row) => {
+        const chainM = row.chainM[chain] || {};
+        const balances = Object.values(chainM.balances || {});
+        return balances.reduce(
+          (nextTotal, bal) => ({
+            balance: nextTotal.balance + toNum(bal?.balance),
+            usd: nextTotal.usd + toNum(bal?.usd),
+          }),
+          total,
+        );
+      },
+      { balance: 0, usd: 0 },
+    );
+  }
+
   function getTotalCoin(chain, coin) {
     return rows.reduce(
       (total, row) => {
@@ -3041,6 +3147,11 @@ function Wallet({
         <caption>
           <div className="tableCaptionRow">
             <span>chains:</span>
+            <CycleButton
+              direction="prev"
+              onClick={prevWalletType}
+              disabled={loadingWallet || !canCycleWalletType}
+            />
             <select
               value={walletType}
               onChange={selectWalletType}

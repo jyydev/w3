@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { setCookie } from "cookies-next";
-import { readLocalNavFavs, saveLocalNavFavs } from "@/app/browserEditorStorage";
+import {
+  readLocalNavFavs,
+  saveLocalNavFavs,
+} from "@/app/_editorData/browserEditorStorage";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 

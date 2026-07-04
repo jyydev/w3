@@ -4,7 +4,7 @@ import coinM from "../../fn/coinM.js";
 import {
   assertProjectFileWrites,
   projectFileWritesDisabled,
-} from "../projectFileWrites";
+} from "../_editorData/projectFileWrites";
 
 const editorDataDir = path.join(process.cwd(), "data", "editor");
 const globalCoinDir = path.join(process.cwd(), "data", "coins");

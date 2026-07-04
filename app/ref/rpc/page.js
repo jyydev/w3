@@ -1,4 +1,5 @@
 import Logo from "@/components/Logo";
+import { List, Section, Table } from "../RefParts";
 import "../ref.css";
 
 const rpcRows = [
@@ -18,10 +19,7 @@ const rpcRows = [
     "RPC fallback",
     "Chains not covered by Alchemy Portfolio, or chains where Alchemy fails, use the configured RPC list.",
   ],
-  [
-    "RPC order",
-    "RPC URLs are tried one at a time in the order listed in sets.js.",
-  ],
+  ["RPC order", "RPC URLs are tried one at a time in the order listed in sets.js."],
   [
     "RPC failure",
     "If one RPC fails or times out, it is marked failed and the next RPC is tried immediately.",
@@ -54,87 +52,29 @@ const sourceRows = [
   ["api", "The chain uses a protocol API, such as Hyperliquid."],
 ];
 
-function Section({ title, children }) {
-  return (
-    <section className="refSection">
-      <h2>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Table({ rows }) {
-  return (
-    <table className="refTable">
-      <tbody>
-        {rows.map(([name, detail]) => (
-          <tr key={name}>
-            <th>{name}</th>
-            <td>{detail}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function List({ items }) {
-  return (
-    <ul className="refDashList">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
-  );
-}
-
-const pageMap = {
-  rpc: {
-    title: "RPC balance loading details",
-    description:
-      "How wallet balances choose between Alchemy Portfolio, protocol APIs, and normal RPC fallback.",
-    body: (
-      <>
-        <Section title="balance source">
-          <Table rows={sourceRows} />
-        </Section>
-
-        <Section title="rpc flow">
-          <Table rows={rpcRows} />
-        </Section>
-
-        <Section title="notes">
-          <List items={rpcNotes} />
-        </Section>
-      </>
-    ),
-  },
-};
-
-async function RefDetailPage({ params = {} }) {
-  const resolvedParams = await params;
-  const slug = Array.isArray(resolvedParams.page)
-    ? resolvedParams.page.join("/")
-    : "";
-  const page = pageMap[slug];
-
+function RpcRefPage() {
   return (
     <div className="refPage">
       <Logo page="ref" />
+      <h1 className="refTitle">RPC balance loading details</h1>
+      <p className="refIntro">
+        How wallet balances choose between Alchemy Portfolio, protocol APIs,
+        and normal RPC fallback.
+      </p>
 
-      {page ? (
-        <>
-          <h1 className="refTitle">{page.title}</h1>
-          {page.description && <p className="refIntro">{page.description}</p>}
-          {page.body}
-        </>
-      ) : (
-        <Section title="not found">
-          <p>Unknown ref page.</p>
-        </Section>
-      )}
+      <Section title="balance source">
+        <Table rows={sourceRows} />
+      </Section>
+
+      <Section title="rpc flow">
+        <Table rows={rpcRows} />
+      </Section>
+
+      <Section title="notes">
+        <List items={rpcNotes} />
+      </Section>
     </div>
   );
 }
 
-export default RefDetailPage;
+export default RpcRefPage;

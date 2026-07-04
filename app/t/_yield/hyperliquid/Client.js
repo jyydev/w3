@@ -879,6 +879,7 @@ export function HyperliquidCoinSelect({
   setShowMenu = () => {},
   pickerRef,
   onSelect = () => {},
+  onPrev = () => {},
   onNext = () => {},
   onRetry = () => {},
   getBalance = () => ({}),
@@ -886,6 +887,11 @@ export function HyperliquidCoinSelect({
 }) {
   return (
     <div className="selectCycle walletCycle tradeCoinCycle">
+      <CycleButton
+        direction="prev"
+        onClick={onPrev}
+        disabled={addedCoins.length < 2 && allCoins.length < 2}
+      />
       <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"
@@ -935,11 +941,17 @@ export function HyperliquidChainSelect({
   setShowMenu = () => {},
   pickerRef,
   onSelect = () => {},
+  onPrev = () => {},
   onNext = () => {},
   onRetry = () => {},
 }) {
   return (
     <div className="selectCycle walletCycle tradeChainCycle">
+      <CycleButton
+        direction="prev"
+        onClick={onPrev}
+        disabled={addedChains.length < 2 && allChains.length < 2}
+      />
       <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"

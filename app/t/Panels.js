@@ -10,12 +10,19 @@ import {
   readLocalLineFileValues,
   readLocalWalletEntries,
   useLocalStorageEditor,
-} from "../browserEditorStorage";
+} from "../_editorData/browserEditorStorage";
 import { getLocalWalletBalanceData } from "../w/localWalletActions";
 import {
   readStoredWallet,
   walletConnectEvent,
 } from "../w/browserWalletStorage";
+import {
+  encodeSelectionOrder,
+  normalizeSelectionOrder,
+  parseSelectionOrder,
+  rememberSelectionValue,
+  sortBySelectionOrder,
+} from "@/fn/selectionOrder";
 import { favAddrCookie, getFavAddrKey, parseFavAddrs } from "../w/favAddrs";
 import LendPanel from "./_lend/Lend";
 import SendPanel from "./_send/Send";
@@ -32,6 +39,7 @@ import {
   sameAddress,
   tradeRightPaneCookie,
   tradeLeftPaneCookie,
+  tradePaneOrderCookie,
   tradeRightPaneSelectCookie,
   shortAddress,
   tradeShowCookie,
@@ -314,6 +322,17 @@ function Panels({
     initialCookieM,
     tradeRightPaneCookie,
   );
+  const [paneOrder, setPaneOrder] = useState(() =>
+    normalizeSelectionOrder(
+      parseSelectionOrder(getInitialCookie(initialCookieM, tradePaneOrderCookie)),
+      tradeTypes,
+    ),
+  );
+  const orderedTradeTypes = useMemo(
+    () => sortBySelectionOrder(tradeTypes, paneOrder),
+    [paneOrder, tradeTypes],
+  );
+  const orderedPaneTypes = orderedTradeTypes;
   const [connectedWallet, setConnectedWallet] = useState(null);
   const [localWalletEntriesM, setLocalWalletEntriesM] = useState({
     evm: [],
@@ -764,14 +783,39 @@ function Panels({
     setWallet(wallets[nextIndex].value);
   }
 
-  function cycleTradeType() {
-    setTradeType(
-      tradeTypes[(tradeTypes.indexOf(tradeType) + 1) % tradeTypes.length],
-    );
+  function rememberPaneOrder(value) {
+    if (!value || !tradeTypes.includes(value)) return;
+    const nextOrder = rememberSelectionValue(paneOrder, value, tradeTypes);
+    setPaneOrder(nextOrder);
+    setCookie(tradePaneOrderCookie, encodeSelectionOrder(nextOrder), {
+      maxAge: cookieMaxAge,
+    });
   }
 
-  function cyclePane() {
-    setPane(paneTypes[(paneTypes.indexOf(pane) + 1) % paneTypes.length]);
+  function selectTradeType(value, { rememberOrder = true } = {}) {
+    setTradeType(value);
+    if (rememberOrder) rememberPaneOrder(value);
+  }
+
+  function selectPane(value, { rememberOrder = true } = {}) {
+    setPane(value);
+    if (rememberOrder) rememberPaneOrder(value);
+  }
+
+  function cycleTradeType(direction = 1) {
+    const values = orderedTradeTypes.length ? orderedTradeTypes : tradeTypes;
+    const index = values.indexOf(tradeType);
+    selectTradeType(values[(index + direction + values.length) % values.length], {
+      rememberOrder: false,
+    });
+  }
+
+  function cyclePane(direction = 1) {
+    const values = orderedPaneTypes.length ? orderedPaneTypes : paneTypes;
+    const index = values.indexOf(pane);
+    selectPane(values[(index + direction + values.length) % values.length], {
+      rememberOrder: false,
+    });
   }
 
   function toggleShow(checked) {
@@ -881,9 +925,10 @@ function Panels({
         walletType={walletType}
         initialCookieM={initialCookieM}
         tradeType={panelType}
-        tradeTypes={tradeTypes}
+        tradeTypes={orderedTradeTypes}
         onTradeTypeChange={setPanelType}
-        onCycleTradeType={cyclePanelType}
+        onPrevTradeType={() => cyclePanelType(-1)}
+        onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
@@ -896,9 +941,10 @@ function Panels({
         walletType={walletType}
         initialCookieM={initialCookieM}
         tradeType={panelType}
-        tradeTypes={tradeTypes}
+        tradeTypes={orderedTradeTypes}
         onTradeTypeChange={setPanelType}
-        onCycleTradeType={cyclePanelType}
+        onPrevTradeType={() => cyclePanelType(-1)}
+        onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
@@ -911,9 +957,10 @@ function Panels({
         walletType={walletType}
         initialCookieM={initialCookieM}
         tradeType={panelType}
-        tradeTypes={tradeTypes}
+        tradeTypes={orderedTradeTypes}
         onTradeTypeChange={setPanelType}
-        onCycleTradeType={cyclePanelType}
+        onPrevTradeType={() => cyclePanelType(-1)}
+        onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
@@ -928,9 +975,10 @@ function Panels({
         walletType={walletType}
         initialCookieM={initialCookieM}
         tradeType={panelType}
-        tradeTypes={tradeTypes}
+        tradeTypes={orderedTradeTypes}
         onTradeTypeChange={setPanelType}
-        onCycleTradeType={cyclePanelType}
+        onPrevTradeType={() => cyclePanelType(-1)}
+        onCycleTradeType={() => cyclePanelType(1)}
         onFromWalletChange={setWallet}
         showGasAutoLabel={showGasAutoLabel}
         loopWallets={loopWallets}
@@ -1033,18 +1081,23 @@ function Panels({
             </label>
             <label htmlFor="tradePane">
               <span className="gray">pane:</span>
+              <CycleButton
+                direction="prev"
+                onClick={() => cyclePane(-1)}
+                disabled={orderedPaneTypes.length < 2}
+              />
               <select
                 id="tradePane"
                 value={pane}
-                onChange={(e) => setPane(e.target.value)}
+                onChange={(e) => selectPane(e.target.value)}
               >
-                {paneTypes.map((paneType) => (
+                {orderedPaneTypes.map((paneType) => (
                   <option key={paneType} value={paneType}>
                     {paneType}
                   </option>
                 ))}
               </select>
-              <CycleButton onClick={cyclePane} />
+              <CycleButton onClick={() => cyclePane(1)} />
             </label>
           </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}
@@ -1095,8 +1148,8 @@ function Panels({
               </div>
             )}
             <div className="flex gap2 tradePanelBody">
-              {renderTradePane(tradeType, setTradeType, cycleTradeType)}
-              {showRightPane && renderTradePane(pane, setPane, cyclePane)}
+              {renderTradePane(tradeType, selectTradeType, cycleTradeType)}
+              {showRightPane && renderTradePane(pane, selectPane, cyclePane)}
             </div>
           </>
         )}

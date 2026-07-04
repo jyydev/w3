@@ -524,6 +524,7 @@ export function SwapChainSelect({
   buttonWidth = "8ch",
   title = "",
   onSelect = () => {},
+  onPrev = () => {},
   onNext = () => {},
   onFocusChain = () => {},
   showMenu = false,
@@ -543,6 +544,11 @@ export function SwapChainSelect({
   if (!hasDiscovery) {
     return (
       <span className="selectCycle">
+        <CycleButton
+          direction="prev"
+          onClick={onPrev}
+          disabled={disabled || addedChains.length < 2}
+        />
         <select
           value={selectedChain}
           onChange={(e) => onSelect(e.target.value)}
@@ -567,6 +573,11 @@ export function SwapChainSelect({
 
   return (
     <div className="selectCycle walletCycle swapChainCycle">
+      <CycleButton
+        direction="prev"
+        onClick={onPrev}
+        disabled={disabled || addedChains.length < 2}
+      />
       <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"
@@ -961,6 +972,7 @@ export function SwapCoinSelect({
   showSearch = false,
   buttonWidth = "8ch",
   onSelect = () => {},
+  onPrev = () => {},
   onNext = () => {},
   showMenu = false,
   setShowMenu = () => {},
@@ -984,6 +996,11 @@ export function SwapCoinSelect({
   if (!hasDiscovery) {
     return (
       <span className="selectCycle">
+        <CycleButton
+          direction="prev"
+          onClick={onPrev}
+          disabled={addedCoins.length < 2}
+        />
         <select value={selectedCoin} onChange={(e) => onSelect(e.target.value)}>
           {addedCoins.map((coin) => (
             <option key={coin} value={coin}>
@@ -1001,6 +1018,11 @@ export function SwapCoinSelect({
 
   return (
     <div className="selectCycle walletCycle swapCoinCycle">
+      <CycleButton
+        direction="prev"
+        onClick={onPrev}
+        disabled={addedCoins.length < 2}
+      />
       <div className="tradePicker" ref={pickerRef}>
         <button
           type="button"

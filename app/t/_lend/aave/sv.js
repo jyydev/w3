@@ -35,8 +35,8 @@ const aaveV3PoolM = {
   Arbitrum: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
   Avalanche: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
   Optimism: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
-  Polygon: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
   Base: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+  Polygon: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
   Celo: "0x3E59A31363E2ad014dcbc521c4a0d5757d9f3402",
   Fantom: "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
   Gnosis: "0xb50201558B00496A145fE76f7424749556E326D8",
@@ -128,12 +128,26 @@ export async function getAaveAllMarkets({ chain = "" } = {}) {
               reserve.aTokenAddress || reserve[8],
             );
             const [underlyingMeta, lendMeta] = await Promise.all([
-              getTokenMeta(provider, underlyingAddress, chain, venusTokenMetaTimeoutMs),
-              getTokenMeta(provider, lendAddress, chain, venusTokenMetaTimeoutMs),
+              getTokenMeta(
+                provider,
+                underlyingAddress,
+                chain,
+                venusTokenMetaTimeoutMs,
+              ),
+              getTokenMeta(
+                provider,
+                lendAddress,
+                chain,
+                venusTokenMetaTimeoutMs,
+              ),
             ]);
-            const addedUnderlying = getCoinByAddress(chain, underlyingMeta.address);
+            const addedUnderlying = getCoinByAddress(
+              chain,
+              underlyingMeta.address,
+            );
             const addedLend = getCoinByAddress(chain, lendMeta.address);
-            const metaFallback = !!underlyingMeta.fallback || !!lendMeta.fallback;
+            const metaFallback =
+              !!underlyingMeta.fallback || !!lendMeta.fallback;
 
             return {
               value: `${underlyingMeta.symbol}:${lendMeta.symbol}:${lendMeta.address}`,
@@ -220,8 +234,8 @@ export async function getAaveSupportedChains() {
 }
 
 function getAavePool(chain = "", lendCoin = "") {
-  const coinPool = coinM?.[chain]?.[lendCoin]?.aavePool ||
-    coinM?.[chain]?.[lendCoin]?.pool;
+  const coinPool =
+    coinM?.[chain]?.[lendCoin]?.aavePool || coinM?.[chain]?.[lendCoin]?.pool;
   const pool = ethers.isAddress(coinPool || "")
     ? coinPool
     : aaveV3PoolM[coinPool] || aaveV3PoolM[chain];
@@ -263,7 +277,9 @@ async function assertAaveMarket({
     ? ethers.getAddress(lendAddress)
     : getEvmTokenAddress(chain, lendCoin, "Aave token");
   const aToken = new ethers.Contract(aTokenAddress, aTokenAbi, provider);
-  const actualUnderlying = ethers.getAddress(await aToken.UNDERLYING_ASSET_ADDRESS());
+  const actualUnderlying = ethers.getAddress(
+    await aToken.UNDERLYING_ASSET_ADDRESS(),
+  );
 
   if (actualUnderlying != underlying) {
     throw new Error(`${lendCoin} underlying does not match ${underlyingCoin}`);
@@ -281,9 +297,12 @@ export async function getAaveMarketBalance({
   lendDecimals = 18,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
-  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
-  if (!ethers.isAddress(underlyingAddress)) throw new Error("underlying address invalid");
-  if (!ethers.isAddress(lendAddress)) throw new Error("Aave token address invalid");
+  if (!ethers.isAddress(walletAddress))
+    throw new Error("EVM wallet address required");
+  if (!ethers.isAddress(underlyingAddress))
+    throw new Error("underlying address invalid");
+  if (!ethers.isAddress(lendAddress))
+    throw new Error("Aave token address invalid");
 
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
@@ -293,7 +312,9 @@ export async function getAaveMarketBalance({
   try {
     const owner = ethers.getAddress(walletAddress);
     const [underlyingRaw, lendRaw] = await Promise.all([
-      new ethers.Contract(underlyingAddress, erc20Abi, provider).balanceOf(owner),
+      new ethers.Contract(underlyingAddress, erc20Abi, provider).balanceOf(
+        owner,
+      ),
       new ethers.Contract(lendAddress, erc20Abi, provider).balanceOf(owner),
     ]);
 
@@ -332,7 +353,8 @@ export async function getAaveLendPreview({
   withdrawAll = false,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
-  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
+  if (!ethers.isAddress(walletAddress))
+    throw new Error("EVM wallet address required");
 
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
@@ -356,14 +378,15 @@ export async function getAaveLendPreview({
       underlyingAddress,
       lendAddress,
     });
-    const allowance = action == "redeem"
-      ? amountIn
-      : BigInt(
-          await new ethers.Contract(underlying, erc20Abi, provider).allowance(
-            walletAddress,
-            pool,
-          ),
-        );
+    const allowance =
+      action == "redeem"
+        ? amountIn
+        : BigInt(
+            await new ethers.Contract(underlying, erc20Abi, provider).allowance(
+              walletAddress,
+              pool,
+            ),
+          );
 
     return {
       ok: true,
@@ -395,7 +418,8 @@ export async function buildAaveLendTxs({
   withdrawAll = false,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
-  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
+  if (!ethers.isAddress(walletAddress))
+    throw new Error("EVM wallet address required");
 
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
@@ -531,7 +555,8 @@ export async function executeAaveLend({
   withdrawAll = false,
 } = {}) {
   if (chain == "Solana") throw new Error("Aave is EVM-only here");
-  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
+  if (!ethers.isAddress(walletAddress))
+    throw new Error("EVM wallet address required");
 
   const privateKey = getPrivateKey(walletName);
   if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);

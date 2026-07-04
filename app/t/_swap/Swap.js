@@ -5,6 +5,17 @@ import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { CycleButton } from "@/components/Shared";
 import {
+  encodeGroupedSelectionOrder,
+  encodeSelectionOrder,
+  normalizeSelectionOrder,
+  parseGroupedSelectionOrder,
+  parseSelectionOrder,
+  rememberGroupedSelectionValue,
+  rememberSelectionValue,
+  sortByGroupedSelectionOrder,
+  sortBySelectionOrder,
+} from "@/fn/selectionOrder";
+import {
   SwapChainSelect,
   SwapCoinSelect,
   emptyTokenDiscoveryE,
@@ -67,7 +78,7 @@ import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
   useLocalStorageEditor,
-} from "../../browserEditorStorage";
+} from "../../_editorData/browserEditorStorage";
 import {
   cleanTradeInput,
   cookieMaxAge,
@@ -100,6 +111,7 @@ import {
   nextValue,
   noDex,
   normalizeSignedQtyInput,
+  prevValue,
   priceKey,
   qtyInputSize,
   qtyInputStyle,
@@ -112,10 +124,15 @@ import {
   SwapTxLink,
   tradeAutoApprovalCookie,
   tradeSwapDexCookie,
+  tradeSwapDexOrderCookie,
   tradeSwapFromChainCookie,
+  tradeSwapFromChainOrderCookie,
   tradeSwapFromCoinCookie,
+  tradeSwapFromCoinOrderCookie,
   tradeSwapToChainCookie,
+  tradeSwapToChainOrderCookie,
   tradeSwapToCoinCookie,
+  tradeSwapToCoinOrderCookie,
   toNum,
   useCustomCoinConfirm,
   useTradeFallbackPrice,
@@ -140,6 +157,7 @@ export default function SwapPanel({
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
+  onPrevTradeType = () => {},
   onCycleTradeType,
   showGasAutoLabel = false,
   loopWallets = false,
@@ -162,6 +180,49 @@ export default function SwapPanel({
     [chainNames, walletType],
   );
   const initialDefi = getInitialSwapDex(initialCookieM, walletType);
+  const initialDexOrder = normalizeSelectionOrder(
+    parseSelectionOrder(
+      getInitialCookie(
+        initialCookieM,
+        getTradeModeCookie(tradeSwapDexOrderCookie, walletType),
+      ),
+    ),
+    dexOptions.map((entry) => entry.value),
+  );
+  const initialFromChainOrder = normalizeSelectionOrder(
+    parseSelectionOrder(
+      getInitialCookie(
+        initialCookieM,
+        getSwapRouteCookie(
+          tradeSwapFromChainOrderCookie,
+          walletType,
+          initialDefi,
+        ),
+      ),
+    ),
+    sellChainNames,
+  );
+  const initialToChainOrder = normalizeSelectionOrder(
+    parseSelectionOrder(
+      getInitialCookie(
+        initialCookieM,
+        getSwapRouteCookie(
+          tradeSwapToChainOrderCookie,
+          walletType,
+          initialDefi,
+        ),
+      ),
+    ),
+    chainNames,
+  );
+  const initialSellChainNames = sortBySelectionOrder(
+    sellChainNames,
+    initialFromChainOrder,
+  );
+  const initialBuyChainNames = sortBySelectionOrder(
+    chainNames,
+    initialToChainOrder,
+  );
   const initialFromChain =
     getInitialCookie(
       initialCookieM,
@@ -172,12 +233,12 @@ export default function SwapPanel({
       initialCookieM,
       getSwapRouteCookie(tradeSwapToChainCookie, walletType, initialDefi),
     ) || "";
-  const initialSelectedFromChain = sellChainNames.includes(initialFromChain)
+  const initialSelectedFromChain = initialSellChainNames.includes(initialFromChain)
     ? initialFromChain
-    : sellChainNames[0] || "";
-  const initialSelectedToChain = chainNames.includes(initialToChain)
+    : initialSellChainNames[0] || "";
+  const initialSelectedToChain = initialBuyChainNames.includes(initialToChain)
     ? initialToChain
-    : chainNames[0] || "";
+    : initialBuyChainNames[0] || "";
   const initialFromChainE =
     chainList.find((chainE) => chainE.chain == initialSelectedFromChain) ||
     chainList[0];
@@ -186,6 +247,36 @@ export default function SwapPanel({
     initialFromChainE;
   const initialFromCoins = getChainCoins(initialFromChainE);
   const initialToCoins = getChainCoins(initialToChainE);
+  const initialFromCoinOrder = parseGroupedSelectionOrder(
+    getInitialCookie(
+      initialCookieM,
+      getSwapRouteCookie(
+        tradeSwapFromCoinOrderCookie,
+        walletType,
+        initialDefi,
+      ),
+    ),
+  );
+  const initialToCoinOrder = parseGroupedSelectionOrder(
+    getInitialCookie(
+      initialCookieM,
+      getSwapRouteCookie(
+        tradeSwapToCoinOrderCookie,
+        walletType,
+        initialDefi,
+      ),
+    ),
+  );
+  const initialOrderedFromCoins = sortByGroupedSelectionOrder(
+    initialFromCoins,
+    initialFromCoinOrder,
+    initialSelectedFromChain,
+  );
+  const initialOrderedToCoins = sortByGroupedSelectionOrder(
+    initialToCoins,
+    initialToCoinOrder,
+    initialSelectedToChain,
+  );
   const initialSavedFromCoin =
     getInitialCookie(
       initialCookieM,
@@ -206,13 +297,18 @@ export default function SwapPanel({
         initialSelectedToChain,
       ),
     ) || "";
-  const initialFromCoin = initialFromCoins.includes(initialSavedFromCoin)
+  const initialFromCoin = initialOrderedFromCoins.includes(initialSavedFromCoin)
     ? initialSavedFromCoin
-    : initialFromCoins[0] || "";
-  const initialToCoin = initialToCoins.includes(initialSavedToCoin)
+    : initialOrderedFromCoins[0] || "";
+  const initialToCoin = initialOrderedToCoins.includes(initialSavedToCoin)
     ? initialSavedToCoin
-    : initialToCoins[0] || "";
+    : initialOrderedToCoins[0] || "";
   const [defi, setDefi] = useState(initialDefi);
+  const [dexOrder, setDexOrder] = useState(initialDexOrder);
+  const [fromChainOrder, setFromChainOrder] = useState(initialFromChainOrder);
+  const [toChainOrder, setToChainOrder] = useState(initialToChainOrder);
+  const [fromCoinOrder, setFromCoinOrder] = useState(initialFromCoinOrder);
+  const [toCoinOrder, setToCoinOrder] = useState(initialToCoinOrder);
   const [fromChain, setFromChain] = useState(initialSelectedFromChain);
   const [toChain, setToChain] = useState(initialSelectedToChain);
   const [fromCoin, setFromCoin] = useState(initialFromCoin);
@@ -277,12 +373,23 @@ export default function SwapPanel({
     chainList.find((chainE) => chainE.chain == fromChain) || chainList[0];
   const toChainE =
     chainList.find((chainE) => chainE.chain == toChain) || fromChainE;
+  const orderedSellChainNames = useMemo(
+    () => sortBySelectionOrder(sellChainNames, fromChainOrder),
+    [fromChainOrder, sellChainNames],
+  );
+  const orderedChainNames = useMemo(
+    () => sortBySelectionOrder(chainNames, toChainOrder),
+    [chainNames, toChainOrder],
+  );
   const availableDexOptions = useMemo(
-    () =>
-      dexOptions.filter((option) =>
+    () => {
+      const options = dexOptions.filter((option) =>
         isDexSupportedForChain(option, fromChain),
-      ),
-    [fromChain],
+      );
+
+      return sortBySelectionOrder(options, dexOrder, (option) => option.value);
+    },
+    [dexOrder, fromChain],
   );
   const defiE =
     availableDexOptions.find((entry) => entry.value == defi) || noDex;
@@ -296,8 +403,24 @@ export default function SwapPanel({
           : defi == "uniswap"
             ? UniswapClient
             : RelayClient;
-  const fromCoins = useMemo(() => getChainCoins(fromChainE), [fromChainE]);
-  const toCoins = useMemo(() => getChainCoins(toChainE), [toChainE]);
+  const fromCoins = useMemo(
+    () =>
+      sortByGroupedSelectionOrder(
+        getChainCoins(fromChainE),
+        fromCoinOrder,
+        fromChain,
+      ),
+    [fromChain, fromChainE, fromCoinOrder],
+  );
+  const toCoins = useMemo(
+    () =>
+      sortByGroupedSelectionOrder(
+        getChainCoins(toChainE),
+        toCoinOrder,
+        toChain,
+      ),
+    [toChain, toChainE, toCoinOrder],
+  );
   const fromCoinInfo = fromChainE?.coinInfoM?.[fromCoin] || {};
   const fromCoinDecimals = Number.isInteger(fromCoinInfo.decimals)
     ? fromCoinInfo.decimals
@@ -506,28 +629,40 @@ export default function SwapPanel({
       ? toLazyTokenDiscoveryE
       : { ...swapSupportE, tokens: toDiscoveryTokenEntries };
   const fromSwapTokenEntries =
-    usesLazyTokenDiscovery
-      ? fromLazyTokenDiscoveryE.tokens
-      : fromDiscoveryTokenEntries;
+    sortByGroupedSelectionOrder(
+      usesLazyTokenDiscovery
+        ? fromLazyTokenDiscoveryE.tokens
+        : fromDiscoveryTokenEntries,
+      fromCoinOrder,
+      fromChain,
+      (entry) => entry.symbol || entry.name || entry.address,
+    );
   const toSwapTokenEntries =
-    usesLazyTokenDiscovery ? toLazyTokenDiscoveryE.tokens : toDiscoveryTokenEntries;
+    sortByGroupedSelectionOrder(
+      usesLazyTokenDiscovery
+        ? toLazyTokenDiscoveryE.tokens
+        : toDiscoveryTokenEntries,
+      toCoinOrder,
+      toChain,
+      (entry) => entry.symbol || entry.name || entry.address,
+    );
   const fromChainButtonWidth = useMemo(
     () =>
-      getTradePickerButtonWidth([fromChain, ...sellChainNames], {
+      getTradePickerButtonWidth([fromChain, ...orderedSellChainNames], {
         minLength: 5,
         maxLength: Infinity,
         offset: 2,
       }),
-    [fromChain, sellChainNames],
+    [fromChain, orderedSellChainNames],
   );
   const toChainButtonWidth = useMemo(
     () =>
-      getTradePickerButtonWidth([toChain, ...chainNames], {
+      getTradePickerButtonWidth([toChain, ...orderedChainNames], {
         minLength: 5,
         maxLength: Infinity,
         offset: 2,
       }),
-    [chainNames, toChain],
+    [orderedChainNames, toChain],
   );
   const fromCoinButtonWidth = useMemo(
     () =>
@@ -561,39 +696,95 @@ export default function SwapPanel({
     if (savedDefi && dexOptions.some((entry) => entry.value == savedDefi)) {
       setDefi(savedDefi);
     }
+    setDexOrder(
+      normalizeSelectionOrder(
+        parseSelectionOrder(
+          getCookie(getTradeModeCookie(tradeSwapDexOrderCookie, walletType)),
+        ),
+        dexOptions.map((entry) => entry.value),
+      ),
+    );
   }, [walletType]);
+
+  useEffect(() => {
+    setFromChainOrder(
+      normalizeSelectionOrder(
+        parseSelectionOrder(
+          getCookie(
+            getSwapRouteCookie(
+              tradeSwapFromChainOrderCookie,
+              walletType,
+              defi,
+            ),
+          ),
+        ),
+        chainNames,
+      ),
+    );
+    setToChainOrder(
+      normalizeSelectionOrder(
+        parseSelectionOrder(
+          getCookie(
+            getSwapRouteCookie(tradeSwapToChainOrderCookie, walletType, defi),
+          ),
+        ),
+        chainNames,
+      ),
+    );
+    setFromCoinOrder(
+      parseGroupedSelectionOrder(
+        getCookie(
+          getSwapRouteCookie(tradeSwapFromCoinOrderCookie, walletType, defi),
+        ),
+      ),
+    );
+    setToCoinOrder(
+      parseGroupedSelectionOrder(
+        getCookie(
+          getSwapRouteCookie(tradeSwapToCoinOrderCookie, walletType, defi),
+        ),
+      ),
+    );
+  }, [chainNames, defi, walletType]);
 
   useEffect(() => {
     const savedFromChain = getCookie(
       getSwapRouteCookie(tradeSwapFromChainCookie, walletType, defi),
     );
-    if (sellChainNames.length) {
+    if (orderedSellChainNames.length) {
       setFromChain(
-        sellChainNames.includes(savedFromChain)
+        orderedSellChainNames.includes(savedFromChain)
           ? savedFromChain
-          : sellChainNames[0],
+          : orderedSellChainNames[0],
       );
     }
 
     const savedToChain = getCookie(
       getSwapRouteCookie(tradeSwapToChainCookie, walletType, defi),
     );
-    if (chainNames.length) {
+    if (orderedChainNames.length) {
       setToChain(
-        chainNames.includes(savedToChain)
+        orderedChainNames.includes(savedToChain)
           ? savedToChain
-          : chainNames[0],
+          : orderedChainNames[0],
       );
     }
-  }, [chainNames, defi, sellChainNames, walletType]);
+  }, [defi, orderedChainNames, orderedSellChainNames, walletType]);
 
   useEffect(() => {
     if (!chainNames.length) return;
     if (sellChainNames.length && !sellChainNames.includes(fromChain)) {
-      setFromChain(sellChainNames[0]);
+      setFromChain(orderedSellChainNames[0] || sellChainNames[0]);
     }
-    if (!chainNames.includes(toChain)) setToChain(chainNames[0]);
-  }, [chainNames, fromChain, sellChainNames, toChain]);
+    if (!chainNames.includes(toChain)) setToChain(orderedChainNames[0] || chainNames[0]);
+  }, [
+    chainNames,
+    fromChain,
+    orderedChainNames,
+    orderedSellChainNames,
+    sellChainNames,
+    toChain,
+  ]);
 
   useEffect(() => {
     if (
@@ -1430,13 +1621,23 @@ export default function SwapPanel({
   }
 
   function nextFromChain() {
-    const next = nextValue(sellChainNames, fromChain);
-    if (next) selectFromChain(next);
+    const next = nextValue(orderedSellChainNames, fromChain);
+    if (next) selectFromChain(next, { rememberOrder: false });
+  }
+
+  function prevFromChain() {
+    const prev = prevValue(orderedSellChainNames, fromChain);
+    if (prev) selectFromChain(prev, { rememberOrder: false });
   }
 
   function nextToChain() {
-    const next = nextValue(chainNames, toChain);
-    if (next) selectToChain(next);
+    const next = nextValue(orderedChainNames, toChain);
+    if (next) selectToChain(next, { rememberOrder: false });
+  }
+
+  function prevToChain() {
+    const prev = prevValue(orderedChainNames, toChain);
+    if (prev) selectToChain(prev, { rememberOrder: false });
   }
 
   function requestTokenDiscovery(chain = "", term = "", { force = false } = {}) {
@@ -1570,7 +1771,7 @@ export default function SwapPanel({
 
   function selectDiscoveryChain(entry = {}, side = "from") {
     const chain = entry.chain || "";
-    const addedChains = side == "from" ? sellChainNames : chainNames;
+    const addedChains = side == "from" ? orderedSellChainNames : orderedChainNames;
     if (!chain || !addedChains.includes(chain)) {
       showManualChain(entry);
       return;
@@ -1671,50 +1872,108 @@ export default function SwapPanel({
     }
   }
 
-  function selectFromChain(chain) {
+  function selectFromChain(chain, options = {}) {
     setFromChain(chain);
-    saveSwapChainCookie(tradeSwapFromChainCookie, chain);
+    saveSwapChainCookie(tradeSwapFromChainCookie, chain, options);
     emitTradeChainSelect(chain);
   }
 
-  function selectToChain(chain) {
+  function selectToChain(chain, options = {}) {
     setToChain(chain);
-    saveSwapChainCookie(tradeSwapToChainCookie, chain);
+    saveSwapChainCookie(tradeSwapToChainCookie, chain, options);
     emitTradeChainSelect(chain);
   }
 
-  function saveSwapChainCookie(base, chain) {
+  function saveSwapChainCookie(base, chain, { rememberOrder = true } = {}) {
     if (!defi || !chain) return;
     setCookie(getSwapRouteCookie(base, walletType, defi), chain, {
       maxAge: cookieMaxAge,
     });
+    if (!rememberOrder) return;
+    if (base == tradeSwapFromChainCookie) {
+      const nextOrder = rememberSelectionValue(fromChainOrder, chain, chainNames);
+      setFromChainOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapFromChainOrderCookie, walletType, defi),
+        encodeSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    } else if (base == tradeSwapToChainCookie) {
+      const nextOrder = rememberSelectionValue(toChainOrder, chain, chainNames);
+      setToChainOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapToChainOrderCookie, walletType, defi),
+        encodeSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    }
   }
 
   function nextFromCoin() {
     const next = nextValue(fromCoins, fromCoin);
-    if (next) selectFromCoin(next);
+    if (next) selectFromCoin(next, { rememberOrder: false });
+  }
+
+  function prevFromCoin() {
+    const prev = prevValue(fromCoins, fromCoin);
+    if (prev) selectFromCoin(prev, { rememberOrder: false });
   }
 
   function nextToCoin() {
     const next = nextValue(toCoins, toCoin);
-    if (next) selectToCoin(next);
+    if (next) selectToCoin(next, { rememberOrder: false });
   }
 
-  function selectFromCoin(coin) {
+  function prevToCoin() {
+    const prev = prevValue(toCoins, toCoin);
+    if (prev) selectToCoin(prev, { rememberOrder: false });
+  }
+
+  function selectFromCoin(coin, options = {}) {
     setFromCoin(coin);
-    saveSwapCoinCookie(tradeSwapFromCoinCookie, fromChain, coin);
+    saveSwapCoinCookie(tradeSwapFromCoinCookie, fromChain, coin, options);
   }
 
-  function selectToCoin(coin) {
+  function selectToCoin(coin, options = {}) {
     setToCoin(coin);
-    saveSwapCoinCookie(tradeSwapToCoinCookie, toChain, coin);
+    saveSwapCoinCookie(tradeSwapToCoinCookie, toChain, coin, options);
   }
 
-  function saveSwapCoinCookie(base, chain, coin) {
+  function saveSwapCoinCookie(base, chain, coin, { rememberOrder = true } = {}) {
     if (!defi || !chain || !coin) return;
     setCookie(getSwapRouteCookie(base, walletType, defi, chain), coin, {
       maxAge: cookieMaxAge,
     });
+    if (!rememberOrder) return;
+    const chainE = chainList.find((entry) => entry.chain == chain);
+    const validCoins = getChainCoins(chainE);
+    if (base == tradeSwapFromCoinCookie) {
+      const nextOrder = rememberGroupedSelectionValue(
+        fromCoinOrder,
+        chain,
+        coin,
+        { validGroups: chainNames, validValues: validCoins },
+      );
+      setFromCoinOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapFromCoinOrderCookie, walletType, defi),
+        encodeGroupedSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    } else if (base == tradeSwapToCoinCookie) {
+      const nextOrder = rememberGroupedSelectionValue(
+        toCoinOrder,
+        chain,
+        coin,
+        { validGroups: chainNames, validValues: validCoins },
+      );
+      setToCoinOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapToCoinOrderCookie, walletType, defi),
+        encodeGroupedSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    }
   }
 
   function nextDex() {
@@ -1722,15 +1981,35 @@ export default function SwapPanel({
       availableDexOptions.map((option) => option.value),
       defi,
     );
-    if (next) selectDex(next);
+    if (next) selectDex(next, { rememberOrder: false });
   }
 
-  function selectDex(value) {
+  function prevDex() {
+    const prev = prevValue(
+      availableDexOptions.map((option) => option.value),
+      defi,
+    );
+    if (prev) selectDex(prev, { rememberOrder: false });
+  }
+
+  function selectDex(value, { rememberOrder = true } = {}) {
     setDefi(value);
     if (!value) return;
     setCookie(getTradeModeCookie(tradeSwapDexCookie, walletType), value, {
       maxAge: cookieMaxAge,
     });
+    if (!rememberOrder) return;
+    const nextOrder = rememberSelectionValue(
+      dexOrder,
+      value,
+      dexOptions.map((entry) => entry.value),
+    );
+    setDexOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSwapDexOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
   }
 
   function reverseRoute() {
@@ -1790,6 +2069,7 @@ export default function SwapPanel({
       />
       <div className="flex tradePaneTop">
         <label htmlFor="tradeTypeSwap">
+          <CycleButton size="nx" direction="prev" onClick={onPrevTradeType} />
           <select
             id="tradeTypeSwap"
             value={tradeType}
@@ -1805,6 +2085,12 @@ export default function SwapPanel({
         </label>
         <label htmlFor="swapDefi">
           <span className="gray">DEX:</span>
+          <CycleButton
+            size="nx"
+            direction="prev"
+            onClick={prevDex}
+            disabled={availableDexOptions.length < 2}
+          />
           <select
             id="swapDefi"
             value={availableDexOptions.length ? defi : ""}
@@ -1835,10 +2121,11 @@ export default function SwapPanel({
             <SwapChainSelect
               side="from"
               selectedChain={fromChain}
-              addedChains={sellChainNames}
+              addedChains={orderedSellChainNames}
               allChains={fromDiscoveryChainEntries}
               buttonWidth={fromChainButtonWidth}
               onSelect={selectFromChain}
+              onPrev={prevFromChain}
               onNext={nextFromChain}
               onFocusChain={() => fromChain && emitTradeChainSelect(fromChain)}
               showMenu={showFromChainMenu}
@@ -1871,6 +2158,7 @@ export default function SwapPanel({
               showSearch={usesLazyTokenDiscovery}
               buttonWidth={fromCoinButtonWidth}
               onSelect={selectFromCoin}
+              onPrev={prevFromCoin}
               onNext={nextFromCoin}
               showMenu={showFromCoinMenu}
               setShowMenu={setShowFromCoinMenu}
@@ -2032,12 +2320,13 @@ export default function SwapPanel({
             <SwapChainSelect
               side="to"
               selectedChain={toChain}
-              addedChains={chainNames}
+              addedChains={orderedChainNames}
               allChains={toDiscoveryChainEntries}
               disabled={!defiE.bridge}
               buttonWidth={toChainButtonWidth}
               title={defiE.bridge ? "" : "DEX swap uses the same chain"}
               onSelect={selectToChain}
+              onPrev={prevToChain}
               onNext={nextToChain}
               onFocusChain={() => toChain && emitTradeChainSelect(toChain)}
               showMenu={showToChainMenu}
@@ -2070,6 +2359,7 @@ export default function SwapPanel({
               showSearch={usesLazyTokenDiscovery}
               buttonWidth={toCoinButtonWidth}
               onSelect={selectToCoin}
+              onPrev={prevToCoin}
               onNext={nextToCoin}
               showMenu={showToCoinMenu}
               setShowMenu={setShowToCoinMenu}

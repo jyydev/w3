@@ -3,7 +3,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { revalidatePath } from "next/cache";
-import { projectFileWriteBlockedResult } from "../projectFileWrites";
+import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
 
 const cookieDir = path.join(process.cwd(), "data", "editor", "cookie");
 const offChainsFile = path.join(cookieDir, "offChains.txt");

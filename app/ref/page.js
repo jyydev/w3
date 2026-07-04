@@ -1,4 +1,5 @@
 import Logo from "@/components/Logo";
+import { List, Section, Table } from "./RefParts";
 import "./ref.css";
 
 const walletRoutes = [
@@ -104,48 +105,17 @@ const deployedNotes = [
   "Vercel and normal public domains use localStorage because project files are read-only at runtime.",
   "The localStorage structure mimics data/editor folders for wallets, coins, cookie files, and defi entries.",
   "localStorage data is per browser profile and domain, not shared across devices.",
+  "Editor data storage details are documented in /ref/editor-data.",
 ];
 
 const settingsNotes = [
   "The logo settings card controls Alchemy usage, Alchemy minimum USD filters, gas auto label display, and optional stablecoin USD price querying.",
   "Clear cookies removes browser cookie preferences such as panes, selections, favorites, and toggles.",
   "Clear data removes editable data under data/editor locally, or matching localStorage data remotely.",
+  "Environment variable details are documented in /ref/env.",
+  "Cookie and sorting details are documented in /ref/cookie.",
   "Login uses the app-specific w3_login cookie.",
 ];
-
-function Section({ title, children }) {
-  return (
-    <section className="refSection">
-      <h2>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Table({ rows }) {
-  return (
-    <table className="refTable">
-      <tbody>
-        {rows.map(([name, detail]) => (
-          <tr key={name}>
-            <th>{name}</th>
-            <td>{detail}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function List({ items }) {
-  return (
-    <ul className="refDashList">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
-  );
-}
 
 function Page() {
   return (
@@ -203,10 +173,25 @@ function Page() {
       </Section>
 
       <Section title="deployed mode">
+        <p>
+          <a className="refLink" href="/ref/editor-data">
+            Editor data storage details
+          </a>
+        </p>
         <List items={deployedNotes} />
       </Section>
 
       <Section title="settings">
+        <p>
+          <a className="refLink" href="/ref/env">
+            Environment variable details
+          </a>
+        </p>
+        <p>
+          <a className="refLink" href="/ref/cookie">
+            Cookie and sorting details
+          </a>
+        </p>
         <List items={settingsNotes} />
       </Section>
     </div>

@@ -7,6 +7,7 @@ export const useAlchemyCookie = `${ckPrefix ?? ""}useAlchemy`;
 export const alchemyMinUsdCookie = `${ckPrefix ?? ""}alchemyMinUsd`;
 export const showGasAutoCookie = `${ckPrefix ?? ""}showGasAuto`;
 export const usdPriceQueryCookie = `${ckPrefix ?? ""}usdPriceQuery`;
+export const sortingModeCookie = `${ckPrefix ?? ""}sortingMode`;
 
 export function parseOptionalBool(value) {
   if (value === undefined || value === null || value === "") return null;
@@ -34,6 +35,16 @@ export function parseOptionalNumber(value) {
 
   const n = Number(txt);
   return Number.isFinite(n) ? n : null;
+}
+
+export function parseSortingMode(value = "") {
+  let txt = String(value || "").trim().toLowerCase();
+
+  try {
+    txt = decodeURIComponent(txt).trim().toLowerCase();
+  } catch {}
+
+  return txt == "default" ? "default" : "cookie";
 }
 
 export function parseDisabledChains(value = "", availableChains = []) {

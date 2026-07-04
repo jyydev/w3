@@ -10,7 +10,7 @@ import {
   readLocalEditorFile,
   saveLocalEditorFile,
   useLocalStorageEditor,
-} from "../browserEditorStorage";
+} from "../_editorData/browserEditorStorage";
 import { editorCookieMaxAge, editorFileCookie } from "./editorSettings";
 
 async function editorRequest(url, op) {

@@ -17,19 +17,32 @@ export const tradeShowCookie = "w3_trade_show";
 export const tradeRightPaneCookie = "w3_trade_right_pane";
 export const tradeLeftPaneCookie = "w3_trade_left_pane";
 export const tradeRightPaneSelectCookie = "w3_trade_right_pane_select";
+export const tradePaneOrderCookie = "w3_trade_pane_order";
 export const walletBalancePatchEvent = "w3:walletBalancePatch";
 export const tradeSwapDexCookie = "w3_trade_swap_dex";
 export const tradeSwapFromChainCookie = "w3_trade_swap_from_chain";
 export const tradeSwapFromCoinCookie = "w3_trade_swap_from_coin";
 export const tradeSwapToChainCookie = "w3_trade_swap_to_chain";
 export const tradeSwapToCoinCookie = "w3_trade_swap_to_coin";
+export const tradeSwapDexOrderCookie = "w3_trade_swap_dex_order";
+export const tradeSwapFromChainOrderCookie =
+  "w3_trade_swap_from_chain_order";
+export const tradeSwapFromCoinOrderCookie = "w3_trade_swap_from_coin_order";
+export const tradeSwapToChainOrderCookie = "w3_trade_swap_to_chain_order";
+export const tradeSwapToCoinOrderCookie = "w3_trade_swap_to_coin_order";
 export const tradeAutoApprovalCookie = "w3_trade_auto_approval";
 export const tradeLendDefiCookie = "w3_trade_lend_defi";
 export const tradeLendChainCookie = "w3_trade_lend_chain";
 export const tradeLendMarketCookie = "w3_trade_lend_market";
+export const tradeLendDefiOrderCookie = "w3_trade_lend_defi_order";
+export const tradeLendChainOrderCookie = "w3_trade_lend_chain_order";
+export const tradeLendMarketOrderCookie = "w3_trade_lend_market_order";
 export const tradeYieldDefiCookie = "w3_trade_yield_defi";
 export const tradeYieldChainCookie = "w3_trade_yield_chain";
 export const tradeYieldMarketCookie = "w3_trade_yield_market";
+export const tradeYieldDefiOrderCookie = "w3_trade_yield_defi_order";
+export const tradeYieldChainOrderCookie = "w3_trade_yield_chain_order";
+export const tradeYieldMarketOrderCookie = "w3_trade_yield_market_order";
 export const tradeYieldHyperliquidModeCookie =
   "w3_trade_yield_hyperliquid_mode";
 export const tradeYieldHyperliquidChainCookie =
@@ -40,9 +53,21 @@ export const tradeYieldHyperliquidDepositCoinCookie =
   "w3_trade_yield_hyperliquid_deposit_coin";
 export const tradeYieldHyperliquidWithdrawCoinCookie =
   "w3_trade_yield_hyperliquid_withdraw_coin";
+export const tradeYieldHyperliquidModeOrderCookie =
+  "w3_trade_yield_hyperliquid_mode_order";
+export const tradeYieldHyperliquidChainOrderCookie =
+  "w3_trade_yield_hyperliquid_chain_order";
+export const tradeYieldHyperliquidCoinOrderCookie =
+  "w3_trade_yield_hyperliquid_coin_order";
+export const tradeYieldHyperliquidDepositCoinOrderCookie =
+  "w3_trade_yield_hyperliquid_deposit_coin_order";
+export const tradeYieldHyperliquidWithdrawCoinOrderCookie =
+  "w3_trade_yield_hyperliquid_withdraw_coin_order";
 export const tradeSendChainCookie = "w3_trade_send_chain";
 export const tradeSendCoinCookie = "w3_trade_send_coin";
 export const tradeSendToWalletCookie = "w3_trade_send_to_wallet";
+export const tradeSendChainOrderCookie = "w3_trade_send_chain_order";
+export const tradeSendCoinOrderCookie = "w3_trade_send_coin_order";
 export const tradeChainSelectEvent = "w3:tradeChainSelect";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
 
@@ -2556,6 +2581,14 @@ export function nextValue(list = [], value = "") {
   if (!list.length) return "";
   const index = list.indexOf(value);
   return list[(index + 1) % list.length];
+}
+
+export function prevValue(list = [], value = "") {
+  if (!list.length) return "";
+  const index = list.indexOf(value);
+  if (index < 0) return list[list.length - 1];
+
+  return list[(index - 1 + list.length) % list.length];
 }
 
 function shortHash(hash = "") {

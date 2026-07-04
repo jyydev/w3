@@ -11,19 +11,23 @@ import {
   readLocalLineFileValues,
   setLocalLineFileValue,
   useLocalStorageEditor,
-} from "../browserEditorStorage";
+} from "../_editorData/browserEditorStorage";
 import { clearEditorData } from "./editorClearActions";
 import { toggleOffChain } from "./chainActions";
 import {
   alchemyMinUsdCookie,
   disabledChainsCookie,
   showGasAutoCookie,
+  sortingModeCookie,
   usdPriceQueryCookie,
   useAlchemyCookie,
 } from "./walletSettingData";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
-const baseCookieClearTargets = [["ALL", "ALL"]];
+const baseCookieClearTargets = [
+  ["ALL", "ALL"],
+  ["sorting", "sorting"],
+];
 const editorDataClearTargets = [
   ["ALL", "ALL"],
   ["coins", "coins"],
@@ -50,6 +54,8 @@ function WalletSettings({
   showGasAuto = false,
   defaultUsdPriceQuery = false,
   usdPriceQuery = false,
+  defaultSortingMode = "cookie",
+  sortingMode = "cookie",
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -57,6 +63,9 @@ function WalletSettings({
   const [useAlchemyState, setUseAlchemyState] = useState(!!useAlchemy);
   const [showGasAutoState, setShowGasAutoState] = useState(!!showGasAuto);
   const [usdPriceQueryState, setUsdPriceQueryState] = useState(!!usdPriceQuery);
+  const [sortingModeState, setSortingModeState] = useState(
+    sortingMode == "default" ? "default" : "cookie",
+  );
   const [alchemyMinUsdDraft, setAlchemyMinUsdDraft] = useState(
     String(alchemyMinUsd),
   );
@@ -108,6 +117,10 @@ function WalletSettings({
   useEffect(() => {
     setUsdPriceQueryState(!!usdPriceQuery);
   }, [usdPriceQuery]);
+
+  useEffect(() => {
+    setSortingModeState(sortingMode == "default" ? "default" : "cookie");
+  }, [sortingMode]);
 
   useEffect(() => {
     setAlchemyMinUsdDraft(String(alchemyMinUsd));
@@ -230,6 +243,16 @@ function WalletSettings({
     router.refresh();
   }
 
+  function updateSortingMode(value = "") {
+    const next = value == "default" ? "default" : "cookie";
+    setSortingModeState(next);
+    setCookie(sortingModeCookie, next, {
+      maxAge: cookieMaxAge,
+      path: "/",
+    });
+    router.refresh();
+  }
+
   function getBrowserCookieNames(target = "ALL") {
     const names = document.cookie
       .split(";")
@@ -237,11 +260,34 @@ function WalletSettings({
       .filter(Boolean);
 
     if (target == "ALL") return names;
+    if (target == "sorting") {
+      return names.filter((name) => isSortingCookieName(name));
+    }
     if (target == "app" && ckPrefix) {
       return names.filter((name) => name.startsWith(ckPrefix));
     }
 
     return [];
+  }
+
+  function isSortingCookieName(name = "") {
+    const cleanName = String(name || "").trim();
+    const prefixes = [...new Set([ckPrefix || "", "w3_"].filter(Boolean))];
+    const walletSortCookies = ["assetSort", "rowSort", "chainSort"];
+
+    if (
+      prefixes.some((prefix) =>
+        walletSortCookies.some((suffix) => cleanName == `${prefix}${suffix}`),
+      )
+    ) {
+      return true;
+    }
+
+    return prefixes.some(
+      (prefix) =>
+        cleanName.startsWith(`${prefix}trade_`) &&
+        cleanName.endsWith("_order"),
+    );
   }
 
   function deleteBrowserCookie(name = "") {
@@ -262,7 +308,12 @@ function WalletSettings({
       return;
     }
 
-    const label = cookieClearTarget == "ALL" ? "ALL browser cookies" : "app cookies";
+    const label =
+      cookieClearTarget == "ALL"
+        ? "ALL browser cookies"
+        : cookieClearTarget == "sorting"
+          ? "sorting cookies"
+          : "app cookies";
     if (!window.confirm(`Clear ${label}?\n\nThis cannot be undone.`)) return;
 
     for (const name of names) deleteBrowserCookie(name);
@@ -453,6 +504,7 @@ function WalletSettings({
                           <span>Clears browser cookies only.</span>
                           <span>ALL clears every visible cookie for this site.</span>
                           <span>app clears cookies with the app prefix.</span>
+                          <span>sorting clears Wallet and Trade order cookies.</span>
                         </span>
                       </span>
                     </span>
@@ -512,6 +564,30 @@ function WalletSettings({
                     </span>
                   </td>
                   <td>{useLocalEditorStore ? "local" : "server"}</td>
+                </tr>
+                <tr>
+                  <td>
+                    <span className="walletSettingName">
+                      sorting
+                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
+                        <span className="infoIcon">i</span>
+                        <span className="infoCard">
+                          <span>Stores the preferred sorting mode.</span>
+                          <span>default is app order; cookie is saved order.</span>
+                        </span>
+                      </span>
+                    </span>
+                  </td>
+                  <td>
+                    <select
+                      value={sortingModeState}
+                      onChange={(e) => updateSortingMode(e.target.value)}
+                    >
+                      <option value="default">default</option>
+                      <option value="cookie">cookie</option>
+                    </select>
+                  </td>
+                  <td>{defaultSortingMode}</td>
                 </tr>
               </tbody>
             </table>

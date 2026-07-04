@@ -20,7 +20,9 @@ import {
   parseDisabledChains,
   parseDisabledCoinM,
   parseDisabledWallets,
+  parseSortingMode,
   showGasAutoCookie,
+  sortingModeCookie,
   usdPriceQueryCookie,
   useAlchemyCookie,
 } from "./walletSettingData";
@@ -278,6 +280,10 @@ async function WPage({
     usdPriceQueryCookieValue === null
       ? defaultUsdPriceQuery
       : usdPriceQueryCookieValue;
+  const defaultSortingMode = "cookie";
+  const sortingMode =
+    parseSortingMode(cookieStore.get(sortingModeCookie)?.value) ||
+    defaultSortingMode;
   const disabledChainM = new Set([...disabledChains, ...offChains]);
   const selectedWalletType =
     requestedWalletType == "solana" && disabledChainM.has("Solana")
@@ -507,6 +513,8 @@ async function WPage({
           showGasAuto={showGasAuto}
           defaultUsdPriceQuery={defaultUsdPriceQuery}
           usdPriceQuery={usdPriceQuery}
+          defaultSortingMode={defaultSortingMode}
+          sortingMode={sortingMode}
         />
         <BrowserWalletConnect
           routeBase={routeBase}

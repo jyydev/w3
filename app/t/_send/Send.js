@@ -6,6 +6,17 @@ import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
 import { CycleButton } from "@/components/Shared";
 import {
+  encodeGroupedSelectionOrder,
+  encodeSelectionOrder,
+  normalizeSelectionOrder,
+  parseGroupedSelectionOrder,
+  parseSelectionOrder,
+  rememberGroupedSelectionValue,
+  rememberSelectionValue,
+  sortByGroupedSelectionOrder,
+  sortBySelectionOrder,
+} from "@/fn/selectionOrder";
+import {
   buildSendTx,
   executeSend,
   getTradeCoinBalance,
@@ -42,6 +53,7 @@ import {
   limitQtyInputDecimals,
   nextValue,
   normalizeSignedQtyInput,
+  prevValue,
   qtyInputSize,
   qtyInputStyle,
   rangeQtyInput,
@@ -56,7 +68,9 @@ import {
   TradePickerTable,
   sortTradePickerRows,
   tradeSendChainCookie,
+  tradeSendChainOrderCookie,
   tradeSendCoinCookie,
+  tradeSendCoinOrderCookie,
   tradeSendToWalletCookie,
   toNum,
   useTradeFallbackPrice,
@@ -72,6 +86,7 @@ export default function SendPanel({
   tradeType,
   tradeTypes = [],
   onTradeTypeChange,
+  onPrevTradeType = () => {},
   onCycleTradeType,
   onFromWalletChange = () => {},
   showGasAutoLabel = false,
@@ -96,22 +111,48 @@ export default function SendPanel({
     initialCookieM,
     getTradeModeCookie(tradeSendChainCookie, walletType),
   );
-  const initialSelectedChain = chainNames.includes(initialChain)
+  const initialChainOrder = normalizeSelectionOrder(
+    parseSelectionOrder(
+      getInitialCookie(
+        initialCookieM,
+        getTradeModeCookie(tradeSendChainOrderCookie, walletType),
+      ),
+    ),
+    chainNames,
+  );
+  const initialOrderedChainNames = sortBySelectionOrder(
+    chainNames,
+    initialChainOrder,
+  );
+  const initialSelectedChain = initialOrderedChainNames.includes(initialChain)
     ? initialChain
-    : chainNames[0] || "";
+    : initialOrderedChainNames[0] || "";
   const initialChainE =
     chainList.find((entry) => entry.chain == initialSelectedChain) ||
     chainList[0] ||
     {};
   const initialCoins = getChainCoins(initialChainE);
+  const initialCoinOrder = parseGroupedSelectionOrder(
+    getInitialCookie(
+      initialCookieM,
+      getTradeModeCookie(tradeSendCoinOrderCookie, walletType),
+    ),
+  );
+  const initialOrderedCoins = sortByGroupedSelectionOrder(
+    initialCoins,
+    initialCoinOrder,
+    initialSelectedChain,
+  );
   const initialSavedCoin =
     getInitialCookie(
       initialCookieM,
       getChainCoinCookie(tradeSendCoinCookie, walletType, initialSelectedChain),
     ) || "";
-  const initialCoin = initialCoins.includes(initialSavedCoin)
+  const initialCoin = initialOrderedCoins.includes(initialSavedCoin)
     ? initialSavedCoin
-    : initialCoins[0] || "";
+    : initialOrderedCoins[0] || "";
+  const [chainOrder, setChainOrder] = useState(initialChainOrder);
+  const [coinOrder, setCoinOrder] = useState(initialCoinOrder);
   const [chain, setChain] = useState(initialSelectedChain);
   const [coin, setCoin] = useState(initialCoin);
   const [qty, setQty] = useState("0");
@@ -141,9 +182,21 @@ export default function SendPanel({
       getTradeModeCookie(tradeSendToWalletCookie, walletType),
     ) || "",
   );
+  const orderedChainNames = useMemo(
+    () => sortBySelectionOrder(chainNames, chainOrder),
+    [chainNames, chainOrder],
+  );
   const chainE =
     chainList.find((entry) => entry.chain == chain) || chainList[0] || {};
-  const coins = useMemo(() => getChainCoins(chainE), [chainE]);
+  const coins = useMemo(
+    () =>
+      sortByGroupedSelectionOrder(
+        getChainCoins(chainE),
+        coinOrder,
+        chain,
+      ),
+    [chain, chainE, coinOrder],
+  );
   const fromWallets = useMemo(
     () => wallets.filter((entry) => entry?.address),
     [wallets],
@@ -242,16 +295,29 @@ export default function SendPanel({
     const savedChain = getCookie(
       getTradeModeCookie(tradeSendChainCookie, walletType),
     );
-    if (savedChain && chainNames.includes(savedChain)) {
+    const nextChainOrder = normalizeSelectionOrder(
+      parseSelectionOrder(
+        getCookie(getTradeModeCookie(tradeSendChainOrderCookie, walletType)),
+      ),
+      chainNames,
+    );
+    const nextChainNames = sortBySelectionOrder(chainNames, nextChainOrder);
+    setChainOrder(nextChainOrder);
+    setCoinOrder(
+      parseGroupedSelectionOrder(
+        getCookie(getTradeModeCookie(tradeSendCoinOrderCookie, walletType)),
+      ),
+    );
+    if (savedChain && nextChainNames.includes(savedChain)) {
       setChain(savedChain);
     }
   }, [chainNames, walletType]);
 
   useEffect(() => {
-    if (chainNames.length && !chainNames.includes(chain)) {
-      setChain(chainNames[0]);
+    if (orderedChainNames.length && !orderedChainNames.includes(chain)) {
+      setChain(orderedChainNames[0]);
     }
-  }, [chain, chainNames]);
+  }, [chain, orderedChainNames]);
 
   useEffect(() => {
     if (coins.length) {
@@ -458,13 +524,18 @@ export default function SendPanel({
   }, [chain, coin]);
 
   function nextChain() {
-    const next = nextValue(chainNames, chain);
-    if (next) selectChain(next);
+    const next = nextValue(orderedChainNames, chain);
+    if (next) selectChain(next, { rememberOrder: false });
   }
 
-  function selectChain(chain) {
+  function prevChain() {
+    const prev = prevValue(orderedChainNames, chain);
+    if (prev) selectChain(prev, { rememberOrder: false });
+  }
+
+  function selectChain(chain, options = {}) {
     setChain(chain);
-    saveSendChainCookie(chain);
+    saveSendChainCookie(chain, options);
     emitTradeChainSelect(chain);
   }
 
@@ -472,25 +543,38 @@ export default function SendPanel({
     if (chain) emitTradeChainSelect(chain);
   }
 
-  function saveSendChainCookie(chain) {
+  function saveSendChainCookie(chain, { rememberOrder = true } = {}) {
     if (!chain) return;
     setCookie(getTradeModeCookie(tradeSendChainCookie, walletType), chain, {
       maxAge: cookieMaxAge,
     });
+    if (!rememberOrder) return;
+    const nextOrder = rememberSelectionValue(chainOrder, chain, chainNames);
+    setChainOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSendChainOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
   }
 
   function nextCoin() {
     const next = nextValue(coins, coin);
-    if (next) selectCoin(next);
+    if (next) selectCoin(next, { rememberOrder: false });
   }
 
-  function selectCoin(coin) {
+  function prevCoin() {
+    const prev = prevValue(coins, coin);
+    if (prev) selectCoin(prev, { rememberOrder: false });
+  }
+
+  function selectCoin(coin, options = {}) {
     setCoin(coin);
-    saveSendCoinCookie(coin);
+    saveSendCoinCookie(coin, options);
     setShowCoinMenu(false);
   }
 
-  function saveSendCoinCookie(coin) {
+  function saveSendCoinCookie(coin, { rememberOrder = true } = {}) {
     if (!chain || !coin) return;
     setCookie(
       getChainCoinCookie(tradeSendCoinCookie, walletType, chain),
@@ -498,6 +582,17 @@ export default function SendPanel({
       {
         maxAge: cookieMaxAge,
       },
+    );
+    if (!rememberOrder) return;
+    const nextOrder = rememberGroupedSelectionValue(coinOrder, chain, coin, {
+      validGroups: chainNames,
+      validValues: getChainCoins(chainE),
+    });
+    setCoinOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSendCoinOrderCookie, walletType),
+      encodeGroupedSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
     );
   }
 
@@ -874,6 +969,7 @@ export default function SendPanel({
     <div className="tradePane tradeWidePane sendPane">
       <div className="flex tradePaneTop">
         <label htmlFor="tradeTypeSend">
+          <CycleButton size="nx" direction="prev" onClick={onPrevTradeType} />
           <select
             id="tradeTypeSend"
             value={tradeType}
@@ -888,13 +984,18 @@ export default function SendPanel({
           <CycleButton size="nx" onClick={onCycleTradeType} />
         </label>
         <span className="selectCycle">
+          <CycleButton
+            direction="prev"
+            onClick={prevChain}
+            disabled={orderedChainNames.length < 2}
+          />
           <select
             value={chain}
             onChange={(e) => selectChain(e.target.value)}
             onClick={focusSelectedChain}
             onFocus={focusSelectedChain}
           >
-            {chainNames.map((chainName) => (
+            {orderedChainNames.map((chainName) => (
               <option key={chainName} value={chainName}>
                 {chainName}
               </option>
@@ -902,10 +1003,15 @@ export default function SendPanel({
           </select>
           <CycleButton
             onClick={nextChain}
-            disabled={chainNames.length < 2}
+            disabled={orderedChainNames.length < 2}
           />
         </span>
         <span className="selectCycle sendCoinCycle">
+          <CycleButton
+            direction="prev"
+            onClick={prevCoin}
+            disabled={coins.length < 2}
+          />
           <div className="tradePicker" ref={coinPickerRef}>
             <button
               type="button"

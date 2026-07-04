@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { localEditorStorageEvent } from "@/app/browserEditorStorage";
+import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
 import cgb from "@/app/context";
 import {
   getLocalWalletTree,
@@ -22,6 +22,9 @@ const topOptions = [
 
 const refChildren = [
   { value: "rpc", label: "rpc", href: "/ref/rpc" },
+  { value: "cookie", label: "cookie", href: "/ref/cookie" },
+  { value: "env", label: "env", href: "/ref/env" },
+  { value: "editor-data", label: "editor data", href: "/ref/editor-data" },
   { value: "test", label: "test", href: "/ref/test" },
 ];
 
@@ -443,7 +446,7 @@ function BreadcrumbInner({ walletTree = [] }) {
         value={topValue}
         ariaLabel="site section"
         href={topCurrent?.href || ""}
-        fallbackLabel="section"
+        fallbackLabel="select"
         options={topMenuOptions}
       />
       {topValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}

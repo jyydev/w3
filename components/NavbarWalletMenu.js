@@ -13,7 +13,7 @@ import {
   readLocalNavFavs,
   saveLocalNavFavs,
   useLocalStorageEditor,
-} from "@/app/browserEditorStorage";
+} from "@/app/_editorData/browserEditorStorage";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
