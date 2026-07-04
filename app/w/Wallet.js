@@ -518,7 +518,7 @@ function Wallet({
     ? connectedWalletValue
     : effectiveSelectedWalletNotFound
       ? walletNotFoundValue
-      : walletFilterValue || effectiveSelectedWallet || "";
+      : effectiveSelectedWallet || walletFilterValue || "";
   const canCycleWalletType = walletTypeOptions.length > 1;
   const hasError = visibleChainList.some(
     (chainE) => chainE?.error || chainE?.rows?.some((row) => row.error),
@@ -1343,11 +1343,11 @@ function Wallet({
     if (selectedAddress) {
       return `addr:${encodeSelectionValue(selectedAddress)}`;
     }
+    if (selectedWallet == "all") return "all";
+    if (selectedWallet) return `file:${encodeSelectionValue(selectedWallet)}`;
     if (selectedWalletName) {
       return `name:${encodeSelectionValue(selectedWalletName)}`;
     }
-    if (selectedWallet == "all") return "all";
-    if (selectedWallet) return `file:${encodeSelectionValue(selectedWallet)}`;
     return "favs";
   }
 
@@ -3005,7 +3005,7 @@ function Wallet({
               })}
             </select>
             <CycleButton onClick={nextWallet} disabled={loadingWallet} />
-            <span>view:</span>
+            <span>chain:</span>
             <CycleButton
               direction="prev"
               onClick={() => cycleActiveChain(-1)}
