@@ -76,6 +76,7 @@ import {
   createTradeLoopResult,
   createTradeToast,
   CustomCoinConfirmModal,
+  canonicalizeTradeMarketEntry,
   emitTradeChainSelect,
   fmt,
   fmtPrice,
@@ -168,48 +169,6 @@ function getLendProtocolLabel(defi = "") {
   if (defi == "morpho") return "Morpho";
   if (defi == "jupiter") return "Jupiter";
   return "Aave";
-}
-
-function getLocalCoinByAddress(chainE = {}, address = "") {
-  const addressKey = getTokenAddressKey(chainE?.chain, address);
-  if (!addressKey) return "";
-
-  const coins = chainE?.allCoins?.length
-    ? chainE.allCoins
-    : Object.keys(chainE?.coinInfoM || {});
-
-  return (
-    coins.find(
-      (coin) =>
-        getTokenAddressKey(chainE?.chain, chainE?.coinInfoM?.[coin]?.address) ==
-        addressKey,
-    ) || ""
-  );
-}
-
-function canonicalizeMarketEntry(chainE = {}, entry = {}) {
-  const underlyingCoin =
-    getLocalCoinByAddress(chainE, entry.underlyingAddress) ||
-    entry.underlyingCoin;
-  const lendCoin =
-    getLocalCoinByAddress(chainE, entry.lendAddress) ||
-    entry.lendCoin;
-  const underlyingE = chainE?.coinInfoM?.[underlyingCoin] || {};
-  const lendE = chainE?.coinInfoM?.[lendCoin] || {};
-
-  return {
-    ...entry,
-    underlyingCoin,
-    underlyingName: underlyingE.name || entry.underlyingName,
-    underlyingDecimals: Number.isInteger(underlyingE.decimals)
-      ? underlyingE.decimals
-      : entry.underlyingDecimals,
-    lendCoin,
-    lendName: lendE.name || entry.lendName,
-    lendDecimals: Number.isInteger(lendE.decimals)
-      ? lendE.decimals
-      : entry.lendDecimals,
-  };
 }
 
 function getLendProtocolChainUrl(defi = "", entry = {}) {
@@ -467,7 +426,7 @@ export default function LendPanel({
     timeoutMs: defi == "aave" && allMarketKey == "Ethereum" ? 45000 : defi == "venus" ? 45000 : 25000,
   });
   const canonicalAllMarkets = useMemo(
-    () => rawAllMarkets.map((entry) => canonicalizeMarketEntry(chainE, entry)),
+    () => rawAllMarkets.map((entry) => canonicalizeTradeMarketEntry(chainE, entry)),
     [chainE, rawAllMarkets],
   );
   const allMarkets = canonicalAllMarkets

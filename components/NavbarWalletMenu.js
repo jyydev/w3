@@ -239,17 +239,6 @@ function TrashIcon() {
   );
 }
 
-function isEmptyWalletNode(node = {}) {
-  const label = String(node.label || "").toLowerCase();
-  const filePath = String(node.filePath || "")
-    .split("/")
-    .filter(Boolean)
-    .at(-1)
-    ?.toLowerCase();
-
-  return label == "empty" || filePath == "empty";
-}
-
 function WalletNavNode({
   node,
   routeBase,
@@ -257,9 +246,7 @@ function WalletNavNode({
   onToggleFav,
   onDeleteEmpty,
 }) {
-  const visibleChildren = (node.children || []).filter(
-    (child) => !isEmptyWalletNode(child),
-  );
+  const visibleChildren = node.children || [];
   const hasChildren = !!visibleChildren.length;
   const fav = getFavEntry(routeBase, node);
   const active = favHrefM.has(fav.href);
@@ -535,8 +522,6 @@ function NavbarWalletMenu({
     );
   }
 
-  const visibleTree = mergedTree.filter((node) => !isEmptyWalletNode(node));
-
   return (
     <div className="walletNavGroup">
       <div className="dropdown title">
@@ -545,8 +530,8 @@ function NavbarWalletMenu({
           <i className="custom-caret"></i>
         </Link>
         <div className="dropdown-content navMenuTree">
-          {visibleTree.length ? (
-            visibleTree.map((node) => (
+          {mergedTree.length ? (
+            mergedTree.map((node) => (
               <WalletNavNode
                 key={`${routeBase}:${node.walletType}`}
                 node={node}

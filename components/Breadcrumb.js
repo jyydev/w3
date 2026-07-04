@@ -52,24 +52,11 @@ function getTypeUrl(routeBase, walletType) {
 }
 
 function getSiblings(parent) {
-  return (parent?.children || []).filter(
-    (node) => node.type != "wallet" && !isEmptyWalletNode(node),
-  );
+  return (parent?.children || []).filter((node) => node.type != "wallet");
 }
 
 function getWalletChildren(node) {
   return (node?.children || []).filter((child) => child.type == "wallet");
-}
-
-function isEmptyWalletNode(node = {}) {
-  const label = String(node.label || "").toLowerCase();
-  const filePath = String(node.filePath || "")
-    .split("/")
-    .filter(Boolean)
-    .at(-1)
-    ?.toLowerCase();
-
-  return label == "empty" || filePath == "empty";
 }
 
 function findPathChild(parent, filePath) {

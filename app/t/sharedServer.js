@@ -10,8 +10,6 @@ import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import { onWhitelist, rpcs, whitelists } from "@/sets";
 import { getCoinUsdPrice } from "../w/walletData";
-
-const relayApiBase = "https://api.relay.link";
 export const nativeEvmAddress = "0x0000000000000000000000000000000000000000";
 export const erc20Abi = [
   "function allowance(address owner,address spender) view returns (uint256)",
@@ -467,50 +465,6 @@ export function getApproveTx({ chain = "", chainId, token = "", spender = "", am
       value: "0",
     },
   });
-}
-
-function getRelayHeaders() {
-  const apiKey = process.env.RELAY_API_KEY || process.env.relay_api_key;
-
-  return {
-    "Content-Type": "application/json",
-    ...(apiKey ? { "x-api-key": apiKey } : {}),
-  };
-}
-
-function parseJson(text = "") {
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    return { message: text };
-  }
-}
-
-async function postRelaySignature(post = {}, signature = "") {
-  const endpoint = post.endpoint || "";
-  if (!endpoint) throw new Error("Relay signature post endpoint missing");
-
-  const url = new URL(`${relayApiBase}${endpoint}`);
-  url.searchParams.set("signature", signature);
-  const res = await fetch(url, {
-    method: post.method || "POST",
-    headers: getRelayHeaders(),
-    body: JSON.stringify(post.body || {}),
-  });
-  const text = await res.text();
-  const data = parseJson(text);
-
-  if (!res.ok) {
-    throw new Error(data?.message || data?.error || "Relay signature post failed");
-  }
-
-  return data;
-}
-
-export async function submitRelaySignature({ post = {}, signature = "" } = {}) {
-  if (!signature) throw new Error("Relay signature missing");
-
-  return postRelaySignature(post, signature);
 }
 
 export async function executeRawEvmTx({

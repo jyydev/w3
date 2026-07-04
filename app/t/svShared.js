@@ -5,7 +5,6 @@ import {
   getTradeCoinBalance as getTradeCoinBalanceShared,
   getTradeCoinPrice as getTradeCoinPriceShared,
   sendSolanaRawTransaction as sendSolanaRawTransactionShared,
-  submitRelaySignature as submitRelaySignatureShared,
 } from "./sharedServer";
 
 export async function getTradeCoinPrice(args) {
@@ -22,8 +21,4 @@ export async function sendSolanaRawTransaction(args) {
 
 export async function confirmSolanaTransaction(args) {
   return confirmSolanaTransactionShared(args);
-}
-
-export async function submitRelaySignature(args) {
-  return submitRelaySignatureShared(args);
 }

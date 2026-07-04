@@ -41,8 +41,8 @@ export const emptyTokenDiscoveryE = {
   loaded: false,
   error: "",
 };
-export const relayCurrencyCacheM = {};
-export const relayCurrencyPromiseM = {};
+export const tokenDiscoveryCacheM = {};
+export const tokenDiscoveryPromiseM = {};
 
 export function hasChainDiscovery(defi = "") {
   return chainDiscoveryDexs.includes(defi);
@@ -89,12 +89,12 @@ export function getInitialSwapDex(initialCookieM = {}, walletType = "evm") {
     : dexOptions[0]?.value || "";
 }
 
-export function getRelayCurrencyKey(chain = "", term = "") {
+export function getTokenSearchKey(chain = "", term = "") {
   return `${chain}:${String(term || "").trim().toLowerCase()}`;
 }
 
 export function getTokenDiscoveryKey(defi = "", chain = "", term = "") {
-  return `${defi}:${getRelayCurrencyKey(chain, term)}`;
+  return `${defi}:${getTokenSearchKey(chain, term)}`;
 }
 
 export function getDiscoveryTokenKey(entry = {}, index = "") {

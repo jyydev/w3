@@ -27,7 +27,8 @@ import {
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
-const relayApiBase = "https://api.relay.link";const nativeSolanaAddress = "11111111111111111111111111111111";
+const relayApiBase = "https://api.relay.link";
+const nativeSolanaAddress = "11111111111111111111111111111111";
 const relayChainNameM = {
   "arbitrum one": "Arbitrum",
   arbitrum: "Arbitrum",
@@ -426,6 +427,12 @@ async function postRelaySignature(post = {}, signature = "") {
   }
 
   return data;
+}
+
+export async function submitRelaySignature({ post = {}, signature = "" } = {}) {
+  if (!signature) throw new Error("Relay signature missing");
+
+  return postRelaySignature(post, signature);
 }
 
 function relaySignMessageBytes(sign = {}) {

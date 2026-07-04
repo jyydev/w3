@@ -16,8 +16,8 @@ import {
   getTokenDiscoveryKey,
   getSwapRouteCookie,
   isDexSupportedForChain,
-  relayCurrencyCacheM,
-  relayCurrencyPromiseM,
+  tokenDiscoveryCacheM,
+  tokenDiscoveryPromiseM,
   trimQtyToDecimals,
   useSwapSupport,
 } from "./Client";
@@ -51,7 +51,7 @@ import {
   getRelaySupportedBridge,
   getRelaySwapPreview,
 } from "./relay/sv";
-import RelayClient from "./relay/Client";
+import RelayClient, { signBrowserRelayItem } from "./relay/Client";
 import {
   buildUniswapSwapTxs,
   executeUniswapSwap,
@@ -108,7 +108,6 @@ import {
   sameAddress,
   sendBrowserTradeTx,
   shortAddress,
-  signBrowserRelayItem,
   subtractTradeQtyText,
   SwapTxLink,
   tradeAutoApprovalCookie,
@@ -269,8 +268,8 @@ export default function SwapPanel({
     setLocallyAddedAddressM,
     onTxComplete,
   });
-  const [relayCurrencyM, setRelayCurrencyM] = useState({});
-  const [relayTokenSearchM, setRelayTokenSearchM] = useState({
+  const [tokenDiscoveryM, setTokenDiscoveryM] = useState({});
+  const [tokenSearchM, setTokenSearchM] = useState({
     from: "",
     to: "",
   });
@@ -482,36 +481,36 @@ export default function SwapPanel({
     () => discoveryTokenEntries.filter((entry) => entry.chain == toChain),
     [discoveryTokenEntries, toChain],
   );
-  const fromRelayCurrencyKey = getTokenDiscoveryKey(
+  const fromTokenDiscoveryKey = getTokenDiscoveryKey(
     defi,
     fromChain,
-    relayTokenSearchM.from,
+    tokenSearchM.from,
   );
-  const toRelayCurrencyKey = getTokenDiscoveryKey(
+  const toTokenDiscoveryKey = getTokenDiscoveryKey(
     defi,
     toChain,
-    relayTokenSearchM.to,
+    tokenSearchM.to,
   );
-  const fromRelayCurrencyE =
-    relayCurrencyM[fromRelayCurrencyKey] || emptyTokenDiscoveryE;
-  const toRelayCurrencyE =
-    relayCurrencyM[toRelayCurrencyKey] || emptyTokenDiscoveryE;
+  const fromLazyTokenDiscoveryE =
+    tokenDiscoveryM[fromTokenDiscoveryKey] || emptyTokenDiscoveryE;
+  const toLazyTokenDiscoveryE =
+    tokenDiscoveryM[toTokenDiscoveryKey] || emptyTokenDiscoveryE;
   const usesLazyTokenDiscovery =
     defi == "relay" || defi == "jumper" || defi == "jupiter";
   const fromTokenDiscoveryE =
     usesLazyTokenDiscovery
-      ? fromRelayCurrencyE
+      ? fromLazyTokenDiscoveryE
       : { ...swapSupportE, tokens: fromDiscoveryTokenEntries };
   const toTokenDiscoveryE =
     usesLazyTokenDiscovery
-      ? toRelayCurrencyE
+      ? toLazyTokenDiscoveryE
       : { ...swapSupportE, tokens: toDiscoveryTokenEntries };
   const fromSwapTokenEntries =
     usesLazyTokenDiscovery
-      ? fromRelayCurrencyE.tokens
+      ? fromLazyTokenDiscoveryE.tokens
       : fromDiscoveryTokenEntries;
   const toSwapTokenEntries =
-    usesLazyTokenDiscovery ? toRelayCurrencyE.tokens : toDiscoveryTokenEntries;
+    usesLazyTokenDiscovery ? toLazyTokenDiscoveryE.tokens : toDiscoveryTokenEntries;
   const fromChainButtonWidth = useMemo(
     () =>
       getTradePickerButtonWidth([fromChain, ...sellChainNames], {
@@ -1440,23 +1439,23 @@ export default function SwapPanel({
     if (next) selectToChain(next);
   }
 
-  function requestRelayCurrencies(chain = "", term = "", { force = false } = {}) {
+  function requestTokenDiscovery(chain = "", term = "", { force = false } = {}) {
     const currentDefi = defi;
     if (!chain || !["relay", "jumper", "jupiter"].includes(currentDefi)) return;
     const key = getTokenDiscoveryKey(currentDefi, chain, term);
-    const current = relayCurrencyM[key] || emptyTokenDiscoveryE;
+    const current = tokenDiscoveryM[key] || emptyTokenDiscoveryE;
     if (!force && (current.loading || current.loaded)) return;
 
-    if (!force && relayCurrencyCacheM[key]) {
-      setRelayCurrencyM((currencyM) => ({
-        ...currencyM,
-        [key]: relayCurrencyCacheM[key],
+    if (!force && tokenDiscoveryCacheM[key]) {
+      setTokenDiscoveryM((discoveryM) => ({
+        ...discoveryM,
+        [key]: tokenDiscoveryCacheM[key],
       }));
       return;
     }
 
-    setRelayCurrencyM((currencyM) => ({
-      ...currencyM,
+    setTokenDiscoveryM((discoveryM) => ({
+      ...discoveryM,
       [key]: {
         ...current,
         loading: true,
@@ -1465,19 +1464,19 @@ export default function SwapPanel({
       },
     }));
 
-    if (!force && relayCurrencyPromiseM[key]) {
-      relayCurrencyPromiseM[key]
+    if (!force && tokenDiscoveryPromiseM[key]) {
+      tokenDiscoveryPromiseM[key]
         .then((entry) => {
-          setRelayCurrencyM((currencyM) => ({
-            ...currencyM,
+          setTokenDiscoveryM((discoveryM) => ({
+            ...discoveryM,
             [key]: entry,
           }));
         })
         .catch((e) => {
-          setRelayCurrencyM((currencyM) => ({
-            ...currencyM,
+          setTokenDiscoveryM((discoveryM) => ({
+            ...discoveryM,
             [key]: {
-              ...(currencyM[key] || emptyTokenDiscoveryE),
+              ...(discoveryM[key] || emptyTokenDiscoveryE),
               loading: false,
               loaded: true,
               error:
@@ -1496,7 +1495,7 @@ export default function SwapPanel({
           ? getJumperTokenDiscovery({ chain, term })
         : getRelayCurrencyDiscovery({ chain, term });
 
-    relayCurrencyPromiseM[key] = discoveryRequest
+    tokenDiscoveryPromiseM[key] = discoveryRequest
       .then((res) => {
         const entry = {
           tokens: Array.isArray(res?.tokens) ? res.tokens : [],
@@ -1504,15 +1503,15 @@ export default function SwapPanel({
           loaded: true,
           error: "",
         };
-        relayCurrencyCacheM[key] = entry;
-        setRelayCurrencyM((currencyM) => ({
-          ...currencyM,
+        tokenDiscoveryCacheM[key] = entry;
+        setTokenDiscoveryM((discoveryM) => ({
+          ...discoveryM,
           [key]: entry,
         }));
         return entry;
       })
       .catch((e) => {
-        delete relayCurrencyPromiseM[key];
+        delete tokenDiscoveryPromiseM[key];
         const entry = {
           tokens: [],
           loading: false,
@@ -1520,44 +1519,44 @@ export default function SwapPanel({
           error:
             e?.message || `${getDexLabel(currentDefi)} token discovery failed`,
         };
-        setRelayCurrencyM((currencyM) => ({
-          ...currencyM,
+        setTokenDiscoveryM((discoveryM) => ({
+          ...discoveryM,
           [key]: entry,
         }));
         return entry;
       });
   }
 
-  function changeRelayTokenSearch(side = "from", value = "") {
-    setRelayTokenSearchM((searchM) => ({
+  function changeTokenSearch(side = "from", value = "") {
+    setTokenSearchM((searchM) => ({
       ...searchM,
       [side]: value,
     }));
   }
 
-  function submitRelayTokenSearch(e, side = "from", chain = "") {
+  function submitTokenSearch(e, side = "from", chain = "") {
     e?.preventDefault?.();
     e?.stopPropagation?.();
-    requestRelayCurrencies(chain, relayTokenSearchM[side] || "");
+    requestTokenDiscovery(chain, tokenSearchM[side] || "");
   }
 
-  function retryRelayCurrencies(e, side = "from", chain = "") {
+  function retryTokenDiscovery(e, side = "from", chain = "") {
     e?.preventDefault?.();
     e?.stopPropagation?.();
-    const term = relayTokenSearchM[side] || "";
+    const term = tokenSearchM[side] || "";
     const key = getTokenDiscoveryKey(defi, chain, term);
-    delete relayCurrencyCacheM[key];
-    delete relayCurrencyPromiseM[key];
-    setRelayCurrencyM((currencyM) => ({
-      ...currencyM,
+    delete tokenDiscoveryCacheM[key];
+    delete tokenDiscoveryPromiseM[key];
+    setTokenDiscoveryM((discoveryM) => ({
+      ...discoveryM,
       [key]: emptyTokenDiscoveryE,
     }));
-    requestRelayCurrencies(chain, term, { force: true });
+    requestTokenDiscovery(chain, term, { force: true });
   }
 
-  function openRelayCoinMenu(side = "from", chain = "") {
+  function openTokenDiscoveryMenu(side = "from", chain = "") {
     if (!["relay", "jumper", "jupiter"].includes(defi)) return;
-    requestRelayCurrencies(chain, relayTokenSearchM[side] || "");
+    requestTokenDiscovery(chain, tokenSearchM[side] || "");
   }
 
   function showManualChain(entry = {}) {
@@ -1864,11 +1863,11 @@ export default function SwapPanel({
               allTokens={fromSwapTokenEntries}
               tokenDiscoveryE={fromTokenDiscoveryE}
               strictSupport={!usesLazyTokenDiscovery}
-              searchTerm={relayTokenSearchM.from}
-              onSearchChange={(value) => changeRelayTokenSearch("from", value)}
-              onSearchSubmit={(e) => submitRelayTokenSearch(e, "from", fromChain)}
-              onRetryTokens={(e) => retryRelayCurrencies(e, "from", fromChain)}
-              onOpen={() => openRelayCoinMenu("from", fromChain)}
+              searchTerm={tokenSearchM.from}
+              onSearchChange={(value) => changeTokenSearch("from", value)}
+              onSearchSubmit={(e) => submitTokenSearch(e, "from", fromChain)}
+              onRetryTokens={(e) => retryTokenDiscovery(e, "from", fromChain)}
+              onOpen={() => openTokenDiscoveryMenu("from", fromChain)}
               showSearch={usesLazyTokenDiscovery}
               buttonWidth={fromCoinButtonWidth}
               onSelect={selectFromCoin}
@@ -2063,11 +2062,11 @@ export default function SwapPanel({
               allTokens={toSwapTokenEntries}
               tokenDiscoveryE={toTokenDiscoveryE}
               strictSupport={!usesLazyTokenDiscovery}
-              searchTerm={relayTokenSearchM.to}
-              onSearchChange={(value) => changeRelayTokenSearch("to", value)}
-              onSearchSubmit={(e) => submitRelayTokenSearch(e, "to", toChain)}
-              onRetryTokens={(e) => retryRelayCurrencies(e, "to", toChain)}
-              onOpen={() => openRelayCoinMenu("to", toChain)}
+              searchTerm={tokenSearchM.to}
+              onSearchChange={(value) => changeTokenSearch("to", value)}
+              onSearchSubmit={(e) => submitTokenSearch(e, "to", toChain)}
+              onRetryTokens={(e) => retryTokenDiscovery(e, "to", toChain)}
+              onOpen={() => openTokenDiscoveryMenu("to", toChain)}
               showSearch={usesLazyTokenDiscovery}
               buttonWidth={toCoinButtonWidth}
               onSelect={selectToCoin}

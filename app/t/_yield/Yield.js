@@ -76,6 +76,7 @@ import {
 import {
   applyTradeMarketEndState,
   applyTradeMarketQtyState,
+  canonicalizeTradeMarketEntry,
   cookieMaxAge,
   createTradeLoopResult,
   createTradeToast,
@@ -381,8 +382,8 @@ export default function YieldPanel({
     }
     return entries;
   }, [chainE?.chain, chainE?.coinInfoM]);
-  const sparkAllKey = chainE?.chain || "";
-  const allMarketCacheKey = `${defi}:${sparkAllKey}`;
+  const allMarketChain = chainE?.chain || "";
+  const allMarketCacheKey = `${defi}:${allMarketChain}`;
   const allProtocolLabel = isHyperliquid
     ? "Hyperliquid"
     : isVenusFlux
@@ -391,18 +392,25 @@ export default function YieldPanel({
   const getAllYieldMarkets =
     defi == "venusFlux" ? getVenusFluxAllMarkets : getSparkAllMarkets;
   const {
-    markets: rawSparkAllMarkets,
-    loading: sparkAllLoading,
-    error: sparkAllError,
+    markets: rawProtocolAllMarkets,
+    loading: allMarketsLoading,
+    error: allMarketsError,
     retry: retryAllMarkets,
   } = useYieldAllMarkets({
     enabled: defi == "spark" || defi == "venusFlux",
     cacheKey: allMarketCacheKey,
-    chain: sparkAllKey,
+    chain: allMarketChain,
     protocolLabel: allProtocolLabel,
     getAllMarkets: getAllYieldMarkets,
   });
-  const sparkAllMarkets = rawSparkAllMarkets
+  const canonicalAllMarkets = useMemo(
+    () =>
+      rawProtocolAllMarkets.map((entry) =>
+        canonicalizeTradeMarketEntry(chainE, entry),
+      ),
+    [chainE, rawProtocolAllMarkets],
+  );
+  const protocolAllMarkets = canonicalAllMarkets
     .map((entry) => {
       const addressKey = getTokenAddressKey(chainE?.chain, entry.lendAddress);
       const underlyingAddressKey = getTokenAddressKey(
@@ -413,11 +421,11 @@ export default function YieldPanel({
       const addedUnderlying =
         entry.addedUnderlying ||
         !!addedCoinAddressM[underlyingAddressKey] ||
-        !!locallyAddedAddressM[`${sparkAllKey}:${underlyingAddressKey}`];
+        !!locallyAddedAddressM[`${allMarketChain}:${underlyingAddressKey}`];
       const addedLend =
         entry.addedLend ||
         !!addedValue ||
-        !!locallyAddedAddressM[`${sparkAllKey}:${addressKey}`];
+        !!locallyAddedAddressM[`${allMarketChain}:${addressKey}`];
 
       return {
         ...entry,
@@ -428,10 +436,10 @@ export default function YieldPanel({
     })
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
   const visibleAddedMarkets = useMemo(() => {
-    if (!rawSparkAllMarkets.length) return addedMarkets;
+    if (!canonicalAllMarkets.length) return addedMarkets;
 
     const rawMarketByLendAddress = Object.fromEntries(
-      rawSparkAllMarkets
+      canonicalAllMarkets
         .filter((entry) => entry.lendAddress)
         .map((entry) => [
           getTokenAddressKey(chainE?.chain, entry.lendAddress),
@@ -466,10 +474,10 @@ export default function YieldPanel({
         addedLend: true,
       };
     });
-  }, [addedMarkets, chainE?.coinInfoM, rawSparkAllMarkets]);
-  const allMarkets = isHyperliquid ? [] : sparkAllMarkets;
-  const allLoading = isHyperliquid ? false : sparkAllLoading;
-  const allError = isHyperliquid ? "" : sparkAllError;
+  }, [addedMarkets, canonicalAllMarkets, chainE?.chain, chainE?.coinInfoM]);
+  const allMarkets = isHyperliquid ? [] : protocolAllMarkets;
+  const allLoading = isHyperliquid ? false : allMarketsLoading;
+  const allError = isHyperliquid ? "" : allMarketsError;
   const hasProtocolAllMarkets = !isHyperliquid;
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
@@ -479,7 +487,7 @@ export default function YieldPanel({
     chainE,
     defi,
     marketE,
-    rawMarkets: rawSparkAllMarkets,
+    rawMarkets: canonicalAllMarkets,
   });
   const marketButtonWidth = useMemo(
     () =>
