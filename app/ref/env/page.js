@@ -58,8 +58,31 @@ const privateKeyRows = [
     "Optional Solana private key for local/server private-key mode. Accepts supported secret-key formats.",
   ],
   [
+    "encoding",
+    "Stored private-key values are decoded by swapping the 4th and 6th characters back before use.",
+  ],
+  [
     "scope",
     "Private keys are server-only env values. Do not put them in NEXT_PUBLIC variables or checked-in files.",
+  ],
+];
+
+const setConfigRows = [
+  [
+    "onWhitelist",
+    "Local set.js boolean. When true, private-key sends and bridge swaps can only send to whitelisted recipient addresses.",
+  ],
+  [
+    "whitelists",
+    "Local set.js array of allowed EVM or Solana addresses used when onWhitelist is true.",
+  ],
+  [
+    "connected wallet",
+    "Connected browser-wallet transactions are not restricted by the local private-key whitelist setting.",
+  ],
+  [
+    "matching",
+    "EVM addresses are checksum-normalized; Solana addresses are normalized to base58 before comparison.",
   ],
 ];
 
@@ -75,10 +98,6 @@ const localConfigRows = [
   [
     ".env.local",
     "Local-only secrets and API keys. This should stay ignored and should not be committed.",
-  ],
-  [
-    ".env.example",
-    "Safe template showing supported variable names without real values.",
   ],
   [
     "set.js",
@@ -123,6 +142,10 @@ function EnvRefPage() {
 
       <Section title="private keys">
         <Table rows={privateKeyRows} />
+      </Section>
+
+      <Section title="set.js whitelist">
+        <Table rows={setConfigRows} />
       </Section>
 
       <Section title="coin metadata">

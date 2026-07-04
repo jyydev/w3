@@ -137,15 +137,14 @@ If `onWhitelist` is enabled in private local settings, private-key sends and bri
 
 ## Environment Variables
 
-Copy `.env.example` to `.env.local` for local secrets.
+Use `/ref/env` in the app for the full environment-variable reference.
+Local secrets should go in `.env.local`.
 
 Common variables:
 
 ```txt
 login=
 rpc_key_alchemy=
-rpc_key_alchemy_solana=
-rpc_solana_alchemy1=
 RELAY_API_KEY=
 ACROSS_API_KEY=
 ACROSS_INTEGRATOR_ID=
