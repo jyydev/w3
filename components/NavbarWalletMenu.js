@@ -17,7 +17,7 @@ import {
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
-function getWalletNavUrl(routeBase, node) {
+export function getWalletNavUrl(routeBase, node) {
   const base = String(routeBase || "/w").replace(/\/+$/, "") || "/w";
   const cleanPath = String(node.filePath || "").replace(/\/+$/, "");
   const pathname = cleanPath
@@ -168,7 +168,7 @@ function addLocalWalletFile(typeNode, record) {
   }
 }
 
-function getLocalWalletTree() {
+export function getLocalWalletTree() {
   if (!useLocalStorageEditor()) return [];
 
   return ["evm", "solana"]
@@ -189,7 +189,7 @@ function getLocalWalletTree() {
     .filter(Boolean);
 }
 
-function mergeTrees(baseTree = [], localTree = []) {
+export function mergeTrees(baseTree = [], localTree = []) {
   const merged = JSON.parse(JSON.stringify(baseTree || []));
   for (const localNode of localTree) {
     const existing = merged.find((node) => node.walletType == localNode.walletType);

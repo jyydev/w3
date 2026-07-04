@@ -29,14 +29,6 @@
   text-decoration: underline;
 }
 
-.refBreadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  color: #888;
-}
-
 .refTitle {
   font-size: 24px;
   margin: 12px 0 4px;

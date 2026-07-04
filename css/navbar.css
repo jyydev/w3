@@ -349,3 +349,172 @@
   margin-bottom: 2px; /* position higher */
   border-top: 6px solid;
 }
+
+.breadcrumbNav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  margin: -4px 0 8px 0;
+  padding-left: var(--navleftSpace);
+  color: #aaa;
+  font-family: Arial;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.breadcrumbHome {
+  color: #ccc;
+  text-decoration: none;
+}
+
+.breadcrumbHome:hover {
+  color: var(--orange);
+}
+
+.breadcrumbSep {
+  color: #666;
+  font-size: 12px;
+}
+
+.breadcrumbSelect {
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #ddd;
+  padding: 1px 0;
+  font: inherit;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.breadcrumbSelect:disabled {
+  color: #777;
+  cursor: default;
+}
+
+.breadcrumbSelect option {
+  background: #222;
+  color: #ddd;
+}
+
+.breadcrumbCrumb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+}
+
+.breadcrumbCrumbLabel,
+.breadcrumbCrumbToggle {
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #ddd;
+  font: inherit;
+  line-height: 18px;
+}
+
+.breadcrumbCrumbLabel {
+  padding: 1px 0;
+  cursor: pointer;
+}
+
+.breadcrumbCrumbLabel.inert {
+  cursor: default;
+}
+
+.breadcrumbCrumbLabel:disabled {
+  color: #777;
+  cursor: default;
+}
+
+.breadcrumbCrumb:not(.disabled):hover .breadcrumbCrumbLabel,
+.breadcrumbCrumb:not(.disabled):focus-within .breadcrumbCrumbLabel {
+  color: var(--orange);
+}
+
+.breadcrumbCrumbLabelWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumbCrumbMenuWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.breadcrumbCrumbToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  align-self: stretch;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.breadcrumbCrumb:not(.disabled):hover .breadcrumbCaret,
+.breadcrumbCrumb:not(.disabled):focus-within .breadcrumbCaret {
+  border-top-color: var(--orange);
+}
+
+.breadcrumbCaret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #aaa;
+}
+
+.breadcrumbMenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 80;
+  display: none;
+  min-width: 90px;
+  padding: 3px 0;
+  background: #222;
+  border: 1px solid #444;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+}
+
+.breadcrumbCrumb:hover .breadcrumbMenu,
+.breadcrumbCrumb:focus-within .breadcrumbMenu {
+  display: grid;
+}
+
+.breadcrumbCrumb.closed .breadcrumbMenu {
+  display: none;
+}
+
+.breadcrumbMenuItem {
+  border: 0;
+  background: transparent;
+  color: #ddd;
+  padding: 6px 10px;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.breadcrumbMenuItem:hover,
+.breadcrumbMenuItem.active:hover {
+  color: var(--orange);
+  background: #333;
+}
+
+.breadcrumbMenuItem.active {
+  color: white;
+}
+
+.breadcrumbMenuItem:disabled {
+  color: #777;
+  cursor: default;
+}

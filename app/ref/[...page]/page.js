@@ -121,13 +121,6 @@ async function RefDetailPage({ params = {} }) {
   return (
     <div className="refPage">
       <Logo page="ref" />
-      <nav className="refBreadcrumb">
-        <a className="refLink" href="/ref">
-          ref
-        </a>
-        <span>/</span>
-        <span>{page?.title || slug || "not found"}</span>
-      </nav>
 
       {page ? (
         <>

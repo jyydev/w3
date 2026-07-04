@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import NavbarLinkMenu from "./NavbarLinkMenu";
 import NavbarWalletMenu from "./NavbarWalletMenu";
+import Breadcrumb from "./Breadcrumb";
 
 const walletTypeLabels = {
   evm: "EVM",
@@ -222,96 +223,99 @@ export default async function Navbar() {
   }
 
   return (
-    <div className="navbar">
-      {links.map((e) /*e[0]:link e[1]:title*/ => {
-        return e?.[0]?.type == "walletTree" ? (
-          <NavbarWalletMenu
-            key={e[1]}
-            title={e[1]}
-            routeBase={e[0].routeBase}
-            tree={walletNavTree}
-            cookieName={getFullCookieName(
-              getWalletFavCookieKey(e[0].routeBase),
-            )}
-            initialFavs={parseWalletFavs(
-              ck[getWalletFavCookieKey(e[0].routeBase)],
-            )}
-          />
-        ) : e?.[0]?.type == "linkMenu" ? (
-          <NavbarLinkMenu
-            key={e[1]}
-            title={e[1]}
-            items={e[0].items}
-            cookieName={getFullCookieName(e[0].favCookieKey)}
-            initialFavs={parseWalletFavs(ck[e[0].favCookieKey])}
-          />
-        ) : !isAr(e?.[0] /*single link (not dropdown)*/) ? (
-          isAr(e) /*e=[link, title]*/ ? (
-            !e[0] /*no link, tx only: e=['',title]*/ ? (
-              <span className="tx" key={uid()}>
-                {e[1]}
-              </span>
+    <>
+      <div className="navbar">
+        {links.map((e) /*e[0]:link e[1]:title*/ => {
+          return e?.[0]?.type == "walletTree" ? (
+            <NavbarWalletMenu
+              key={e[1]}
+              title={e[1]}
+              routeBase={e[0].routeBase}
+              tree={walletNavTree}
+              cookieName={getFullCookieName(
+                getWalletFavCookieKey(e[0].routeBase),
+              )}
+              initialFavs={parseWalletFavs(
+                ck[getWalletFavCookieKey(e[0].routeBase)],
+              )}
+            />
+          ) : e?.[0]?.type == "linkMenu" ? (
+            <NavbarLinkMenu
+              key={e[1]}
+              title={e[1]}
+              items={e[0].items}
+              cookieName={getFullCookieName(e[0].favCookieKey)}
+              initialFavs={parseWalletFavs(ck[e[0].favCookieKey])}
+            />
+          ) : !isAr(e?.[0] /*single link (not dropdown)*/) ? (
+            isAr(e) /*e=[link, title]*/ ? (
+              !e[0] /*no link, tx only: e=['',title]*/ ? (
+                <span className="tx" key={uid()}>
+                  {e[1]}
+                </span>
+              ) : (
+                <Link
+                  /*e=[link,title]*/ href={e[0].startsWith("[") ? "" : e[0]}
+                  key={uid()}
+                >
+                  {e[1]}
+                </Link>
+              )
             ) : (
-              <Link
-                /*e=[link,title]*/ href={e[0].startsWith("[") ? "" : e[0]}
+              /*link only*/ <Link
+                href={e.startsWith("[") ? "" /*err if str=[..]*/ : e}
                 key={uid()}
               >
-                {e[1]}
+                {e}
               </Link>
             )
           ) : (
-            /*link only*/ <Link
-              href={e.startsWith("[") ? "" /*err if str=[..]*/ : e}
+            <div /*multi-links: dropdown with caret icon*/
+              className={
+                e[1] ? "dropdown title" /*title:margin left no -ve*/ : "dropdown"
+              }
               key={uid()}
             >
-              {e}
-            </Link>
-          )
-        ) : (
-          <div /*multi-links: dropdown with caret icon*/
-            className={
-              e[1] ? "dropdown title" /*title:margin left no -ve*/ : "dropdown"
-            }
-            key={uid()}
-          >
-            <button className="dropbtn">
-              {e[1]}
-              <i className="custom-caret"></i>
-            </button>
-            <div className="dropdown-content">
-              {
-                /*e[0]=[[title,link],link,]*/ e[0].map(
-                  (e /*e=[link, title] or link*/) =>
-                    isAr(e) ? (
-                      /*e=[link, title]*/ e[0] ? (
-                        <Link
-                          href={e[0].startsWith("[") ? "" : e[0]}
-                          key={uid()}
-                        >
-                          {e[1]}
-                        </Link>
+              <button className="dropbtn">
+                {e[1]}
+                <i className="custom-caret"></i>
+              </button>
+              <div className="dropdown-content">
+                {
+                  /*e[0]=[[title,link],link,]*/ e[0].map(
+                    (e /*e=[link, title] or link*/) =>
+                      isAr(e) ? (
+                        /*e=[link, title]*/ e[0] ? (
+                          <Link
+                            href={e[0].startsWith("[") ? "" : e[0]}
+                            key={uid()}
+                          >
+                            {e[1]}
+                          </Link>
+                        ) : (
+                          /*no link: section title*/ <div
+                            className="section"
+                            key={uid()}
+                          >
+                            {e[1] /*e=['',tx]*/}
+                          </div>
+                        )
                       ) : (
-                        /*no link: section title*/ <div
-                          className="section"
+                        /*e=link only*/ <Link
+                          href={e.startsWith("[") ? "" : e}
                           key={uid()}
                         >
-                          {e[1] /*e=['',tx]*/}
-                        </div>
-                      )
-                    ) : (
-                      /*e=link only*/ <Link
-                        href={e.startsWith("[") ? "" : e}
-                        key={uid()}
-                      >
-                        {e}
-                      </Link>
-                    ),
-                )
-              }
+                          {e}
+                        </Link>
+                      ),
+                  )
+                }
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      <Breadcrumb walletTree={walletNavTree} />
+    </>
   );
 }
