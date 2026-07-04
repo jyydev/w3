@@ -170,6 +170,48 @@ function getLendProtocolLabel(defi = "") {
   return "Aave";
 }
 
+function getLocalCoinByAddress(chainE = {}, address = "") {
+  const addressKey = getTokenAddressKey(chainE?.chain, address);
+  if (!addressKey) return "";
+
+  const coins = chainE?.allCoins?.length
+    ? chainE.allCoins
+    : Object.keys(chainE?.coinInfoM || {});
+
+  return (
+    coins.find(
+      (coin) =>
+        getTokenAddressKey(chainE?.chain, chainE?.coinInfoM?.[coin]?.address) ==
+        addressKey,
+    ) || ""
+  );
+}
+
+function canonicalizeMarketEntry(chainE = {}, entry = {}) {
+  const underlyingCoin =
+    getLocalCoinByAddress(chainE, entry.underlyingAddress) ||
+    entry.underlyingCoin;
+  const lendCoin =
+    getLocalCoinByAddress(chainE, entry.lendAddress) ||
+    entry.lendCoin;
+  const underlyingE = chainE?.coinInfoM?.[underlyingCoin] || {};
+  const lendE = chainE?.coinInfoM?.[lendCoin] || {};
+
+  return {
+    ...entry,
+    underlyingCoin,
+    underlyingName: underlyingE.name || entry.underlyingName,
+    underlyingDecimals: Number.isInteger(underlyingE.decimals)
+      ? underlyingE.decimals
+      : entry.underlyingDecimals,
+    lendCoin,
+    lendName: lendE.name || entry.lendName,
+    lendDecimals: Number.isInteger(lendE.decimals)
+      ? lendE.decimals
+      : entry.lendDecimals,
+  };
+}
+
 function getLendProtocolChainUrl(defi = "", entry = {}) {
   if (defi == "aave") return getAaveMarketUrl(entry.chain);
   if (defi == "morpho" && entry.chainId) {
@@ -424,7 +466,11 @@ export default function LendPanel({
     getAllMarkets: getAllLendMarkets,
     timeoutMs: defi == "aave" && allMarketKey == "Ethereum" ? 45000 : defi == "venus" ? 45000 : 25000,
   });
-  const allMarkets = rawAllMarkets
+  const canonicalAllMarkets = useMemo(
+    () => rawAllMarkets.map((entry) => canonicalizeMarketEntry(chainE, entry)),
+    [chainE, rawAllMarkets],
+  );
+  const allMarkets = canonicalAllMarkets
     .map((entry) => {
       const addressKey = getTokenAddressKey(chainE?.chain, entry.lendAddress);
       const underlyingAddressKey = getTokenAddressKey(
@@ -451,11 +497,11 @@ export default function LendPanel({
     })
     .filter((entry) => !entry.addedUnderlying || !entry.addedLend);
   const visibleAddedMarkets = useMemo(() => {
-    if (!rawAllMarkets.length) return addedMarkets;
+    if (!canonicalAllMarkets.length) return addedMarkets;
     const protocolAllKey = allMarketKey || chainE?.chain || "";
 
     const rawMarketByLendAddress = Object.fromEntries(
-      rawAllMarkets
+      canonicalAllMarkets
         .filter((entry) => entry.lendAddress)
         .map((entry) => [
           getTokenAddressKey(chainE?.chain, entry.lendAddress),
@@ -502,7 +548,7 @@ export default function LendPanel({
       ),
     );
 
-    for (const entry of rawAllMarkets) {
+    for (const entry of canonicalAllMarkets) {
       const lendAddress = getTokenAddressKey(chainE?.chain, entry.lendAddress);
       const underlyingAddress = getTokenAddressKey(
         chainE?.chain,
@@ -538,8 +584,8 @@ export default function LendPanel({
     allMarketKey,
     chainE?.chain,
     chainE?.coinInfoM,
+    canonicalAllMarkets,
     locallyAddedAddressM,
-    rawAllMarkets,
   ]);
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
@@ -549,7 +595,7 @@ export default function LendPanel({
     chainE,
     defi,
     marketE,
-    rawMarkets: rawAllMarkets,
+    rawMarkets: canonicalAllMarkets,
   });
   const marketButtonWidth = useMemo(
     () =>
@@ -2099,7 +2145,7 @@ export default function LendPanel({
             visibleAddedMarkets={visibleAddedMarkets}
             addedRows={visibleAddedMarkets.map(getMarketTableRow)}
             allRows={allMarkets.map(getMarketTableRow)}
-            rawAllMarkets={rawAllMarkets}
+            rawAllMarkets={canonicalAllMarkets}
             allLoading={allLoading}
             allError={allError}
             allProtocolLabel={allProtocolLabel}

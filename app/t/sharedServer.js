@@ -147,10 +147,9 @@ function getDynamicCoinE(coinE = null) {
   if (!coinE || typeof coinE != "object") return null;
 
   const decimals = Number(coinE.decimals);
-  const entry = {
-    decimals: Number.isInteger(decimals) ? decimals : 18,
-  };
+  const entry = {};
 
+  if (Number.isInteger(decimals)) entry.decimals = decimals;
   if (coinE.native) entry.native = true;
   if (coinE.address) entry.address = String(coinE.address);
 
@@ -163,7 +162,12 @@ export async function getTradeCoinBalance({
   address = "",
   coinE: dynamicCoinE = null,
 } = {}) {
-  const coinE = coinM?.[chain]?.[coin] || getDynamicCoinE(dynamicCoinE);
+  const staticCoinE = coinM?.[chain]?.[coin];
+  const dynamicCoinEntry = getDynamicCoinE(dynamicCoinE);
+  const coinE =
+    staticCoinE || dynamicCoinEntry
+      ? { ...(staticCoinE || {}), ...(dynamicCoinEntry || {}) }
+      : null;
   if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
   if (!address) throw new Error("recipient address missing");
 

@@ -983,10 +983,27 @@ function getAlchemyLocalLookup({ chain, coinEntries }) {
     }
 
     const address = normalizeAlchemyTokenAddress(chain, coinE.address);
-    if (address) addressM[address] = [coin, coinE];
+    if (address && !addressM[address]) addressM[address] = [coin, coinE];
   }
 
   return { addressM, nativeEntries };
+}
+
+function dedupeCoinEntriesByAddress(chain, coinEntries = []) {
+  const seenAddressM = {};
+  const result = [];
+
+  for (const [coin, coinE] of coinEntries) {
+    const address = normalizeAlchemyTokenAddress(chain, coinE?.address);
+    if (address) {
+      if (seenAddressM[address]) continue;
+      seenAddressM[address] = coin;
+    }
+
+    result.push([coin, coinE]);
+  }
+
+  return result;
 }
 
 function getAlchemyNativeCoinEntry({ token, lookup }) {
@@ -2248,7 +2265,7 @@ export async function getSolanaWalletBalances({
       ? customCoinM
       : {}),
   };
-  const allCoinEntries = Object.entries(coinM);
+  const allCoinEntries = dedupeCoinEntriesByAddress(chain, Object.entries(coinM));
   const coinEntries = getActiveCoinEntries(allCoinEntries, disabledCoins);
   const allCoins = coinEntries.map(([coin]) => coin);
   const coinInfoM = Object.fromEntries(allCoinEntries);
@@ -2580,7 +2597,7 @@ export async function getWalletBalances({
       ? customCoinM
       : {}),
   };
-  const allCoinEntries = Object.entries(coinM);
+  const allCoinEntries = dedupeCoinEntriesByAddress(chain, Object.entries(coinM));
   const coinEntries = getActiveCoinEntries(allCoinEntries, disabledCoins);
   const allCoins = coinEntries.map(([coin]) => coin);
   const coinInfoM = Object.fromEntries(allCoinEntries);

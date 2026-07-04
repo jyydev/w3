@@ -170,7 +170,12 @@ function normalizeCoinM(input = []) {
 }
 
 function getWritableCoinList(coins = {}) {
-  return Object.entries(normalizeCoinM(coins)).map(([coin, entry]) => ({
+  const coinMap =
+    coins && typeof coins == "object" && !Array.isArray(coins)
+      ? coins
+      : normalizeCoinM(coins);
+
+  return Object.entries(coinMap).map(([coin, entry]) => ({
     coin,
     ...(entry || {}),
   }));
@@ -179,9 +184,12 @@ function getWritableCoinList(coins = {}) {
 async function appendGlobalCoins(chain, coins) {
   assertProjectFileWrites();
 
-  const coinM = normalizeCoinM(coins);
+  const stagedCoinM =
+    coins && typeof coins == "object" && !Array.isArray(coins)
+      ? coins
+      : normalizeCoinM(coins);
   const validEmpty = !Array.isArray(coins) || !coins.length;
-  if (Array.isArray(coins) && !Object.keys(coinM).length && !validEmpty) {
+  if (Array.isArray(coins) && !Object.keys(stagedCoinM).length && !validEmpty) {
     throw new Error("Coin JSON must be an array of coin objects");
   }
 
@@ -207,7 +215,7 @@ async function appendGlobalCoins(chain, coins) {
   const added = [];
   const skipped = [];
 
-  for (const [symbol, coin] of Object.entries(coinM)) {
+  for (const [symbol, coin] of Object.entries(stagedCoinM)) {
     if (!isPlainObject(coin)) throw new Error(`${symbol} must be a coin object`);
     const address = normalizeAddress(coin?.address);
     if (existingKeys.has(symbol) || (address && existingAddresses.has(address))) {

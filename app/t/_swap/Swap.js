@@ -82,6 +82,7 @@ import {
   formatComputedTradeQty,
   formatTradeQty,
   getChainCoins,
+  getCoinByAddress,
   getCoinBalanceByAddress,
   getCoinTypeOptions,
   getInitialCookie,
@@ -773,6 +774,28 @@ export default function SwapPanel({
     );
   }
 
+  function getRefreshTarget(chain = "", coin = "", address = "") {
+    const chainE = chainList.find((entry) => entry.chain == chain);
+    const coinE = chainE?.coinInfoM?.[coin];
+    const localCoin = coinE?.address ? getCoinByAddress(chainE, coinE.address) : "";
+    const refreshCoin = localCoin || coin;
+
+    return {
+      chain,
+      coin: refreshCoin,
+      address,
+      ...(coinE
+        ? {
+            coinE: {
+              address: coinE.address || "",
+              decimals: coinE.decimals,
+              native: !!coinE.native,
+            },
+          }
+        : {}),
+    };
+  }
+
   function isRecipientBalanceMode() {
     return !!(isSolanaBridge && recipient && toChain && toCoin);
   }
@@ -1271,16 +1294,8 @@ export default function SwapPanel({
       onTxComplete({
         ...res,
         refreshTargets: [
-          {
-            chain: fromChain,
-            coin: fromCoin,
-            address: walletEntry.address,
-          },
-          {
-            chain: toChain,
-            coin: toCoin,
-            address: toAddress,
-          },
+          getRefreshTarget(fromChain, fromCoin, walletEntry.address),
+          getRefreshTarget(toChain, toCoin, toAddress),
         ],
       });
       return res;

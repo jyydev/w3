@@ -68,6 +68,28 @@ function getHyperliquidVaultCoinM() {
   );
 }
 
+function getEvmTokenAddressKey(address = "") {
+  const text = String(address || "").trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(text) ? text.toLowerCase() : "";
+}
+
+function dedupeCoinInfoMByAddress(coinInfoM = {}) {
+  const seenAddressM = {};
+  const result = {};
+
+  for (const [coin, coinE] of Object.entries(coinInfoM || {})) {
+    const addressKey = getEvmTokenAddressKey(coinE?.address);
+    if (addressKey) {
+      if (seenAddressM[addressKey]) continue;
+      seenAddressM[addressKey] = coin;
+    }
+
+    result[coin] = coinE;
+  }
+
+  return result;
+}
+
 function hasWalletPrivateKey(name = "", walletType = defaultWalletType) {
   if (!name) return false;
 
@@ -197,13 +219,14 @@ async function WPage({
   const availableChains = [...evmRpcChains, hyperliquidChain];
   const customCoinM = await readCustomCoinM(availableChains);
   const availableCoinM = Object.fromEntries(
-    availableChains.map((chain) => [
-      chain,
-      Object.keys({
+    availableChains.map((chain) => {
+      const coinInfoM = dedupeCoinInfoMByAddress({
         ...(chain == hyperliquidChain ? getHyperliquidVaultCoinM() : coinM[chain] ?? {}),
         ...(customCoinM[chain] ?? {}),
-      }),
-    ]),
+      });
+
+      return [chain, Object.keys(coinInfoM)];
+    }),
   );
   const cookieStore = await cookies();
   const initialCookieM = getInitialClientCookieM(cookieStore);
@@ -453,7 +476,10 @@ async function WPage({
         ...(disabledCoinM[chain] ?? []),
         ...(offCoinM[chain] ?? []),
       ]);
-      const coinInfoM = { ...(coinM[chain] ?? {}), ...(customCoinM[chain] ?? {}) };
+      const coinInfoM = dedupeCoinInfoMByAddress({
+        ...(coinM[chain] ?? {}),
+        ...(customCoinM[chain] ?? {}),
+      });
       const allCoins = Object.keys(coinInfoM).filter(
         (coin) => !disabledCoins.has(coin),
       );

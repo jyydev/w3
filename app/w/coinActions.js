@@ -143,7 +143,12 @@ function normalizeCustomCoinM(input = []) {
 }
 
 function getWritableCustomCoinList(coins = {}) {
-  return Object.entries(normalizeCustomCoinM(coins)).map(([coin, entry]) => ({
+  const coinMap =
+    coins && typeof coins == "object" && !Array.isArray(coins)
+      ? coins
+      : normalizeCustomCoinM(coins);
+
+  return Object.entries(coinMap).map(([coin, entry]) => ({
     coin,
     ...(entry || {}),
   }));

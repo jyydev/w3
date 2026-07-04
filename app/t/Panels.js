@@ -28,6 +28,7 @@ import {
   getInitialCookie,
   getWalletPrivateKeyFlag,
   getWalletOptions,
+  getTokenAddressKey,
   sameAddress,
   tradeRightPaneCookie,
   tradeLeftPaneCookie,
@@ -67,8 +68,127 @@ function filterReservedWalletEntries(entries = []) {
   return entries.filter((entry) => !isReservedWalletSource(entry?.source));
 }
 
+function filterDuplicateCoinAliases(chainE = {}, localCoins = {}) {
+  const baseCoinInfoM = chainE.coinInfoM || {};
+  const baseAddressM = {};
+  const filtered = {};
+
+  for (const [coin, coinE] of Object.entries(baseCoinInfoM)) {
+    const addressKey = getTokenAddressKey(chainE.chain, coinE?.address);
+    if (addressKey) baseAddressM[addressKey] = coin;
+  }
+
+  for (const [coin, coinE] of Object.entries(localCoins || {})) {
+    const addressKey = getTokenAddressKey(chainE.chain, coinE?.address);
+    const baseCoin = addressKey ? baseAddressM[addressKey] : "";
+    if (baseCoin && baseCoin != coin) continue;
+
+    filtered[coin] = coinE;
+    if (addressKey) baseAddressM[addressKey] = coin;
+  }
+
+  return filtered;
+}
+
+function hasPositiveBalance(balance = {}) {
+  if (!balance || typeof balance != "object") return false;
+  try {
+    if (BigInt(balance.raw || 0) > 0n) return true;
+  } catch {}
+
+  return Number(balance.balance || 0) > 0 || Number(balance.usd || 0) > 0;
+}
+
+function normalizeCoinAliasList(list = [], aliasCoinM = {}) {
+  const seen = new Set();
+  const result = [];
+
+  for (const coin of list || []) {
+    const canonicalCoin = aliasCoinM[coin] || coin;
+    if (!canonicalCoin || seen.has(canonicalCoin)) continue;
+    seen.add(canonicalCoin);
+    result.push(canonicalCoin);
+  }
+
+  return result;
+}
+
+function normalizeTradeCoinAliases(data = []) {
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+
+  return list.map((chainE) => {
+    const coinInfoM = chainE?.coinInfoM || {};
+    const addressCoinM = {};
+    const aliasCoinM = {};
+    const normalizedCoinInfoM = {};
+
+    for (const [coin, coinE] of Object.entries(coinInfoM)) {
+      const addressKey = getTokenAddressKey(chainE.chain, coinE?.address);
+      const canonicalCoin = (addressKey && addressCoinM[addressKey]) || coin;
+      if (canonicalCoin != coin) aliasCoinM[coin] = canonicalCoin;
+      if (!normalizedCoinInfoM[canonicalCoin]) {
+        normalizedCoinInfoM[canonicalCoin] = coinInfoM[canonicalCoin] || coinE;
+      }
+      if (addressKey && !addressCoinM[addressKey]) {
+        addressCoinM[addressKey] = canonicalCoin;
+      }
+    }
+
+    const rows = (chainE.rows || []).map((row) => {
+      const balances = {};
+
+      for (const [coin, balance] of Object.entries(row.balances || {})) {
+        const canonicalCoin = aliasCoinM[coin] || coin;
+        const nextBalance = { ...balance, coin: canonicalCoin };
+        const prevBalance = balances[canonicalCoin];
+        balances[canonicalCoin] =
+          !prevBalance || (!hasPositiveBalance(prevBalance) && hasPositiveBalance(nextBalance))
+            ? nextBalance
+            : prevBalance;
+      }
+
+      return { ...row, balances };
+    });
+
+    return {
+      ...chainE,
+      allCoins: normalizeCoinAliasList(
+        chainE.allCoins?.length ? chainE.allCoins : Object.keys(coinInfoM),
+        aliasCoinM,
+      ),
+      coins: normalizeCoinAliasList(chainE.coins || [], aliasCoinM),
+      coinInfoM: normalizedCoinInfoM,
+      rows,
+    };
+  });
+}
+
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
   return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+}
+
+function getCanonicalPatchCoin(data = [], target = {}) {
+  const tokenAddressKey = getTokenAddressKey(target.chain, target.coinE?.address);
+  if (!tokenAddressKey) return target.coin;
+
+  const chainE = (Array.isArray(data) ? data : []).find(
+    (entry) => entry.chain == target.chain,
+  );
+  if (!chainE) return target.coin;
+
+  const coins = chainE.allCoins?.length
+    ? chainE.allCoins
+    : chainE.coins?.length
+      ? chainE.coins
+      : Object.keys(chainE.coinInfoM || {});
+
+  return (
+    coins.find(
+      (coin) =>
+        getTokenAddressKey(target.chain, chainE.coinInfoM?.[coin]?.address) ==
+        tokenAddressKey,
+    ) || target.coin
+  );
 }
 
 function shortAddressTail(address = "") {
@@ -244,7 +364,10 @@ function Panels({
     const mergedData = sourceData
       .filter((chainE) => tradeChainSet.has(chainE.chain))
       .map((chainE) => {
-        const localCoins = effectiveCustomCoinM[chainE.chain] || {};
+        const localCoins = filterDuplicateCoinAliases(
+          chainE,
+          effectiveCustomCoinM[chainE.chain] || {},
+        );
         const localCoinNames = Object.keys(localCoins);
         if (!localCoinNames.length) return chainE;
 
@@ -259,7 +382,7 @@ function Panels({
         };
       });
 
-    return applyBalancePatches(mergedData, balancePatchM);
+    return normalizeTradeCoinAliases(applyBalancePatches(mergedData, balancePatchM));
   }, [balancePatchM, baseChainNames, baseData, effectiveCustomCoinM, localWalletData]);
   const effectiveYieldData = useMemo(() => {
     const sourceData = localWalletData || walletBaseData;
@@ -698,6 +821,7 @@ function Panels({
         };
         if (Number.isInteger(decimals)) clean.coinE.decimals = decimals;
       }
+      clean.coin = getCanonicalPatchCoin(effectiveData, clean);
       const key = getBalancePatchKey(clean);
       if (clean.chain && clean.coin && clean.address && !targetM.has(key)) {
         targetM.set(key, clean);
@@ -746,7 +870,7 @@ function Panels({
       if (delay) setTimeout(refreshTargets, delay);
       else refreshTargets();
     });
-  }, [router]);
+  }, [effectiveData, router]);
 
   function renderTradePane(panelType, setPanelType, cyclePanelType) {
     return panelType == "Swap" ? (

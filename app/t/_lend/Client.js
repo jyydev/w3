@@ -65,14 +65,17 @@ export function getUnderlyingCoin(chainE, lendCoin, protocol = "") {
   const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
   const protocolUnderlying =
     protocol == "aave" ? getAaveUnderlyingCoin(lendCoin) : "";
-  if (protocolUnderlying) return protocolUnderlying;
-
   const candidates = getChainCoins(chainE)
     .filter((coin) => coin != lendCoin)
     .filter((coin) => coinInfoM[coin]?.type != "lend")
     .sort((a, b) => b.length - a.length);
 
+  if (protocolUnderlying && coinInfoM[protocolUnderlying]) {
+    return protocolUnderlying;
+  }
+
   return (
+    candidates.find((coin) => coin.toLowerCase() == protocolUnderlying.toLowerCase()) ||
     candidates.find((coin) => text.includes(coin.toLowerCase())) ||
     candidates.find((coin) =>
       ["USDT", "USDC", "USDS", "EURC", "DAI", "USD1"].includes(coin),

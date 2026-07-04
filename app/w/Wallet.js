@@ -76,6 +76,116 @@ function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
   return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
 }
 
+function getTokenAddressKey(chain = "", address = "") {
+  const value = String(address || "").trim();
+  if (!value) return "";
+
+  return chain == "Solana" ? value : value.toLowerCase();
+}
+
+function hasPositiveBalance(balance = {}) {
+  if (!balance || typeof balance != "object") return false;
+  try {
+    if (BigInt(balance.raw || 0) > 0n) return true;
+  } catch {}
+
+  return Number(balance.balance || 0) > 0 || Number(balance.usd || 0) > 0;
+}
+
+function getPermanentAddressCoinM(chain = "") {
+  const addressCoinM = {};
+
+  for (const [coin, coinE] of Object.entries(permanentCoinM?.[chain] || {})) {
+    const addressKey = getTokenAddressKey(chain, coinE?.address);
+    if (addressKey && !addressCoinM[addressKey]) addressCoinM[addressKey] = coin;
+  }
+
+  return addressCoinM;
+}
+
+function normalizeCoinAliasList(list = [], aliasCoinM = {}) {
+  const seen = new Set();
+  const result = [];
+
+  for (const coin of list || []) {
+    const canonicalCoin = aliasCoinM[coin] || coin;
+    if (!canonicalCoin || seen.has(canonicalCoin)) continue;
+    seen.add(canonicalCoin);
+    result.push(canonicalCoin);
+  }
+
+  return result;
+}
+
+function normalizeWalletCoinAliases(data = []) {
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+
+  return list.map((chainE) => {
+    const coinInfoM = chainE?.coinInfoM || {};
+    const permanentAddressCoinM = getPermanentAddressCoinM(chainE.chain);
+    const addressCoinM = {};
+    const aliasCoinM = {};
+    const normalizedCoinInfoM = {};
+
+    for (const [coin, coinE] of Object.entries(coinInfoM)) {
+      const addressKey = getTokenAddressKey(chainE.chain, coinE?.address);
+      const canonicalCoin =
+        (addressKey && permanentAddressCoinM[addressKey]) ||
+        (addressKey && addressCoinM[addressKey]) ||
+        coin;
+
+      if (canonicalCoin != coin) {
+        aliasCoinM[coin] = canonicalCoin;
+      }
+
+      if (!normalizedCoinInfoM[canonicalCoin]) {
+        normalizedCoinInfoM[canonicalCoin] =
+          coinInfoM[canonicalCoin] ||
+          permanentCoinM?.[chainE.chain]?.[canonicalCoin] ||
+          coinE;
+      }
+      if (addressKey && !addressCoinM[addressKey]) {
+        addressCoinM[addressKey] = canonicalCoin;
+      }
+    }
+
+    const rows = (chainE.rows || []).map((row) => {
+      const balances = {};
+
+      for (const [coin, balance] of Object.entries(row.balances || {})) {
+        const canonicalCoin = aliasCoinM[coin] || coin;
+        const nextBalance = { ...balance, coin: canonicalCoin };
+        const prevBalance = balances[canonicalCoin];
+        balances[canonicalCoin] =
+          !prevBalance || (!hasPositiveBalance(prevBalance) && hasPositiveBalance(nextBalance))
+            ? nextBalance
+            : prevBalance;
+      }
+
+      return { ...row, balances };
+    });
+
+    const allCoins = normalizeCoinAliasList(
+      chainE.allCoins?.length
+        ? chainE.allCoins
+        : Object.keys(coinInfoM),
+      aliasCoinM,
+    );
+    const coins = normalizeCoinAliasList(
+      chainE.coins || [],
+      aliasCoinM,
+    );
+
+    return {
+      ...chainE,
+      allCoins,
+      coins,
+      coinInfoM: normalizedCoinInfoM,
+      rows,
+    };
+  });
+}
+
 function applyBalancePatches(data = [], patchM = {}) {
   const patches = Object.values(patchM || {}).filter(
     (patch) => patch?.chain && patch?.coin && patch?.address && patch?.balance,
@@ -458,7 +568,7 @@ function Wallet({
     .map((chainE) => chainE.chain)
     .join("|");
   const activeData = applyBalancePatches(
-    localWalletData || data,
+    normalizeWalletCoinAliases(localWalletData || data),
     balancePatchM,
   );
   const chainList = Array.isArray(activeData)
