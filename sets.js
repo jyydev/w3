@@ -37,22 +37,22 @@ exports.alchemyNetworks = {
   BSC: "bnb-mainnet",
   Polygon: "polygon-mainnet",
   Gnosis: "gnosis-mainnet",
-  // Fantom: "fantom-mainnet",
-  Sonic: "sonic-mainnet",
-  // XLayer: "xlayer-mainnet",
-  // Metis: "metis-mainnet",
-  // Soneium: "soneium-mainnet",
-  Mantle: "mantle-mainnet",
+  Soneium: "soneium-mainnet",
   Celo: "celo-mainnet",
   Arbitrum: "arb-mainnet",
   Optimism: "opt-mainnet",
   Base: "base-mainnet",
-  // Linea: "linea-mainnet",
-  // Scroll: "scroll-mainnet",
+  Linea: "linea-mainnet",
+  Scroll: "scroll-mainnet",
   Avalanche: "avax-mainnet",
   zkSyncEra: "zksync-mainnet",
   Solana: "solana-mainnet",
-};
+  // Fantom: "fantom-mainnet", ////Unsupported network
+  // Sonic: "sonic-mainnet", //Unsupported network
+  // Metis: "metis-mainnet", //Unsupported network
+  // Mantle: "mantle-mainnet", //Unsupported network
+  // XLayer: "xlayer-mainnet", ////Unsupported network
+}; //chk unsupported network log: https://dashboard.alchemy.com/logs/requests
 
 const alchemyKey = process.env.rpc_key_alchemy;
 
@@ -76,6 +76,8 @@ exports.rpcs = {
   Arbitrum: [
     "https://arb1.arbitrum.io/rpc",
     "https://arbitrum-one-rpc.publicnode.com",
+    "https://1rpc.io/arb",
+    "https://arbitrum.drpc.org",
     "https://arbitrum-one.public.blastapi.io",
     alchemyRpc("arb-mainnet"),
   ],
@@ -88,45 +90,55 @@ exports.rpcs = {
   Optimism: [
     "https://mainnet.optimism.io",
     "https://optimism-rpc.publicnode.com",
+    "https://1rpc.io/op",
+    "https://optimism.drpc.org",
     "https://optimism-mainnet.public.blastapi.io",
     alchemyRpc("opt-mainnet"),
   ],
   Base: [
     "https://mainnet.base.org",
     "https://base-rpc.publicnode.com",
+    "https://1rpc.io/base",
+    "https://base.drpc.org",
     "https://base-mainnet.public.blastapi.io",
     alchemyRpc("base-mainnet"),
   ],
   Polygon: [
     "https://polygon.drpc.org",
     "https://polygon-bor-rpc.publicnode.com",
+    "https://1rpc.io/matic",
+    "https://polygon.meowrpc.com",
     // "https://polygon-rpc.com", //401 Unauthorized
     alchemyRpc("polygon-mainnet"),
   ],
   Gnosis: [
     "https://rpc.gnosischain.com",
     "https://gnosis-rpc.publicnode.com",
+    "https://gnosis.drpc.org",
+    "https://1rpc.io/gnosis",
     alchemyRpc("gnosis-mainnet"),
   ],
-  // Fantom: [
-  //   "https://rpc.ftm.tools",
-  //   "https://fantom-rpc.publicnode.com",
-  //   // alchemyRpc("fantom-mainnet"),
-  // ],
+  Fantom: [
+    "https://fantom.drpc.org",
+    "https://fantom-json-rpc.stakely.io",
+    // "https://1rpc.io/ftm", //block timeout
+    // "https://fantom-rpc.publicnode.com", //403 Forbidden
+  ],
   Sonic: [
     "https://rpc.soniclabs.com",
     "https://sonic-rpc.publicnode.com",
-    alchemyRpc("sonic-mainnet"),
+    "https://sonic.drpc.org",
+    "https://sonic-json-rpc.stakely.io",
   ],
   XLayer: [
     "https://xlayer.drpc.org",
     "https://rpc.xlayer.tech",
-    alchemyRpc("xlayer-mainnet"),
+    "https://endpoints.omniatech.io/v1/xlayer/mainnet/public",
   ],
   Metis: [
     "https://andromeda.metis.io/?owner=1088",
     "https://metis-rpc.publicnode.com",
-    alchemyRpc("metis-mainnet"),
+    "https://metis.drpc.org",
   ],
   Soneium: [
     "https://rpc.soneium.org",
@@ -136,26 +148,35 @@ exports.rpcs = {
   Mantle: [
     "https://rpc.mantle.xyz",
     "https://mantle-rpc.publicnode.com",
-    alchemyRpc("mantle-mainnet"),
+    "https://mantle.drpc.org",
+    "https://1rpc.io/mantle",
   ],
   Celo: [
     "https://forno.celo.org",
     "https://celo-rpc.publicnode.com",
+    "https://celo.drpc.org",
+    "https://celo-json-rpc.stakely.io",
     alchemyRpc("celo-mainnet"),
   ],
   Linea: [
     "https://rpc.linea.build",
     "https://linea-rpc.publicnode.com",
+    "https://1rpc.io/linea",
+    "https://linea.drpc.org",
     alchemyRpc("linea-mainnet"),
   ],
   Scroll: [
     "https://rpc.scroll.io",
     "https://scroll-rpc.publicnode.com",
+    "https://1rpc.io/scroll",
+    "https://scroll.drpc.org",
     alchemyRpc("scroll-mainnet"),
   ],
   zkSyncEra: [
     "https://mainnet.era.zksync.io",
     "https://zksync-era-rpc.publicnode.com",
+    "https://zksync.drpc.org",
+    "https://1rpc.io/zksync2-era",
     alchemyRpc("zksync-mainnet"),
   ],
   Kaia: [
@@ -163,6 +184,7 @@ exports.rpcs = {
     "https://kaia.blockpi.network/v1/rpc/public",
     "https://klaytn.api.onfinality.io/public",
     "https://klaytn.drpc.org",
+    "https://1rpc.io/klay",
   ],
   WEMIX: [
     "https://wemix.drpc.org",
@@ -171,6 +193,8 @@ exports.rpcs = {
   Avalanche: [
     "https://avalanche-c-chain-rpc.publicnode.com",
     "https://api.avax.network/ext/bc/C/rpc",
+    "https://1rpc.io/avax/c",
+    "https://avalanche.drpc.org",
     "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc",
     alchemyRpc("avax-mainnet"),
   ],

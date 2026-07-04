@@ -632,6 +632,20 @@ function Wallet({
     });
   }
 
+  function selectActiveChain(e) {
+    const chain = e.target.value;
+    setActiveChain(chain);
+    saveActiveChainCookie(chain);
+  }
+
+  function cycleActiveChain(direction = 1) {
+    const chains = ["", ...chainList.map((chainE) => chainE.chain)];
+    const index = Math.max(0, chains.indexOf(activeChain));
+    const next = chains[(index + direction + chains.length) % chains.length];
+    setActiveChain(next);
+    saveActiveChainCookie(next);
+  }
+
   function saveActiveChainCookie(chain = "") {
     setCookie(activeChainCookie, chain, {
       maxAge: cookieMaxAge,
@@ -2916,7 +2930,7 @@ function Wallet({
       <table>
         <caption>
           <div className="tableCaptionRow">
-            <span>chain:</span>
+            <span>chains:</span>
             <select
               value={walletType}
               onChange={selectWalletType}
@@ -2991,6 +3005,28 @@ function Wallet({
               })}
             </select>
             <CycleButton onClick={nextWallet} disabled={loadingWallet} />
+            <span>view:</span>
+            <CycleButton
+              direction="prev"
+              onClick={() => cycleActiveChain(-1)}
+              disabled={loadingWallet || !chainList.length}
+            />
+            <select
+              value={activeChain}
+              onChange={selectActiveChain}
+              disabled={loadingWallet || !chainList.length}
+            >
+              <option value="">all</option>
+              {chainList.map((chainE) => (
+                <option key={chainE.chain} value={chainE.chain}>
+                  {chainE.chain}
+                </option>
+              ))}
+            </select>
+            <CycleButton
+              onClick={() => cycleActiveChain(1)}
+              disabled={loadingWallet || !chainList.length}
+            />
             {(loadingWallet || loadingLocalWallet) && (
               <span className="yellow">loading...</span>
             )}
