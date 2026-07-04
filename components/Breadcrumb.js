@@ -76,6 +76,25 @@ function findPathChild(parent, filePath) {
   return getSiblings(parent).find((child) => child.filePath == filePath);
 }
 
+function getWalletNodeOption(routeBase, node) {
+  const childOptions = [
+    ...getSiblings(node).map((child) => getWalletNodeOption(routeBase, child)),
+    ...getWalletChildren(node).map((wallet) => ({
+      value: `wallet:${wallet.walletName}`,
+      label: wallet.label,
+      href: getWalletNavUrl(routeBase, wallet),
+    })),
+  ];
+
+  return {
+    value: node.filePath,
+    label: node.label,
+    href: getWalletNavUrl(routeBase, node),
+    children: childOptions,
+    node,
+  };
+}
+
 function getRootWalletOptions(routeBase, typeNode, childOptions = []) {
   return [
     {
@@ -91,13 +110,31 @@ function getRootWalletOptions(routeBase, typeNode, childOptions = []) {
         filePath: "all",
       }),
     },
-    ...childOptions.map((node) => ({
-      value: node.filePath,
-      label: node.label,
-      href: getWalletNavUrl(routeBase, node),
-      node,
-    })),
+    ...childOptions.map((node) => getWalletNodeOption(routeBase, node)),
   ];
+}
+
+function getWalletTypeOptions(routeBase, tree = []) {
+  return tree.map((node) => ({
+    value: node.walletType,
+    label: node.label || (node.walletType == "solana" ? "Solana" : "EVM"),
+    href: getTypeUrl(routeBase, node.walletType),
+    children: getRootWalletOptions(routeBase, node, getSiblings(node)),
+  }));
+}
+
+function getTopMenuOptions(tree = []) {
+  return topOptions.map((option) => {
+    if (option.value == "wallet") {
+      return { ...option, children: getWalletTypeOptions("/w", tree) };
+    }
+    if (option.value == "trade") {
+      return { ...option, children: getWalletTypeOptions("/t", tree) };
+    }
+    if (option.value == "ref") return { ...option, children: refChildren };
+
+    return option;
+  });
 }
 
 function SelectCrumb({
@@ -117,36 +154,48 @@ function SelectCrumb({
   const canOpen = !disabled && selectableOptions.length > 0;
   const canNavigate = !disabled && !!href;
   const isPlaceholder = !selected && label == fallbackLabel;
-  const renderMenu = (keyPrefix) => (
-    <span className="breadcrumbMenu">
-      {options.map((option) =>
-        option.href && !option.disabled ? (
-          <Link
-            key={`${keyPrefix}:${option.value}`}
-            href={option.href}
-            className={`breadcrumbMenuItem ${
-              option.value == value ? "active" : ""
-            }`}
-            onClick={() => setClosed(true)}
-          >
-            {option.label}
-          </Link>
-        ) : (
-          <button
-            type="button"
-            key={`${keyPrefix}:${option.value}`}
-            className={`breadcrumbMenuItem ${
-              option.value == value ? "active" : ""
-            }`}
-            disabled={option.disabled}
-            onClick={() => setClosed(true)}
-          >
-            {option.label}
-          </button>
-        ),
-      )}
-    </span>
-  );
+
+  function renderMenu(options, keyPrefix = "menu") {
+    return (
+      <span className="breadcrumbMenu">
+        {options.map((option) =>
+          renderMenuOption(option, `${keyPrefix}:${option.value}`),
+        )}
+      </span>
+    );
+  }
+
+  function renderMenuOption(option, key) {
+    const hasChildren = !!option.children?.length;
+    const className = `breadcrumbMenuItem ${
+      option.value == value ? "active" : ""
+    }`;
+    const content = option.href && !option.disabled ? (
+      <Link href={option.href} className={className} onClick={() => setClosed(true)}>
+        {option.label}
+      </Link>
+    ) : (
+      <button
+        type="button"
+        className={className}
+        disabled={option.disabled}
+        onClick={() => setClosed(true)}
+      >
+        {option.label}
+      </button>
+    );
+
+    return (
+      <span
+        key={key}
+        className={`breadcrumbMenuNode ${hasChildren ? "hasChildren" : ""}`}
+      >
+        {content}
+        {hasChildren && <span className="breadcrumbMenuCaret">&gt;</span>}
+        {hasChildren && renderMenu(option.children, key)}
+      </span>
+    );
+  }
 
   return (
     <>
@@ -186,7 +235,7 @@ function SelectCrumb({
             </button>
           </span>
         )}
-        {canOpen && renderMenu("crumb")}
+        {canOpen && renderMenu(options, "crumb")}
       </span>
     </>
   );
@@ -202,11 +251,7 @@ function WalletCrumbs({ routeBase, tree = [] }) {
     tree.find((node) => node.walletType == walletType) ||
     tree.find((node) => node.walletType == "evm") ||
     tree[0];
-  const typeOptions = tree.map((node) => ({
-    value: node.walletType,
-    label: node.label || (node.walletType == "solana" ? "Solana" : "EVM"),
-    href: getTypeUrl(routeBase, node.walletType),
-  }));
+  const typeOptions = getWalletTypeOptions(routeBase, tree);
 
   if (!typeNode) {
     return (
@@ -276,11 +321,7 @@ function WalletCrumbs({ routeBase, tree = [] }) {
     const pathOptions =
       i == 0
         ? rootWalletOptions
-        : siblings.map((node) => ({
-            value: node.filePath,
-            label: node.label,
-            href: getWalletNavUrl(routeBase, node),
-          }));
+        : siblings.map((node) => getWalletNodeOption(routeBase, node));
     crumbs.push(
       <SelectCrumb
         key={currentPath}
@@ -301,11 +342,7 @@ function WalletCrumbs({ routeBase, tree = [] }) {
   if (childOptions.length || rootCrumb) {
     const options = rootCrumb
       ? rootWalletOptions
-      : childOptions.map((node) => ({
-          value: node.filePath,
-          label: node.label,
-          node,
-        }));
+      : childOptions.map((node) => getWalletNodeOption(routeBase, node));
 
     crumbs.push(
       <SelectCrumb
@@ -393,6 +430,7 @@ function BreadcrumbInner({ walletTree = [] }) {
     () => mergeTrees(walletTree, localTree),
     [walletTree, localTree],
   );
+  const topMenuOptions = useMemo(() => getTopMenuOptions(tree), [tree]);
 
   useEffect(() => {
     function refreshLocalTree() {
@@ -419,7 +457,7 @@ function BreadcrumbInner({ walletTree = [] }) {
         ariaLabel="site section"
         href={topCurrent?.href || ""}
         fallbackLabel="section"
-        options={topOptions}
+        options={topMenuOptions}
       />
       {topValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}
       {topValue == "trade" && <WalletCrumbs routeBase="/t" tree={tree} />}

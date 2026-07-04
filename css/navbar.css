@@ -491,17 +491,39 @@
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
 }
 
-.breadcrumbCrumb:hover .breadcrumbMenu,
-.breadcrumbCrumb:focus-within .breadcrumbMenu {
+.breadcrumbCrumb:hover > .breadcrumbMenu,
+.breadcrumbCrumb:focus-within > .breadcrumbMenu {
   display: grid;
 }
 
-.breadcrumbCrumb.closed .breadcrumbMenu {
+.breadcrumbCrumb.closed > .breadcrumbMenu {
   display: none;
+}
+
+.breadcrumbMenuNode {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #222;
+}
+
+.breadcrumbMenuNode:hover {
+  background: #333;
+}
+
+.breadcrumbMenuNode > .breadcrumbMenu {
+  top: 0;
+  left: 100%;
+}
+
+.breadcrumbMenuNode:hover > .breadcrumbMenu,
+.breadcrumbMenuNode:focus-within > .breadcrumbMenu {
+  display: grid;
 }
 
 .breadcrumbMenuItem {
   display: block;
+  flex: 1 1 auto;
   border: 0;
   background: transparent;
   color: #ddd;
@@ -513,10 +535,18 @@
   cursor: pointer;
 }
 
+.breadcrumbMenuCaret {
+  flex: 0 0 auto;
+  color: #aaa;
+  padding: 0 9px 0 2px;
+  font-size: 12px;
+}
+
 .breadcrumbMenuItem:hover,
-.breadcrumbMenuItem.active:hover {
+.breadcrumbMenuItem.active:hover,
+.breadcrumbMenuNode:hover > .breadcrumbMenuItem {
   color: var(--orange);
-  background: #333;
+  background: transparent;
 }
 
 .breadcrumbMenuItem.active {
