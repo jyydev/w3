@@ -2,6 +2,7 @@ import "ygb/nx";
 import "./globals.css";
 import "@/app/App.css";
 import Navbar from "/components/Navbar";
+import NavigationLoading from "@/components/NavigationLoading";
 import { Toaster } from "react-hot-toast";
 import { RootProvider } from "./context"; //client component
 
@@ -16,6 +17,7 @@ export default function RootLayout({ children }) {
       <body>
         <RootProvider>
           <Navbar />
+          <NavigationLoading />
           <div>{children}</div>
           <Toaster />
         </RootProvider>

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { localEditorStorageEvent } from "@/app/browserEditorStorage";
+import cgb from "@/app/context";
 import {
   getLocalWalletTree,
   getWalletNavUrl,
@@ -51,27 +52,62 @@ function getTypeUrl(routeBase, walletType) {
 }
 
 function getSiblings(parent) {
-  return (parent?.children || []).filter((node) => node.type != "wallet");
+  return (parent?.children || []).filter(
+    (node) => node.type != "wallet" && !isEmptyWalletNode(node),
+  );
 }
 
 function getWalletChildren(node) {
   return (node?.children || []).filter((child) => child.type == "wallet");
 }
 
+function isEmptyWalletNode(node = {}) {
+  const label = String(node.label || "").toLowerCase();
+  const filePath = String(node.filePath || "")
+    .split("/")
+    .filter(Boolean)
+    .at(-1)
+    ?.toLowerCase();
+
+  return label == "empty" || filePath == "empty";
+}
+
 function findPathChild(parent, filePath) {
   return getSiblings(parent).find((child) => child.filePath == filePath);
+}
+
+function getRootWalletOptions(routeBase, typeNode, childOptions = []) {
+  return [
+    {
+      value: "__favs__",
+      label: "favs",
+      href: getTypeUrl(routeBase, typeNode.walletType),
+    },
+    {
+      value: "__all__",
+      label: "all",
+      href: getWalletNavUrl(routeBase, {
+        walletType: typeNode.walletType,
+        filePath: "all",
+      }),
+    },
+    ...childOptions.map((node) => ({
+      value: node.filePath,
+      label: node.label,
+      href: getWalletNavUrl(routeBase, node),
+      node,
+    })),
+  ];
 }
 
 function SelectCrumb({
   value,
   options,
-  onChange,
   disabled = false,
   ariaLabel = "breadcrumb",
   href = "",
   fallbackLabel = "select",
 }) {
-  const router = useRouter();
   const [closed, setClosed] = useState(false);
   const selected = options.find((option) => option.value == value);
   const label = selected?.label || fallbackLabel;
@@ -83,22 +119,32 @@ function SelectCrumb({
   const isPlaceholder = !selected && label == fallbackLabel;
   const renderMenu = (keyPrefix) => (
     <span className="breadcrumbMenu">
-      {options.map((option) => (
-        <button
-          type="button"
-          key={`${keyPrefix}:${option.value}`}
-          className={`breadcrumbMenuItem ${
-            option.value == value ? "active" : ""
-          }`}
-          disabled={option.disabled}
-          onClick={() => {
-            setClosed(true);
-            onChange?.(option.value);
-          }}
-        >
-          {option.label}
-        </button>
-      ))}
+      {options.map((option) =>
+        option.href && !option.disabled ? (
+          <Link
+            key={`${keyPrefix}:${option.value}`}
+            href={option.href}
+            className={`breadcrumbMenuItem ${
+              option.value == value ? "active" : ""
+            }`}
+            onClick={() => setClosed(true)}
+          >
+            {option.label}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            key={`${keyPrefix}:${option.value}`}
+            className={`breadcrumbMenuItem ${
+              option.value == value ? "active" : ""
+            }`}
+            disabled={option.disabled}
+            onClick={() => setClosed(true)}
+          >
+            {option.label}
+          </button>
+        ),
+      )}
     </span>
   );
 
@@ -113,17 +159,14 @@ function SelectCrumb({
         onFocus={() => setClosed(false)}
       >
         {canNavigate ? (
-          <button
-            type="button"
+          <Link
+            href={href}
             className="breadcrumbCrumbLabel"
-            onClick={() => {
-              setClosed(true);
-              router.push(href);
-            }}
+            onClick={() => setClosed(true)}
             aria-label={`go to ${label}`}
           >
             {label}
-          </button>
+          </Link>
         ) : (
           <span className="breadcrumbCrumbLabelWrap">
             <span className="breadcrumbCrumbLabel inert" aria-label={ariaLabel}>
@@ -150,7 +193,6 @@ function SelectCrumb({
 }
 
 function WalletCrumbs({ routeBase, tree = [] }) {
-  const router = useRouter();
   const pathname = usePathname() || routeBase;
   const searchParams = useSearchParams();
   const walletType = getWalletType(searchParams);
@@ -163,6 +205,7 @@ function WalletCrumbs({ routeBase, tree = [] }) {
   const typeOptions = tree.map((node) => ({
     value: node.walletType,
     label: node.label || (node.walletType == "solana" ? "Solana" : "EVM"),
+    href: getTypeUrl(routeBase, node.walletType),
   }));
 
   if (!typeNode) {
@@ -183,13 +226,32 @@ function WalletCrumbs({ routeBase, tree = [] }) {
       options={typeOptions}
       ariaLabel="wallet type"
       href={getTypeUrl(routeBase, typeNode.walletType)}
-      onChange={(nextType) => router.push(getTypeUrl(routeBase, nextType))}
     />,
   ];
 
   let parent = typeNode;
   let currentNode = typeNode;
   let foundAll = true;
+  const rootChildOptions = getSiblings(typeNode);
+  const rootWalletOptions = getRootWalletOptions(
+    routeBase,
+    typeNode,
+    rootChildOptions,
+  );
+
+  if (pathParts.length == 1 && pathParts[0] == "all") {
+    crumbs.push(
+      <SelectCrumb
+        key="all"
+        value="__all__"
+        ariaLabel="wallet path"
+        href={rootWalletOptions.find((option) => option.value == "__all__")?.href}
+        options={rootWalletOptions}
+      />,
+    );
+
+    return crumbs;
+  }
 
   for (let i = 0; i < pathParts.length; i++) {
     const currentPath = pathParts.slice(0, i + 1).join("/");
@@ -211,20 +273,21 @@ function WalletCrumbs({ routeBase, tree = [] }) {
     }
 
     const siblings = getSiblings(parent);
+    const pathOptions =
+      i == 0
+        ? rootWalletOptions
+        : siblings.map((node) => ({
+            value: node.filePath,
+            label: node.label,
+            href: getWalletNavUrl(routeBase, node),
+          }));
     crumbs.push(
       <SelectCrumb
         key={currentPath}
         value={child.filePath}
         ariaLabel="wallet path"
         href={getWalletNavUrl(routeBase, child)}
-        options={siblings.map((node) => ({
-          value: node.filePath,
-          label: node.label,
-        }))}
-        onChange={(filePath) => {
-          const nextNode = siblings.find((node) => node.filePath == filePath);
-          if (nextNode) router.push(getWalletNavUrl(routeBase, nextNode));
-        }}
+        options={pathOptions}
       />,
     );
     parent = child;
@@ -234,25 +297,24 @@ function WalletCrumbs({ routeBase, tree = [] }) {
   if (!foundAll) return crumbs;
 
   const childOptions = getSiblings(currentNode);
-  if (childOptions.length) {
+  const rootCrumb = currentNode == typeNode && !pathParts.length;
+  if (childOptions.length || rootCrumb) {
+    const options = rootCrumb
+      ? rootWalletOptions
+      : childOptions.map((node) => ({
+          value: node.filePath,
+          label: node.label,
+          node,
+        }));
+
     crumbs.push(
       <SelectCrumb
         key={`${currentNode.walletType}:${currentNode.filePath}:next`}
-        value=""
+        value={rootCrumb ? "__favs__" : ""}
         ariaLabel="wallet child path"
-        fallbackLabel="select"
-        options={[
-          ...childOptions.map((node) => ({
-            value: node.filePath,
-            label: node.label,
-          })),
-        ]}
-        onChange={(filePath) => {
-          const nextNode = childOptions.find(
-            (node) => node.filePath == filePath,
-          );
-          if (nextNode) router.push(getWalletNavUrl(routeBase, nextNode));
-        }}
+        href={rootCrumb ? rootWalletOptions[0]?.href : ""}
+        fallbackLabel={rootCrumb ? "favs" : "select"}
+        options={options}
       />,
     );
   }
@@ -273,16 +335,9 @@ function WalletCrumbs({ routeBase, tree = [] }) {
           ...wallets.map((wallet) => ({
             value: wallet.walletName,
             label: wallet.walletName,
+            href: getWalletNavUrl(routeBase, wallet),
           })),
         ]}
-        onChange={(walletName) => {
-          if (!walletName)
-            return router.push(getWalletNavUrl(routeBase, currentNode));
-          const nextWallet = wallets.find(
-            (wallet) => wallet.walletName == walletName,
-          );
-          if (nextWallet) router.push(getWalletNavUrl(routeBase, nextWallet));
-        }}
       />,
     );
   }
@@ -291,7 +346,6 @@ function WalletCrumbs({ routeBase, tree = [] }) {
 }
 
 function RefCrumbs() {
-  const router = useRouter();
   const pathname = usePathname() || "/ref";
   const parts = pathname.split("/").filter(Boolean).slice(1);
   const current = parts[0] || "";
@@ -303,10 +357,6 @@ function RefCrumbs() {
         ariaLabel="ref page"
         fallbackLabel="select"
         options={refChildren}
-        onChange={(value) => {
-          const child = refChildren.find((entry) => entry.value == value);
-          if (child) router.push(child.href);
-        }}
       />
     );
   }
@@ -319,10 +369,6 @@ function RefCrumbs() {
         ariaLabel="ref page"
         href={known.href}
         options={refChildren}
-        onChange={(value) => {
-          const child = refChildren.find((entry) => entry.value == value);
-          if (child) router.push(child.href);
-        }}
       />
     );
   }
@@ -338,10 +384,10 @@ function RefCrumbs() {
 }
 
 function BreadcrumbInner({ walletTree = [] }) {
-  const router = useRouter();
   const pathname = usePathname() || "/";
   const topValue = getTopValue(pathname);
   const topCurrent = topOptions.find((option) => option.value == topValue);
+  const { navigationLoading } = cgb();
   const [localTree, setLocalTree] = useState([]);
   const tree = useMemo(
     () => mergeTrees(walletTree, localTree),
@@ -374,14 +420,15 @@ function BreadcrumbInner({ walletTree = [] }) {
         href={topCurrent?.href || ""}
         fallbackLabel="section"
         options={topOptions}
-        onChange={(value) => {
-          const next = topOptions.find((option) => option.value == value);
-          router.push(next?.href || "/");
-        }}
       />
       {topValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}
       {topValue == "trade" && <WalletCrumbs routeBase="/t" tree={tree} />}
       {topValue == "ref" && <RefCrumbs />}
+      {navigationLoading && (
+        <span className="breadcrumbLoading" role="status" aria-live="polite">
+          loading...
+        </span>
+      )}
     </nav>
   );
 }

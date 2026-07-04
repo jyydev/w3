@@ -350,6 +350,13 @@
   border-top: 6px solid;
 }
 
+.breadcrumbLoading {
+  margin-left: 6px;
+  color: var(--orange);
+  font-size: 13px;
+  line-height: 18px;
+}
+
 .breadcrumbNav {
   display: flex;
   align-items: center;
@@ -494,12 +501,14 @@
 }
 
 .breadcrumbMenuItem {
+  display: block;
   border: 0;
   background: transparent;
   color: #ddd;
   padding: 6px 10px;
   font: inherit;
   text-align: left;
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
 }

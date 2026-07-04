@@ -1,10 +1,16 @@
 "use client";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 
 const RootContext = createContext();
 
 export const RootProvider = ({ children }) => {
-  return <RootContext.Provider value={{}}>{children}</RootContext.Provider>;
+  const [navigationLoading, setNavigationLoading] = useState(false);
+
+  return (
+    <RootContext.Provider value={{ navigationLoading, setNavigationLoading }}>
+      {children}
+    </RootContext.Provider>
+  );
 };
 
 const cgb = () => useContext(RootContext);
