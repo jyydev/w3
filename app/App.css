@@ -1167,6 +1167,16 @@ span.chainIcon {
 .toWalletCycle {
   grid-template-columns: auto max-content auto auto;
 }
+.toWalletCycle .tradePicker {
+  width: max-content;
+  max-width: min(58ch, 48vw);
+}
+.toWalletCycle .tradePickerButton {
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  padding-right: 14px;
+}
 .sendWalletTail {
   white-space: nowrap;
 }

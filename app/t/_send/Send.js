@@ -215,14 +215,6 @@ export default function SendPanel({
       }),
     [coins],
   );
-  const toWalletButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth(
-        [...currentToWallets, ...toWallets].map((entry) => entry?.label || ""),
-        { minLength: 6, maxLength: 38 },
-      ),
-    [currentToWallets, toWallets],
-  );
   const fromEntry =
     fromWallets.find((entry) => entry.value == fromWallet) ||
     selectedWalletEntry ||
@@ -1236,7 +1228,6 @@ export default function SendPanel({
                 <button
                   type="button"
                   className="tradePickerButton"
-                  style={{ width: toWalletButtonWidth }}
                   onClick={() => setShowToWalletMenu((show) => !show)}
                 >
                   {toEntry?.label || "wallet"}
