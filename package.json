@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 6",
+    "dev": "NODE_OPTIONS=--disable-warning=MaxListenersExceededWarning next dev -p 6",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
