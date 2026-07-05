@@ -4,12 +4,16 @@ import coinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import {
   cleanMarketSymbol,
+  createJsonRpcProvider,
+  logRpcFailure,
   sameEvmAddress,
   withTimeout,
 } from "../sharedServer";
 
 export {
   cleanMarketSymbol,
+  createJsonRpcProvider,
+  logRpcFailure,
   mapWithConcurrency,
   sameEvmAddress,
   withTimeout,

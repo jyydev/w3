@@ -21,3 +21,34 @@ export function CycleButton({
     </button>
   );
 }
+
+export function TableSortHeader({
+  activeSort = "",
+  sortKey = "",
+  setSort,
+  onSort,
+  className = "",
+  children,
+}) {
+  return (
+    <button
+      type="button"
+      className={[
+        "sortableHeader",
+        activeSort == sortKey ? "on" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onClick={() => {
+        if (onSort) {
+          onSort(sortKey);
+          return;
+        }
+        setSort?.((current) => (current == sortKey ? "" : sortKey));
+      }}
+    >
+      {children}
+    </button>
+  );
+}

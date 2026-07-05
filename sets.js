@@ -61,6 +61,13 @@ function alchemyRpc(network) {
 }
 
 exports.rpcs = {
+  Ethereum: [
+    "https://ethereum-rpc.publicnode.com",
+    "https://eth-mainnet.public.blastapi.io",
+    "https://eth.llamarpc.com",
+    alchemyRpc("eth-mainnet"),
+    "https://eth.api.pocket.network",
+  ],
   BSC: [
     "https://bsc-dataseed.bnbchain.org",
     "https://bsc-rpc.publicnode.com",
@@ -80,12 +87,6 @@ exports.rpcs = {
     "https://arbitrum.drpc.org",
     "https://arbitrum-one.public.blastapi.io",
     alchemyRpc("arb-mainnet"),
-  ],
-  Ethereum: [
-    "https://ethereum-rpc.publicnode.com",
-    "https://eth-mainnet.public.blastapi.io",
-    "https://eth.llamarpc.com",
-    alchemyRpc("eth-mainnet"),
   ],
   Optimism: [
     "https://mainnet.optimism.io",
@@ -208,7 +209,6 @@ exports.rpcs = {
   ],
 };
 exports.scanners = {
-  Solana: "https://solscan.io",
   Ethereum: "https://etherscan.io",
   BSC: "https://bscscan.com",
   Arbitrum: "https://arbiscan.io",
@@ -229,6 +229,7 @@ exports.scanners = {
   Kaia: "https://kaiascan.io",
   WEMIX: "https://explorer.wemix.com",
   zkSyncEra: "https://explorer.zksync.io",
+  Solana: "https://solscan.io",
   Hyperliquid: "https://app.hyperliquid.xyz",
 };
 

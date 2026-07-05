@@ -17,6 +17,7 @@ import {
   getWallet,
 } from "../../sharedServer";
 import {
+  createJsonRpcProvider,
   getCoinByAddress,
   getTokenMeta,
   getUsableChainRpcs,
@@ -343,7 +344,12 @@ export async function getMorphoAllMarkets({ chain = "" } = {}) {
   let provider;
 
   try {
-    provider = rpcList.length ? new ethers.JsonRpcProvider(rpcList[0]) : null;
+    provider = rpcList.length
+      ? createJsonRpcProvider(rpcList[0], {
+          chain,
+          scope: "Morpho",
+        })
+      : null;
     const markets = (
       await mapWithConcurrency(
         vaults.filter((vault) => ethers.isAddress(vault?.address)),
@@ -436,7 +442,10 @@ export async function getMorphoMarketBalance({
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Morpho",
+  });
 
   try {
     const owner = ethers.getAddress(walletAddress);
@@ -491,7 +500,10 @@ export async function getMorphoLendPreview({
     amount,
     decimals: action == "redeem" ? lendDecimals : underlyingDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Morpho",
+  });
 
   try {
     const market = await assertMorphoMarket({
@@ -558,7 +570,10 @@ export async function buildMorphoLendTxs({
     amount,
     decimals: action == "redeem" ? lendDecimals : underlyingDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Morpho",
+  });
 
   try {
     const market = await assertMorphoMarket({
@@ -692,7 +707,10 @@ export async function executeMorphoLend({
     amount,
     decimals: action == "redeem" ? lendDecimals : underlyingDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Morpho",
+  });
 
   try {
     const wallet = getWallet(privateKey, provider);

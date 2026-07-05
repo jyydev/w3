@@ -10,7 +10,7 @@ import solanaIcon from "@/data/img/solana.svg";
 import { pc } from "@/fn/basic";
 import permanentCoinM from "@/fn/coinM";
 import { ckPrefix, scanners } from "@/sets";
-import { CycleButton } from "@/components/Shared";
+import { CycleButton, TableSortHeader } from "@/components/Shared";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
 import {
@@ -266,7 +266,7 @@ function ChainIcon({ chain }) {
   if (textIcon) {
     return (
       <span
-        className={`chainIcon chainIcon-${getChainIconClass(chain)}`}
+        className={`assetIcon assetIconText chainIcon chainIcon-${getChainIconClass(chain)}`}
         aria-hidden="true"
       >
         {textIcon}
@@ -279,7 +279,7 @@ function ChainIcon({ chain }) {
 
   return (
     <img
-      className={`chainIcon chainIcon-${getChainIconClass(chain)}`}
+      className={`assetIcon chainIcon chainIcon-${getChainIconClass(chain)}`}
       src={src}
       alt=""
       aria-hidden="true"
@@ -308,7 +308,7 @@ function getCoinIconText({ coin = "", name = "" } = {}) {
 function CoinIcon({ coin, coinE = {} }) {
   return (
     <span
-      className={`coinIcon coinIcon-${getCoinTypeClass(coinE.type)}`}
+      className={`assetIcon assetIconText coinIcon coinIcon-${getCoinTypeClass(coinE.type)}`}
       title={`${coinE.name || coin} (${coinE.type || "token"})`}
       aria-hidden="true"
     >
@@ -2208,6 +2208,15 @@ function Wallet({
           sensitivity: "base",
         });
       }
+      if (sortKey == "server") {
+        const enabledDiff =
+          Number(serverDisabled.has(a.coin)) -
+          Number(serverDisabled.has(b.coin));
+        if (enabledDiff) return enabledDiff;
+        return a.coin.localeCompare(b.coin, undefined, {
+          sensitivity: "base",
+        });
+      }
 
       const valueA = sortKey == "name" ? a.name || a.coin : a.coin;
       const valueB = sortKey == "name" ? b.name || b.coin : b.coin;
@@ -2259,33 +2268,41 @@ function Wallet({
             <thead>
               <tr>
                 <th>
-                  <button
-                    type="button"
-                    className="coinSettingsSort"
-                    onClick={() => setCoinSettingSort(chain, "symbol")}
+                  <TableSortHeader
+                    activeSort={sortKey}
+                    onSort={(key) => setCoinSettingSort(chain, key)}
+                    sortKey="symbol"
                   >
-                    symbol{sortKey == "symbol" ? " ↓" : ""}
-                  </button>
+                    symbol
+                  </TableSortHeader>
                 </th>
                 <th>
-                  <button
-                    type="button"
-                    className="coinSettingsSort"
-                    onClick={() => setCoinSettingSort(chain, "name")}
+                  <TableSortHeader
+                    activeSort={sortKey}
+                    onSort={(key) => setCoinSettingSort(chain, key)}
+                    sortKey="name"
                   >
-                    name{sortKey == "name" ? " ↓" : ""}
-                  </button>
+                    name
+                  </TableSortHeader>
                 </th>
                 <th>
-                  <button
-                    type="button"
-                    className="coinSettingsSort"
-                    onClick={() => setCoinSettingSort(chain, "on")}
+                  <TableSortHeader
+                    activeSort={sortKey}
+                    onSort={(key) => setCoinSettingSort(chain, key)}
+                    sortKey="on"
                   >
-                    on{sortKey == "on" ? " ↓" : ""}
-                  </button>
+                    on
+                  </TableSortHeader>
                 </th>
-                <th>server</th>
+                <th>
+                  <TableSortHeader
+                    activeSort={sortKey}
+                    onSort={(key) => setCoinSettingSort(chain, key)}
+                    sortKey="server"
+                  >
+                    server
+                  </TableSortHeader>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2454,6 +2471,37 @@ function Wallet({
           });
           return nameDiff || a.index - b.index;
         }
+        if (walletSettingSort == "server") {
+          const enabledDiff =
+            Number(
+              serverDisabled.has(getNameDisableKey(getWalletServerName(a))),
+            ) -
+            Number(
+              serverDisabled.has(getNameDisableKey(getWalletServerName(b))),
+            );
+          if (enabledDiff) return enabledDiff;
+
+          const nameDiff = a.label.localeCompare(b.label, undefined, {
+            sensitivity: "base",
+          });
+          return nameDiff || a.index - b.index;
+        }
+        if (walletSettingSort == "address") {
+          const diff = String(a.address || "").localeCompare(
+            String(b.address || ""),
+            undefined,
+            { sensitivity: "base" },
+          );
+          return diff || a.index - b.index;
+        }
+        if (walletSettingSort == "ref") {
+          const diff = String(a.ref || "").localeCompare(
+            String(b.ref || ""),
+            undefined,
+            { sensitivity: "base" },
+          );
+          return diff || a.index - b.index;
+        }
 
         if (walletSettingSort != "name") return a.index - b.index;
 
@@ -2485,26 +2533,50 @@ function Wallet({
             <thead>
               <tr>
                 <th>
-                  <button
-                    type="button"
-                    className="coinSettingsSort"
-                    onClick={() => toggleWalletSettingSort("name")}
+                  <TableSortHeader
+                    activeSort={walletSettingSort}
+                    onSort={toggleWalletSettingSort}
+                    sortKey="name"
                   >
-                    wallet{walletSettingSort == "name" ? " ↓" : ""}
-                  </button>
+                    wallet
+                  </TableSortHeader>
                 </th>
-                <th>address</th>
-                <th>ref</th>
                 <th>
-                  <button
-                    type="button"
-                    className="coinSettingsSort"
-                    onClick={() => toggleWalletSettingSort("on")}
+                  <TableSortHeader
+                    activeSort={walletSettingSort}
+                    onSort={toggleWalletSettingSort}
+                    sortKey="address"
                   >
-                    on{walletSettingSort == "on" ? " ↓" : ""}
-                  </button>
+                    address
+                  </TableSortHeader>
                 </th>
-                <th>server</th>
+                <th>
+                  <TableSortHeader
+                    activeSort={walletSettingSort}
+                    onSort={toggleWalletSettingSort}
+                    sortKey="ref"
+                  >
+                    ref
+                  </TableSortHeader>
+                </th>
+                <th>
+                  <TableSortHeader
+                    activeSort={walletSettingSort}
+                    onSort={toggleWalletSettingSort}
+                    sortKey="on"
+                  >
+                    on
+                  </TableSortHeader>
+                </th>
+                <th>
+                  <TableSortHeader
+                    activeSort={walletSettingSort}
+                    onSort={toggleWalletSettingSort}
+                    sortKey="server"
+                  >
+                    server
+                  </TableSortHeader>
+                </th>
               </tr>
             </thead>
             <tbody>

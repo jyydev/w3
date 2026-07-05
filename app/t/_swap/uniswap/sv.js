@@ -6,12 +6,14 @@ import { chainIds } from "@/data/basic";
 import {
   approveExactIfNeeded,
   assertWalletMatches,
+  createJsonRpcProvider,
   erc20Abi,
   getApprovalAmount,
   getApproveTx,
   getChainRpc,
   getCoinDecimals,
   getPrivateKey,
+  getTradeCoinEntry,
   getUnsignedTx,
   getWallet,
   nativeEvmAddress,
@@ -68,8 +70,7 @@ const uniswapRouterAbi = [
 const uniswapRouterInterface = new ethers.Interface(uniswapRouterAbi);
 
 function getUniswapToken(chain = "", coin = "") {
-  const coinE = coinM?.[chain]?.[coin];
-  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+  const coinE = getTradeCoinEntry(chain, coin);
   if (coinE.native) {
     const wrapped = uniswapWrappedNativeM[chain];
     if (!wrapped) throw new Error(`wrapped native missing: ${chain} ${coin}`);
@@ -179,7 +180,10 @@ export async function getUniswapSwapPreview({
   }
 
   const amountIn = getUniswapAmountIn({ chain, fromCoin, amount });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain: fromChain,
+    scope: "Uniswap",
+  });
   try {
     const uniswapE = uniswapV3M[chain];
     const token = new ethers.Contract(tokenInE.address, erc20Abi, provider);
@@ -240,7 +244,10 @@ export async function buildUniswapSwapTxs({
   }
 
   const amountIn = getUniswapAmountIn({ chain, fromCoin, amount });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain: fromChain,
+    scope: "Uniswap",
+  });
   try {
     const uniswapE = uniswapV3M[chain];
     const token = new ethers.Contract(tokenInE.address, erc20Abi, provider);
@@ -380,7 +387,10 @@ export async function executeUniswapSwap({
     amountIn,
   });
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain: fromChain,
+    scope: "Uniswap",
+  });
   try {
     const wallet = getWallet(privateKey, provider);
     assertWalletMatches(wallet, walletAddress);

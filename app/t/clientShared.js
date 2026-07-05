@@ -6,7 +6,7 @@ import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButton } from "@/components/Shared";
+import { CycleButton, TableSortHeader } from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
@@ -375,6 +375,7 @@ export function useTradeFallbackPrice({
   cacheKey = "",
   chain = "",
   coin = "",
+  coinE = null,
   listPrice = 0,
   getPrice,
 } = {}) {
@@ -401,7 +402,7 @@ export function useTradeFallbackPrice({
     setLoading(true);
 
     if (!tradeFallbackPricePromiseM[cacheKey]) {
-      tradeFallbackPricePromiseM[cacheKey] = getPrice({ chain, coin })
+      tradeFallbackPricePromiseM[cacheKey] = getPrice({ chain, coin, coinE })
         .then((res) => {
           const price = toNum(res?.price);
           tradeFallbackPriceCacheM[cacheKey] = price;
@@ -431,6 +432,7 @@ export function useTradeFallbackPrice({
     cacheKey,
     chain,
     coin,
+    coinE,
     enabled,
     fallbackPrice,
     getPrice,
@@ -914,17 +916,14 @@ export function TradePickerSortHeader({
   children,
 }) {
   return (
-    <button
-      type="button"
-      className={
-        activeSort == sortKey
-          ? "tradePickerSortHeader on"
-          : "tradePickerSortHeader"
-      }
-      onClick={() => onSort(sortKey)}
+    <TableSortHeader
+      activeSort={activeSort}
+      sortKey={sortKey}
+      onSort={onSort}
+      className="tradePickerSortHeader"
     >
       {children}
-    </button>
+    </TableSortHeader>
   );
 }
 

@@ -14,6 +14,7 @@ import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import baseCoinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
+import { createJsonRpcProvider, logRpcFailure } from "../_fn/shared";
 
 const customCoinDir = path.join(process.cwd(), "data", "editor", "coins");
 const customDefiDir = path.join(process.cwd(), "data", "editor", "defi");
@@ -90,7 +91,10 @@ async function withProvider(chain, fn) {
   let lastError;
 
   for (const rpc of getRpcs(chain)) {
-    const provider = new ethers.JsonRpcProvider(rpc);
+    const provider = createJsonRpcProvider(rpc, {
+      chain,
+      scope: "coin settings",
+    });
     try {
       const result = await fn(provider);
       provider.destroy?.();
@@ -114,6 +118,12 @@ async function withSolanaConnection(chain, fn) {
       return await fn(new Connection(rpc, "confirmed"));
     } catch (e) {
       lastError = e;
+      logRpcFailure({
+        scope: "coin settings",
+        chain,
+        rpc,
+        error: e,
+      });
     }
   }
 

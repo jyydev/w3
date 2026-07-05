@@ -121,9 +121,11 @@ export function getLendingMarkets(chainE, protocol) {
 }
 
 export function getMarketLabel(entry = {}) {
-  return entry?.underlyingCoin
-    ? `${entry.underlyingCoin} (${entry.lendCoin})`
-    : "coin";
+  if (entry?.underlyingCoin && entry?.lendCoin) {
+    return `${entry.underlyingCoin}-${entry.lendCoin}`;
+  }
+
+  return entry?.underlyingCoin || entry?.lendCoin || "coin";
 }
 
 export function getInitialLendDefi(

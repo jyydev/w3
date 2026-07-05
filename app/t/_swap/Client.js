@@ -913,31 +913,25 @@ function DiscoveryCoinMenu({
                   symbol,
                   name,
                 } = row;
+                const rowCoin = localCoin || symbol;
                 return (
                   <tr
                     key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
                     className={
-                      localCoin == selectedCoin
+                      rowCoin == selectedCoin
                         ? "tradePickerRow on"
                         : "tradePickerRow"
                     }
+                    onClick={() => selectDiscoveryCoin(entry, side)}
                   >
                     <td>
                       <button
                         type="button"
                         className="tradePickerSelect tradeCoinAllSelect"
-                        onClick={() =>
-                          localCoin
-                            ? selectDiscoveryCoin(entry, side)
-                            : openDiscoveryCoinConfirm(
-                                {
-                                  preventDefault() {},
-                                  stopPropagation() {},
-                                },
-                                chain,
-                                entry,
-                              )
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selectDiscoveryCoin(entry, side);
+                        }}
                       >
                         <span>{symbol}</span>
                       </button>
@@ -981,7 +975,6 @@ export function SwapCoinSelect({
   onRetryTokens = () => {},
   onOpen = () => {},
   showSearch = false,
-  buttonWidth = "8ch",
   onSelect = () => {},
   onPrev = () => {},
   onNext = () => {},
@@ -1028,7 +1021,7 @@ export function SwapCoinSelect({
   }
 
   return (
-    <div className="selectCycle walletCycle swapCoinCycle">
+    <div className="selectCycle walletCycle swapCoinCycle selectedCompact">
       <CycleButton
         direction="prev"
         onClick={onPrev}
@@ -1038,7 +1031,6 @@ export function SwapCoinSelect({
         <button
           type="button"
           className="tradePickerButton"
-          style={{ width: buttonWidth }}
           onClick={() => {
             const nextShow = !showMenu;
             setShowMenu(nextShow);

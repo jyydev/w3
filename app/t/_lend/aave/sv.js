@@ -18,9 +18,11 @@ import {
   getWallet,
 } from "../../sharedServer";
 import {
+  createJsonRpcProvider,
   getCoinByAddress,
   getTokenMeta,
   getUsableChainRpcs,
+  logRpcFailure,
   mapWithConcurrency,
   withTimeout,
 } from "../shared";
@@ -103,7 +105,10 @@ export async function getAaveAllMarkets({ chain = "" } = {}) {
   let lastError = null;
 
   async function fetchMarkets(rpc) {
-    const provider = new ethers.JsonRpcProvider(rpc);
+    const provider = createJsonRpcProvider(rpc, {
+      chain,
+      scope: "Aave",
+    });
     const poolContract = new ethers.Contract(pool, aavePoolAbi, provider);
 
     try {
@@ -204,6 +209,7 @@ export async function getAaveAllMarkets({ chain = "" } = {}) {
       }
     } catch (e) {
       lastError = e;
+      logRpcFailure({ scope: "Aave", chain, rpc, error: e });
     }
   }
 
@@ -307,7 +313,10 @@ export async function getAaveMarketBalance({
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Aave",
+  });
 
   try {
     const owner = ethers.getAddress(walletAddress);
@@ -367,7 +376,10 @@ export async function getAaveLendPreview({
     decimals: underlyingDecimals,
     withdrawAll: action == "redeem" && withdrawAll,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Aave",
+  });
 
   try {
     const { underlying } = await assertAaveMarket({
@@ -435,7 +447,10 @@ export async function buildAaveLendTxs({
     decimals: underlyingDecimals,
     withdrawAll: action == "redeem" && withdrawAll,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Aave",
+  });
 
   try {
     const { underlying } = await assertAaveMarket({
@@ -572,7 +587,10 @@ export async function executeAaveLend({
     decimals: underlyingDecimals,
     withdrawAll: action == "redeem" && withdrawAll,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Aave",
+  });
 
   try {
     const wallet = getWallet(privateKey, provider);

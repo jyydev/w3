@@ -283,6 +283,28 @@ export default function SendPanel({
       ? `price n/a: ${coin}`
       : "";
 
+  function getSelectedCoinE() {
+    const coinE = chainE?.coinInfoM?.[coin];
+    if (!coinE) return undefined;
+
+    return {
+      address: coinE.address || "",
+      decimals: coinE.decimals,
+      native: !!coinE.native,
+    };
+  }
+
+  function getSendRefreshTarget(address = "") {
+    const coinE = getSelectedCoinE();
+
+    return {
+      chain,
+      coin,
+      address,
+      ...(coinE ? { coinE } : {}),
+    };
+  }
+
   useEffect(() => {
     const savedChain = getCookie(
       getTradeModeCookie(tradeSendChainCookie, walletType),
@@ -413,7 +435,12 @@ export default function SendPanel({
 
     let cancelled = false;
     setBalanceLoadingM((balanceM) => ({ ...balanceM, [fromBalanceKey]: true }));
-    getTradeCoinBalance({ chain, coin, address: fromEntry.address })
+    getTradeCoinBalance({
+      chain,
+      coin,
+      address: fromEntry.address,
+      coinE: getSelectedCoinE(),
+    })
       .then((res) => {
         if (cancelled) return;
         setFallbackBalanceM((balanceM) => ({
@@ -456,7 +483,12 @@ export default function SendPanel({
 
     let cancelled = false;
     setBalanceLoadingM((balanceM) => ({ ...balanceM, [toBalanceKey]: true }));
-    getTradeCoinBalance({ chain, coin, address: toEntry.address })
+    getTradeCoinBalance({
+      chain,
+      coin,
+      address: toEntry.address,
+      coinE: getSelectedCoinE(),
+    })
       .then((res) => {
         if (cancelled) return;
         setFallbackBalanceM((balanceM) => ({
@@ -717,6 +749,7 @@ export default function SendPanel({
       chain,
       coin,
       address: walletEntry.address,
+      coinE: getSelectedCoinE(),
     });
 
     return formatComputedTradeQty(
@@ -858,6 +891,7 @@ export default function SendPanel({
           coin,
           amount: submitQty,
           recipient: toEntry.address,
+          coinE: getSelectedCoinE(),
         });
         const txs = [];
 
@@ -882,6 +916,7 @@ export default function SendPanel({
           coin,
           amount: submitQty,
           recipient: toEntry.address,
+          coinE: getSelectedCoinE(),
         });
       }
 
@@ -896,8 +931,8 @@ export default function SendPanel({
       onTxComplete({
         ...res,
         refreshTargets: [
-          { chain, coin, address: walletEntry.address },
-          { chain, coin, address: toEntry.address },
+          getSendRefreshTarget(walletEntry.address),
+          getSendRefreshTarget(toEntry.address),
         ],
       });
       return res;
@@ -1218,7 +1253,7 @@ export default function SendPanel({
         <div className="tradeBox">
           <div className="tradeAssetLine">
             <span className="gray">to:</span>
-            <div className="selectCycle walletCycle toWalletCycle">
+            <div className="selectCycle walletCycle selectedCompact">
               <CycleButton
                 direction="prev"
                 onClick={() => cycleToWallet("prev")}

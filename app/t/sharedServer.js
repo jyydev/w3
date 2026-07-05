@@ -7,9 +7,16 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import coinM from "@/fn/coinM";
+import getCoinM from "@/fn/getCoinM";
 import { chainById, chainIds } from "@/data/basic";
 import { onWhitelist, rpcs, whitelists } from "@/sets";
+import {
+  createJsonRpcProvider,
+  getRpcOrigin,
+  logRpcFailure,
+} from "@/app/_fn/shared";
 import { getCoinUsdPrice } from "../w/walletData";
+export { createJsonRpcProvider, getRpcOrigin, logRpcFailure };
 export const nativeEvmAddress = "0x0000000000000000000000000000000000000000";
 export const erc20Abi = [
   "function allowance(address owner,address spender) view returns (uint256)",
@@ -107,8 +114,12 @@ export async function mapWithConcurrency(items = [], limit = 3, fn) {
   return results;
 }
 
-export async function getTradeCoinPrice({ chain = "", coin = "" } = {}) {
-  const price = await getCoinUsdPrice({ chain, coin });
+export async function getTradeCoinPrice({
+  chain = "",
+  coin = "",
+  coinE = null,
+} = {}) {
+  const price = await getCoinUsdPrice({ chain, coin, coinE });
 
   return {
     ok: true,
@@ -154,18 +165,97 @@ function getDynamicCoinE(coinE = null) {
   return entry.native || entry.address ? entry : null;
 }
 
+function findCoinEntry(coinM = {}, coin = "") {
+  const cleanCoinText = String(coin || "").trim();
+  if (coinM[cleanCoinText]) return coinM[cleanCoinText];
+
+  const cleanCoin = cleanCoinText.toLowerCase();
+  const match = Object.entries(coinM).find(
+    ([key]) => String(key || "").trim().toLowerCase() == cleanCoin,
+  );
+
+  return match?.[1] || null;
+}
+
+function isValidTradeCoinAddress(chain = "", address = "") {
+  return !!normalizeTradeCoinAddress(chain, address);
+}
+
+function normalizeTradeCoinAddress(chain = "", address = "") {
+  const text = String(address || "").trim();
+  if (!text) return "";
+  if (chain == "Solana") {
+    try {
+      return new PublicKey(text).toBase58();
+    } catch {
+      return "";
+    }
+  }
+
+  if (!/^0x[0-9a-fA-F]{40}$/.test(text)) return "";
+
+  try {
+    return ethers.getAddress(text.toLowerCase());
+  } catch {
+    return "";
+  }
+}
+
+function mergeTradeCoinEntries(chain = "", baseEntry = null, entry = null) {
+  const merged = {
+    ...(baseEntry || {}),
+    ...(entry || {}),
+  };
+  const baseAddress = baseEntry?.address;
+
+  if (
+    baseAddress &&
+    isValidTradeCoinAddress(chain, baseAddress) &&
+    !isValidTradeCoinAddress(chain, merged.address)
+  ) {
+    merged.address = baseAddress;
+  }
+
+  const normalizedAddress = normalizeTradeCoinAddress(chain, merged.address);
+  if (normalizedAddress) merged.address = normalizedAddress;
+
+  return Object.keys(merged).length ? merged : null;
+}
+
+function getStaticCoinE(chain = "", coin = "") {
+  const baseChainCoinM = coinM?.[chain];
+  const chainCoinM = baseChainCoinM ? getCoinM(chain) : {};
+  const baseCoinE = findCoinEntry(baseChainCoinM, coin);
+  const coinE = findCoinEntry(chainCoinM, coin);
+
+  return mergeTradeCoinEntries(chain, baseCoinE, coinE);
+}
+
+export function getTradeCoinEntry(chain = "", coin = "", dynamicCoinE = null) {
+  const coinE = resolveTradeCoinEntry(chain, coin, dynamicCoinE);
+  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+
+  return coinE;
+}
+
+export function resolveTradeCoinEntry(
+  chain = "",
+  coin = "",
+  dynamicCoinE = null,
+) {
+  const staticCoinE = getStaticCoinE(chain, coin);
+  const dynamicCoinEntry = getDynamicCoinE(dynamicCoinE);
+
+  return mergeTradeCoinEntries(chain, staticCoinE, dynamicCoinEntry);
+}
+
 export async function getTradeCoinBalance({
   chain = "",
   coin = "",
   address = "",
   coinE: dynamicCoinE = null,
 } = {}) {
-  const staticCoinE = coinM?.[chain]?.[coin];
-  const dynamicCoinEntry = getDynamicCoinE(dynamicCoinE);
-  const coinE =
-    staticCoinE || dynamicCoinEntry
-      ? { ...(staticCoinE || {}), ...(dynamicCoinEntry || {}) }
-      : null;
+  const coinE = resolveTradeCoinEntry(chain, coin, dynamicCoinE);
   if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
   if (!address) throw new Error("recipient address missing");
 
@@ -193,7 +283,10 @@ export async function getTradeCoinBalance({
     const rpc = getUsableChainRpc(chain);
     if (!rpc) throw new Error(`rpc missing: ${chain}`);
 
-    const provider = new ethers.JsonRpcProvider(rpc);
+    const provider = createJsonRpcProvider(rpc, {
+      chain,
+      scope: "trade balance",
+    });
     try {
       const owner = ethers.getAddress(address);
       if (coinE.native) {
@@ -217,7 +310,7 @@ export async function getTradeCoinBalance({
     address,
     decimals: coinE.decimals,
   });
-  const price = await getCoinUsdPrice({ chain, coin }).catch(() => 0);
+  const price = await getCoinUsdPrice({ chain, coin, coinE }).catch(() => 0);
 
   return {
     ...balanceE,
@@ -369,8 +462,8 @@ export function getSolanaConnection() {
   return new Connection(rpc, "confirmed");
 }
 
-export function getCoinDecimals(chain = "", coin = "") {
-  const decimals = coinM?.[chain]?.[coin]?.decimals;
+export function getCoinDecimals(chain = "", coin = "", dynamicCoinE = null) {
+  const decimals = resolveTradeCoinEntry(chain, coin, dynamicCoinE)?.decimals;
   if (!Number.isInteger(decimals)) {
     throw new Error(`coin decimals missing: ${chain} ${coin}`);
   }
@@ -482,7 +575,10 @@ export async function executeRawEvmTx({
     throw new Error(`rpc not configured for chainId ${txChainId}`);
   }
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain: txChain,
+    scope: "evm tx",
+  });
   try {
     const wallet = getWallet(privateKey, provider);
     assertWalletMatches(wallet, expectedAddress);
@@ -598,7 +694,7 @@ export function getApprovalAmount({
 }
 
 export function getEvmTokenAddress(chain = "", coin = "", label = "token") {
-  const coinE = coinM?.[chain]?.[coin];
+  const coinE = getStaticCoinE(chain, coin);
   if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
   if (coinE.native) throw new Error(`${label} native token not supported here`);
   if (!coinE.address || !ethers.isAddress(coinE.address)) {

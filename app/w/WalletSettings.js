@@ -5,6 +5,7 @@ import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { ckPrefix } from "@/sets";
+import { TableSortHeader } from "@/components/Shared";
 import {
   clearLocalEditorData,
   localEditorStorageEvent,
@@ -47,6 +48,30 @@ function encodeDisabledChains(chains) {
   return chains.join(",");
 }
 
+function getSettingSortText(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function sortSettingRows(rows = [], sortKey = "", directionM = {}) {
+  if (!sortKey) return rows;
+
+  const direction = directionM[sortKey] || "asc";
+  const multiplier = direction == "desc" ? -1 : 1;
+
+  return [...rows].sort((a, b) => {
+    const aValue = a?.[sortKey];
+    const bValue = b?.[sortKey];
+    const aNumber = Number(aValue);
+    const bNumber = Number(bValue);
+    const useNumber = Number.isFinite(aNumber) && Number.isFinite(bNumber);
+    const sorted = useNumber
+      ? aNumber - bNumber
+      : getSettingSortText(aValue).localeCompare(getSettingSortText(bValue));
+
+    return sorted * multiplier || (a.index ?? 0) - (b.index ?? 0);
+  });
+}
+
 function WalletSettings({
   chains = [],
   chainSourceM = {},
@@ -79,6 +104,8 @@ function WalletSettings({
   const [cookieClearTarget, setCookieClearTarget] = useState("ALL");
   const [editorDataClearTarget, setEditorDataClearTarget] = useState("ALL");
   const [runtimeCacheClearTarget, setRuntimeCacheClearTarget] = useState("ALL");
+  const [chainTableSort, setChainTableSort] = useState("");
+  const [etcTableSort, setEtcTableSort] = useState("");
   const [clearingEditorData, setClearingEditorData] = useState(false);
   const [clearingRuntimeCache, setClearingRuntimeCache] = useState(false);
   const cookieTargets = ckPrefix
@@ -91,6 +118,243 @@ function WalletSettings({
     Object.fromEntries(offChains.map((chain) => [chain, true])),
   );
   const [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
+  const chainRows = sortSettingRows(
+    chains.map((chain, index) => ({
+      index,
+      chain,
+      source: getChainSource(chain),
+      on: disabledM[chain] ? 0 : 1,
+      server: offM[chain] ? 0 : 1,
+    })),
+    chainTableSort,
+    {
+      on: "desc",
+      server: "desc",
+    },
+  );
+  const etcRows = sortSettingRows(
+    [
+      {
+        key: "useAlchemy",
+        setting: "use Alchemy",
+        on: useAlchemyState ? "on" : "off",
+        default: defaultUseAlchemy ? "on" : "off",
+        settingCell: "use Alchemy",
+        onCell: (
+          <input
+            type="checkbox"
+            checked={useAlchemyState}
+            onChange={toggleUseAlchemy}
+          />
+        ),
+        defaultCell: defaultUseAlchemy ? "on" : "off",
+      },
+      {
+        key: "alchemyMinUsd",
+        setting: "Alchemy min $",
+        on: alchemyMinUsdDraft,
+        default: defaultAlchemyMinUsd,
+        settingCell: "Alchemy min $",
+        onCell: (
+          <input
+            className="walletSettingsNumberInput"
+            type="number"
+            min="0"
+            step="0.01"
+            value={alchemyMinUsdDraft}
+            onChange={(e) => setAlchemyMinUsdDraft(e.target.value)}
+            onBlur={saveAlchemyMinUsd}
+            onKeyDown={(e) => {
+              if (e.key == "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+          />
+        ),
+        defaultCell: defaultAlchemyMinUsd,
+      },
+      {
+        key: "gasAuto",
+        setting: "gas auto label",
+        on: showGasAutoState ? "on" : "off",
+        default: defaultShowGasAuto ? "on" : "off",
+        settingCell: "gas auto label",
+        onCell: (
+          <input
+            type="checkbox"
+            checked={showGasAutoState}
+            onChange={toggleShowGasAuto}
+          />
+        ),
+        defaultCell: defaultShowGasAuto ? "on" : "off",
+      },
+      {
+        key: "usdPriceQuery",
+        setting: "USD price query",
+        on: usdPriceQueryState ? "on" : "off",
+        default: defaultUsdPriceQuery ? "on" : "off",
+        settingCell: "USD price query",
+        onCell: (
+          <input
+            type="checkbox"
+            checked={usdPriceQueryState}
+            onChange={toggleUsdPriceQuery}
+          />
+        ),
+        defaultCell: defaultUsdPriceQuery ? "on" : "off",
+      },
+      {
+        key: "clearCookies",
+        setting: "clear cookies",
+        on: cookieClearTarget,
+        default: "browser",
+        settingCell: (
+          <span className="walletSettingName">
+            clear cookies
+            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+              <span className="infoIcon">i</span>
+              <span className="infoCard">
+                <span>Clears browser cookies only.</span>
+                <span>ALL clears every visible cookie for this site.</span>
+                <span>app clears cookies with the app prefix.</span>
+                <span>sorting clears Wallet and Trade order cookies.</span>
+              </span>
+            </span>
+          </span>
+        ),
+        onCell: (
+          <span className="walletSettingsActionRow">
+            <select
+              value={cookieClearTarget}
+              onChange={(e) => setCookieClearTarget(e.target.value)}
+            >
+              {cookieTargets.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={clearBrowserCookies}>
+              clear
+            </button>
+          </span>
+        ),
+        defaultCell: "browser",
+      },
+      {
+        key: "clearData",
+        setting: "clear data",
+        on: editorDataClearTarget,
+        default: useLocalEditorStore ? "local" : "server",
+        settingCell: (
+          <span className="walletSettingName">
+            clear data
+            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+              <span className="infoIcon">i</span>
+              <span className="infoCard">
+                <span>Clears data/editor style files.</span>
+                <span>On Vercel this means localStorage editor files.</span>
+                <span>On local dev this means server project files.</span>
+              </span>
+            </span>
+          </span>
+        ),
+        onCell: (
+          <span className="walletSettingsActionRow">
+            <select
+              value={editorDataClearTarget}
+              onChange={(e) => setEditorDataClearTarget(e.target.value)}
+            >
+              {editorDataClearTargets.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={clearingEditorData}
+              onClick={clearEditorStorage}
+            >
+              clear
+            </button>
+          </span>
+        ),
+        defaultCell: useLocalEditorStore ? "local" : "server",
+      },
+      {
+        key: "clearCache",
+        setting: "clear cache",
+        on: runtimeCacheClearTarget,
+        default: "memory",
+        settingCell: (
+          <span className="walletSettingName">
+            clear cache
+            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+              <span className="infoIcon">i</span>
+              <span className="infoCard">
+                <span>Clears runtime memory cache only.</span>
+                <span>client clears cache in this browser tab.</span>
+                <span>server clears warm server module cache.</span>
+                <span>On Vercel, other warm instances may keep their cache until TTL expires.</span>
+              </span>
+            </span>
+          </span>
+        ),
+        onCell: (
+          <span className="walletSettingsActionRow">
+            <select
+              value={runtimeCacheClearTarget}
+              onChange={(e) => setRuntimeCacheClearTarget(e.target.value)}
+            >
+              {runtimeCacheClearTargets.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={clearingRuntimeCache}
+              onClick={clearRuntimeCache}
+            >
+              clear
+            </button>
+          </span>
+        ),
+        defaultCell: "memory",
+      },
+      {
+        key: "sorting",
+        setting: "sorting",
+        on: sortingModeState,
+        default: defaultSortingMode,
+        settingCell: (
+          <span className="walletSettingName">
+            sorting
+            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+              <span className="infoIcon">i</span>
+              <span className="infoCard">
+                <span>Stores the preferred sorting mode.</span>
+                <span>default is app order; cookie is saved order.</span>
+              </span>
+            </span>
+          </span>
+        ),
+        onCell: (
+          <select
+            value={sortingModeState}
+            onChange={(e) => updateSortingMode(e.target.value)}
+          >
+            <option value="default">default</option>
+            <option value="cookie">cookie</option>
+          </select>
+        ),
+        defaultCell: defaultSortingMode,
+      },
+    ].map((row, index) => ({ ...row, index })),
+    etcTableSort,
+  );
 
   useEffect(() => {
     setDisabledM(
@@ -437,17 +701,49 @@ function WalletSettings({
             <table className="coinSettingsTable walletChainSettingsTable">
               <thead>
                 <tr>
-                  <th>chain</th>
-                  <th>source</th>
-                  <th>on</th>
-                  <th>server</th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={chainTableSort}
+                      setSort={setChainTableSort}
+                      sortKey="chain"
+                    >
+                      chain
+                    </TableSortHeader>
+                  </th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={chainTableSort}
+                      setSort={setChainTableSort}
+                      sortKey="source"
+                    >
+                      source
+                    </TableSortHeader>
+                  </th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={chainTableSort}
+                      setSort={setChainTableSort}
+                      sortKey="on"
+                    >
+                      on
+                    </TableSortHeader>
+                  </th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={chainTableSort}
+                      setSort={setChainTableSort}
+                      sortKey="server"
+                    >
+                      server
+                    </TableSortHeader>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {chains.map((chain) => (
+                {chainRows.map(({ chain, source }) => (
                   <tr key={chain}>
                     <td>{chain}</td>
-                    <td>{getChainSource(chain)}</td>
+                    <td>{source}</td>
                     <td>
                       <input
                         type="checkbox"
@@ -473,198 +769,43 @@ function WalletSettings({
             <table className="coinSettingsTable walletChainSettingsTable">
               <thead>
                 <tr>
-                  <th>setting</th>
-                  <th>on</th>
-                  <th>default</th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={etcTableSort}
+                      setSort={setEtcTableSort}
+                      sortKey="setting"
+                    >
+                      setting
+                    </TableSortHeader>
+                  </th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={etcTableSort}
+                      setSort={setEtcTableSort}
+                      sortKey="on"
+                    >
+                      on
+                    </TableSortHeader>
+                  </th>
+                  <th>
+                    <TableSortHeader
+                      activeSort={etcTableSort}
+                      setSort={setEtcTableSort}
+                      sortKey="default"
+                    >
+                      default
+                    </TableSortHeader>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td>use Alchemy</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={useAlchemyState}
-                      onChange={toggleUseAlchemy}
-                    />
-                  </td>
-                  <td>{defaultUseAlchemy ? "on" : "off"}</td>
-                </tr>
-                <tr>
-                  <td>Alchemy min $</td>
-                  <td>
-                    <input
-                      className="walletSettingsNumberInput"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={alchemyMinUsdDraft}
-                      onChange={(e) => setAlchemyMinUsdDraft(e.target.value)}
-                      onBlur={saveAlchemyMinUsd}
-                      onKeyDown={(e) => {
-                        if (e.key == "Enter") {
-                          e.currentTarget.blur();
-                        }
-                      }}
-                    />
-                  </td>
-                  <td>{defaultAlchemyMinUsd}</td>
-                </tr>
-                <tr>
-                  <td>gas auto label</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={showGasAutoState}
-                      onChange={toggleShowGasAuto}
-                    />
-                  </td>
-                  <td>{defaultShowGasAuto ? "on" : "off"}</td>
-                </tr>
-                <tr>
-                  <td>USD price query</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={usdPriceQueryState}
-                      onChange={toggleUsdPriceQuery}
-                    />
-                  </td>
-                  <td>{defaultUsdPriceQuery ? "on" : "off"}</td>
-                </tr>
-                <tr>
-                  <td>
-                    <span className="walletSettingName">
-                      clear cookies
-                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
-                        <span className="infoIcon">i</span>
-                        <span className="infoCard">
-                          <span>Clears browser cookies only.</span>
-                          <span>ALL clears every visible cookie for this site.</span>
-                          <span>app clears cookies with the app prefix.</span>
-                          <span>sorting clears Wallet and Trade order cookies.</span>
-                        </span>
-                      </span>
-                    </span>
-                  </td>
-                  <td>
-                    <span className="walletSettingsActionRow">
-                      <select
-                        value={cookieClearTarget}
-                        onChange={(e) => setCookieClearTarget(e.target.value)}
-                      >
-                        {cookieTargets.map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={clearBrowserCookies}>
-                        clear
-                      </button>
-                    </span>
-                  </td>
-                  <td>browser</td>
-                </tr>
-                <tr>
-                  <td>
-                    <span className="walletSettingName">
-                      clear data
-                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
-                        <span className="infoIcon">i</span>
-                        <span className="infoCard">
-                          <span>Clears data/editor style files.</span>
-                          <span>On Vercel this means localStorage editor files.</span>
-                          <span>On local dev this means server project files.</span>
-                        </span>
-                      </span>
-                    </span>
-                  </td>
-                  <td>
-                    <span className="walletSettingsActionRow">
-                      <select
-                        value={editorDataClearTarget}
-                        onChange={(e) => setEditorDataClearTarget(e.target.value)}
-                      >
-                        {editorDataClearTargets.map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={clearingEditorData}
-                        onClick={clearEditorStorage}
-                      >
-                        clear
-                      </button>
-                    </span>
-                  </td>
-                  <td>{useLocalEditorStore ? "local" : "server"}</td>
-                </tr>
-                <tr>
-                  <td>
-                    <span className="walletSettingName">
-                      clear cache
-                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
-                        <span className="infoIcon">i</span>
-                        <span className="infoCard">
-                          <span>Clears runtime memory cache only.</span>
-                          <span>client clears cache in this browser tab.</span>
-                          <span>server clears warm server module cache.</span>
-                          <span>On Vercel, other warm instances may keep their cache until TTL expires.</span>
-                        </span>
-                      </span>
-                    </span>
-                  </td>
-                  <td>
-                    <span className="walletSettingsActionRow">
-                      <select
-                        value={runtimeCacheClearTarget}
-                        onChange={(e) => setRuntimeCacheClearTarget(e.target.value)}
-                      >
-                        {runtimeCacheClearTargets.map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={clearingRuntimeCache}
-                        onClick={clearRuntimeCache}
-                      >
-                        clear
-                      </button>
-                    </span>
-                  </td>
-                  <td>memory</td>
-                </tr>
-                <tr>
-                  <td>
-                    <span className="walletSettingName">
-                      sorting
-                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
-                        <span className="infoIcon">i</span>
-                        <span className="infoCard">
-                          <span>Stores the preferred sorting mode.</span>
-                          <span>default is app order; cookie is saved order.</span>
-                        </span>
-                      </span>
-                    </span>
-                  </td>
-                  <td>
-                    <select
-                      value={sortingModeState}
-                      onChange={(e) => updateSortingMode(e.target.value)}
-                    >
-                      <option value="default">default</option>
-                      <option value="cookie">cookie</option>
-                    </select>
-                  </td>
-                  <td>{defaultSortingMode}</td>
-                </tr>
+                {etcRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{row.settingCell}</td>
+                    <td>{row.onCell}</td>
+                    <td>{row.defaultCell}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </>

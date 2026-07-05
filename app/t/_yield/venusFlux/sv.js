@@ -19,6 +19,7 @@ import {
 } from "../../sharedServer";
 import {
   cleanMarketSymbol,
+  createJsonRpcProvider,
   mapWithConcurrency,
   sameEvmAddress,
   withTimeout,
@@ -411,7 +412,10 @@ export async function getVenusFluxAllMarkets({ chain = "" } = {}) {
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus Flux",
+  });
 
   try {
     const apiMarkets = await fetchVenusFluxApiMarkets(chain).catch(() => []);
@@ -469,7 +473,10 @@ export async function getVenusFluxMarketBalance({
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus Flux",
+  });
 
   try {
     const owner = ethers.getAddress(walletAddress);
@@ -529,7 +536,10 @@ export async function getVenusFluxLendPreview({
     underlyingDecimals,
     lendDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus Flux",
+  });
 
   try {
     const market = await assertVenusFluxMarket({
@@ -603,7 +613,10 @@ export async function buildVenusFluxLendTxs({
     underlyingDecimals,
     lendDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus Flux",
+  });
 
   try {
     const market = await assertVenusFluxMarket({
@@ -742,7 +755,10 @@ export async function executeVenusFluxLend({
     underlyingDecimals,
     lendDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus Flux",
+  });
 
   try {
     const wallet = getWallet(privateKey, provider);

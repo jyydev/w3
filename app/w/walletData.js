@@ -7,6 +7,7 @@ import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import { chainIds, defaultMulticallAddress, multicalls } from "@/data/basic";
 import getCoinM from "@/fn/getCoinM";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
+import { createJsonRpcProvider, logRpcFailure } from "../_fn/shared";
 import { getWalletDisableKey } from "./walletSettingData";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
@@ -102,9 +103,6 @@ const alchemyPortfolioBaseUrl = "https://api.g.alchemy.com/data/v1";
 const failedRpcCooldownMs = 60_000;
 const failedRpcM = globalThis.__w3FailedRpcM || new Map();
 globalThis.__w3FailedRpcM = failedRpcM;
-const rpcLogCooldownMs = 60_000;
-const rpcLogM = globalThis.__w3RpcLogM || new Map();
-globalThis.__w3RpcLogM = rpcLogM;
 const hyperliquidApiBase =
   process.env.HYPERLIQUID_API_BASE ||
   process.env.hyperliquid_api_base ||
@@ -196,31 +194,6 @@ function getLiveRpcs(chainE) {
 function getChainNetwork(chainE) {
   const chainId = chainIds?.[chainE?.chain];
   return Number.isInteger(chainId) ? { chainId, name: chainE.chain } : undefined;
-}
-
-function logRpcFailure({ chain = "", rpc = "", error = null } = {}) {
-  const key = `${chain}:${rpc}`;
-  const now = Date.now();
-  const lastLogAt = rpcLogM.get(key) || 0;
-  if (lastLogAt && now - lastLogAt < rpcLogCooldownMs) return;
-
-  rpcLogM.set(key, now);
-  console.warn(
-    `[wallet rpc failed] chain=${chain || "-"} rpc=${getRpcOrigin(rpc) || "-"} error=${
-      error?.shortMessage || error?.message || String(error || "unknown")
-    }`,
-  );
-}
-
-function getRpcOrigin(rpc = "") {
-  const text = String(rpc || "");
-  if (!text) return "";
-
-  try {
-    return new URL(text).origin;
-  } catch {
-    return text.split(/[/?#]/)[0] || text;
-  }
 }
 
 function normalizeCustomCoinM(input = []) {
@@ -360,8 +333,11 @@ async function getProvider(chainE, { timeoutMs = 0 } = {}) {
   const network = getChainNetwork(chainE);
 
   for (const rpc of getLiveRpcs(chainE)) {
-    const provider = new ethers.JsonRpcProvider(rpc, network, {
+    const provider = createJsonRpcProvider(rpc, {
+      chain: chainE?.chain,
+      network,
       staticNetwork: !!network,
+      scope: "wallet",
     });
     try {
       const blockPromise = provider.getBlockNumber();
@@ -374,7 +350,7 @@ async function getProvider(chainE, { timeoutMs = 0 } = {}) {
     } catch (e) {
       lastError = e;
       failedRpcM.set(rpc, Date.now());
-      logRpcFailure({ chain: chainE?.chain, rpc, error: e });
+      logRpcFailure({ scope: "wallet", chain: chainE?.chain, rpc, error: e });
       provider.destroy?.();
     }
   }
@@ -592,13 +568,22 @@ async function getPriceM({ chain, coinEntries, usdPriceQuery = false }) {
 export async function getCoinUsdPrice({
   chain = "",
   coin = "",
+  coinE: dynamicCoinE = null,
   usdPriceQuery = false,
 } = {}) {
   const coinM = getCoinM(chain);
-  const coinE = coinM?.[coin];
+  const suppliedCoinE =
+    dynamicCoinE && typeof dynamicCoinE == "object" ? dynamicCoinE : null;
+  const coinE = suppliedCoinE
+    ? { ...(coinM?.[coin] || {}), ...suppliedCoinE }
+    : coinM?.[coin];
   if (!coinE) return 0;
 
   const coinEntries = [[coin, coinE]];
+  const allCoinEntries = [
+    [coin, coinE],
+    ...Object.entries(coinM || {}).filter(([entryCoin]) => entryCoin != coin),
+  ];
   let priceM = await getPriceM({ chain, coinEntries, usdPriceQuery });
   let price = getUsdPrice(coin, priceM, { usdPriceQuery });
   if (price > 0) return price;
@@ -616,7 +601,7 @@ export async function getCoinUsdPrice({
         provider,
         multicallAddress: ethers.getAddress(chainE.multicall),
         coinEntries,
-        allCoinEntries: Object.entries(coinM),
+        allCoinEntries,
         priceM,
         usdPriceQuery,
       }),

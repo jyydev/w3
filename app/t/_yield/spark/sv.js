@@ -19,6 +19,8 @@ import {
 } from "../../sharedServer";
 import {
   cleanMarketSymbol,
+  createJsonRpcProvider,
+  logRpcFailure,
   mapWithConcurrency,
   sameEvmAddress,
   withTimeout,
@@ -711,7 +713,10 @@ export async function getSparkAllMarkets({ chain = "" } = {}) {
   let lastError = null;
 
   async function fetchMarkets(rpc) {
-    const provider = new ethers.JsonRpcProvider(rpc);
+    const provider = createJsonRpcProvider(rpc, {
+      chain,
+      scope: "Spark",
+    });
 
     try {
       const markets = (
@@ -832,6 +837,7 @@ export async function getSparkAllMarkets({ chain = "" } = {}) {
       }
     } catch (e) {
       lastError = e;
+      logRpcFailure({ scope: "Spark", chain, rpc, error: e });
     }
   }
 
@@ -877,7 +883,10 @@ export async function getSparkMarketBalance({
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Spark",
+  });
 
   try {
     const owner = ethers.getAddress(walletAddress);
@@ -1072,7 +1081,10 @@ export async function getSparkLendPreview({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Spark",
+  });
 
   try {
     const market = await assertSparkMarket({
@@ -1176,7 +1188,10 @@ export async function buildSparkLendTxs({
   const chainId = chainIds[chain];
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Spark",
+  });
 
   try {
     const market = await assertSparkMarket({
@@ -1403,7 +1418,10 @@ export async function executeSparkLend({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Spark",
+  });
 
   try {
     const wallet = getWallet(privateKey, provider);

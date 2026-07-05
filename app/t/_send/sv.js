@@ -7,7 +7,6 @@ import {
   createTransferInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
   erc20Interface,
@@ -20,6 +19,7 @@ import {
   getSolanaInstructionTx,
   getSolanaKeypair,
   getSolanaPublicKey,
+  getTradeCoinEntry,
   getTradeCoinBalance as getTradeCoinBalanceShared,
   getTradeCoinPrice as getTradeCoinPriceShared,
   getUnsignedTx,
@@ -33,10 +33,15 @@ export async function getTradeCoinBalance(args) {
   return getTradeCoinBalanceShared(args);
 }
 
-function getSendAmount({ chain = "", coin = "", amount = "" } = {}) {
+function getSendAmount({
+  chain = "",
+  coin = "",
+  amount = "",
+  coinE = null,
+} = {}) {
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
-    getCoinDecimals(chain, coin),
+    getCoinDecimals(chain, coin, coinE),
   );
   if (amountIn <= 0n) throw new Error("send amount must be greater than 0");
 
@@ -46,12 +51,10 @@ function getSendAmount({ chain = "", coin = "", amount = "" } = {}) {
 async function getSolanaSendTx({
   walletAddress = "",
   coin = "",
+  coinE = null,
   amountIn,
   recipient = "",
 } = {}) {
-  const coinE = coinM?.Solana?.[coin];
-  if (!coinE) throw new Error(`coin not found: Solana ${coin}`);
-
   const fromKey = getSolanaPublicKey(walletAddress, "Solana sender address");
   const toKey = getSolanaPublicKey(recipient, "Solana recipient address");
   const instructions = [];
@@ -103,18 +106,19 @@ export async function buildSendTx({
   coin = "",
   amount = "",
   recipient = "",
+  coinE: dynamicCoinE = null,
 } = {}) {
-  const coinE = coinM?.[chain]?.[coin];
-  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+  const coinE = getTradeCoinEntry(chain, coin, dynamicCoinE);
   if (!recipient) throw new Error("recipient missing");
 
-  const amountIn = getSendAmount({ chain, coin, amount });
+  const amountIn = getSendAmount({ chain, coin, amount, coinE });
   let tx;
 
   if (chain == "Solana") {
     tx = await getSolanaSendTx({
       walletAddress,
       coin,
+      coinE,
       amountIn,
       recipient,
     });
@@ -165,6 +169,7 @@ export async function executeSend({
   coin = "",
   amount = "",
   recipient = "",
+  coinE = null,
 } = {}) {
   try {
     assertWhitelistedRecipient({ address: recipient });
@@ -185,6 +190,7 @@ export async function executeSend({
     coin,
     amount,
     recipient,
+    coinE,
   });
   const tx = built.txs[0];
   let sent;

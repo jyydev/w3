@@ -8,6 +8,7 @@ import {
   erc20Interface,
   executeRawEvmTx,
   getPrivateKey,
+  getTradeCoinEntry,
   getUnsignedTx,
   getWallet,
 } from "../../sharedServer";
@@ -489,7 +490,7 @@ function getHyperliquidBridgeConfig({ chain = "", coin = "" } = {}) {
     );
   }
 
-  const coinE = coinM?.[chain]?.[coin];
+  const coinE = getTradeCoinEntry(chain, coin);
   if (!coinE?.address || !ethers.isAddress(coinE.address)) {
     throw new Error(`coin address missing: ${chain} ${coin}`);
   }

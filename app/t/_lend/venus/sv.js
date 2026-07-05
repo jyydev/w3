@@ -18,9 +18,11 @@ import {
   getWallet,
 } from "../../sharedServer";
 import {
+  createJsonRpcProvider,
   getCoinByAddress,
   getTokenMeta,
   getUsableChainRpcs,
+  logRpcFailure,
   mapWithConcurrency,
   withTimeout,
 } from "../shared";
@@ -133,7 +135,10 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
   let lastError = null;
 
   async function fetchMarkets(rpc) {
-    const provider = new ethers.JsonRpcProvider(rpc);
+    const provider = createJsonRpcProvider(rpc, {
+      chain,
+      scope: "Venus",
+    });
 
     try {
       const comptrollers = [
@@ -269,6 +274,7 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
       }
     } catch (e) {
       lastError = e;
+      logRpcFailure({ scope: "Venus", chain, rpc, error: e });
     }
   }
 
@@ -306,7 +312,10 @@ export async function getVenusMarketBalance({
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus",
+  });
 
   try {
     const owner = ethers.getAddress(walletAddress);
@@ -443,7 +452,10 @@ export async function getVenusLendPreview({
     underlyingDecimals,
     lendDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus",
+  });
 
   try {
     const market = await assertVenusMarket({
@@ -516,7 +528,10 @@ export async function buildVenusLendTxs({
     underlyingDecimals,
     lendDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus",
+  });
 
   try {
     const market = await assertVenusMarket({
@@ -647,7 +662,10 @@ export async function executeVenusLend({
     underlyingDecimals,
     lendDecimals,
   });
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Venus",
+  });
 
   try {
     const wallet = getWallet(privateKey, provider);

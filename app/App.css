@@ -498,58 +498,52 @@ input[type="text"] {
   align-items: center;
   gap: 5px;
 }
-.chainIcon {
+.assetIcon {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
   vertical-align: -3px;
 }
-img.chainIcon {
+img.assetIcon {
   display: inline-block;
   object-fit: contain;
 }
-span.chainIcon {
+.assetIconText {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   border-radius: 50%;
   color: white;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: bold;
   line-height: 1;
 }
 .chainIcon-avalanche {
   background: #e84142;
-  font-size: 8px;
 }
 .chainIcon-optimism {
   background: #ff0420;
-  font-size: 8px;
 }
 .chainIcon-base {
   background: #0052ff;
-  font-size: 8px;
 }
 .chainIcon-hyperliquid {
   background: #111827;
   border: 1px solid #00e6c3;
   color: #00e6c3;
-  font-size: 8px;
 }
 .chainIcon-kaia {
   background: #7bff00;
   color: black;
-  font-size: 8px;
 }
 .chainIcon-wemix {
   background: #111827;
   border: 1px solid #7cfc00;
   color: #7cfc00;
-  font-size: 8px;
 }
 .chainIcon-zksyncera {
   background: #4e529a;
-  font-size: 8px;
 }
 .coinHeaderLabel {
   display: inline-flex;
@@ -557,18 +551,7 @@ span.chainIcon {
   gap: 4px;
 }
 .coinIcon {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  border-radius: 50%;
   color: white;
-  font-size: 8px;
-  font-weight: bold;
-  line-height: 1;
 }
 .coinIcon-stable {
   background: #119c68;
@@ -589,7 +572,9 @@ span.chainIcon {
   color: white;
 }
 .coinIcon-native {
-  background: #4d5968;
+  border: 1px solid var(--orange);
+  background: linear-gradient(135deg, #fff176, var(--orange));
+  color: #111;
 }
 .coinIcon-wrapped {
   background: #6978a8;
@@ -1014,17 +999,6 @@ span.chainIcon {
 .coinSettingsRow:hover td {
   background: #111;
 }
-.coinSettingsSort {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.coinSettingsSort:hover {
-  color: white;
-}
 .varColor {
   color: hsl(calc(var(--color) * 137), 80%, 70%);
 }
@@ -1040,7 +1014,11 @@ span.chainIcon {
   margin: 0 1px;
 } /*use:<span className="varBgColor" style={{ "--color":NUM }}>*/
 .tradePanel {
+  box-sizing: border-box;
   margin-top: 10px;
+  width: calc(100vw - 8px);
+  max-width: calc(100vw - 8px);
+  min-width: 0;
 }
 .tradePanelInner {
   padding: 4px 0;
@@ -1167,14 +1145,14 @@ span.chainIcon {
 .walletCycle {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
-.toWalletCycle {
+.selectedCompact {
   grid-template-columns: auto max-content auto auto;
 }
-.toWalletCycle .tradePicker {
+.selectedCompact .tradePicker {
   width: max-content;
   max-width: min(58ch, 48vw);
 }
-.toWalletCycle .tradePickerButton {
+.selectedCompact .tradePickerButton {
   width: max-content;
   max-width: 100%;
   min-width: 0;
@@ -1287,6 +1265,14 @@ span.chainIcon {
 .hyperliquidFeeEtaLine {
   font-size: 12px;
   margin-top: 4px;
+}
+.hyperliquidRouteText {
+  display: inline-block;
+  max-width: 14ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sendQtyInput {
   width: 170px;
@@ -1401,6 +1387,7 @@ span.chainIcon {
   text-align: left;
   white-space: nowrap;
 }
+.sortableHeader,
 .tradePickerSortHeader {
   padding: 0;
   border: 0;
@@ -1409,9 +1396,15 @@ span.chainIcon {
   font: inherit;
   cursor: pointer;
 }
+.sortableHeader:hover,
+.tradePickerSortHeader:hover {
+  color: white;
+}
+.sortableHeader.on,
 .tradePickerSortHeader.on {
   color: rgb(210, 210, 210);
 }
+.sortableHeader.on::after,
 .tradePickerSortHeader.on::after {
   content: "↓";
   margin-left: 2px;
@@ -1437,9 +1430,14 @@ span.chainIcon {
 .tradePickerRow {
   cursor: pointer;
 }
-.tradePickerRow:hover,
-.tradePickerRow.on {
-  background: rgb(35, 35, 35);
+.tradePickerRow.on > td {
+  background: rgb(66, 56, 9);
+}
+.tradePickerRow:hover > td {
+  background: rgb(48, 48, 48);
+}
+.tradePickerRow.on:hover > td {
+  background: rgb(80, 68, 11);
 }
 .tradePickerRow.unsupported {
   opacity: 0.72;
@@ -1478,6 +1476,10 @@ span.chainIcon {
   display: block;
   min-width: 0;
   overflow: hidden;
+  cursor: inherit;
+}
+.tradePickerCoinHover > * {
+  cursor: inherit;
 }
 .tradePickerCoinHover .infoCard {
   top: 0;

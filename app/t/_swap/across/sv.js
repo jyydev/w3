@@ -7,6 +7,7 @@ import {
   approveExactIfNeeded,
   assertWalletMatches,
   assertWhitelistedRecipient,
+  createJsonRpcProvider,
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
@@ -17,6 +18,7 @@ import {
   getPrivateKey,
   getSolanaKeypair,
   getSolanaPublicKey,
+  getTradeCoinEntry,
   getUnsignedTx,
   getWallet,
   nativeEvmAddress,
@@ -60,8 +62,7 @@ const acrossChainNameM = {
 };
 
 function getAcrossToken(chain = "", coin = "") {
-  const coinE = coinM?.[chain]?.[coin];
-  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+  const coinE = getTradeCoinEntry(chain, coin);
   if (chain == "Solana" && coinE.native) return nativeSolanaAddress;
   if (coinE.native) return nativeEvmAddress;
   if (chain == "Solana") {
@@ -591,7 +592,10 @@ export async function executeAcrossSwap({
       const rpc = getChainRpc(fromChain);
       if (!rpc) throw new Error(`rpc not configured: ${fromChain}`);
 
-      const provider = new ethers.JsonRpcProvider(rpc);
+      const provider = createJsonRpcProvider(rpc, {
+        chain: fromChain,
+        scope: "Across",
+      });
       try {
         const wallet = getWallet(privateKey, provider);
         assertWalletMatches(wallet, walletAddress);

@@ -3050,7 +3050,12 @@ export default function YieldPanel({
                   MarketCoinBalance={MarketCoinBalance}
                 />
                 {hyperliquidDepositRouteText && (
-                  <span className="gray">{hyperliquidDepositRouteText}</span>
+                  <span
+                    className="gray hyperliquidRouteText"
+                    title={hyperliquidDepositRouteText}
+                  >
+                    {hyperliquidDepositRouteText}
+                  </span>
                 )}
                 {hyperliquidBridgeE.loading && (
                   <span className="gray">loading routes...</span>
@@ -3259,7 +3264,12 @@ export default function YieldPanel({
                   MarketCoinBalance={MarketCoinBalance}
                 />
                 {hyperliquidWithdrawRouteText && (
-                  <span className="gray">{hyperliquidWithdrawRouteText}</span>
+                  <span
+                    className="gray hyperliquidRouteText"
+                    title={hyperliquidWithdrawRouteText}
+                  >
+                    {hyperliquidWithdrawRouteText}
+                  </span>
                 )}
                 {hyperliquidBridgeE.error && (
                   <button

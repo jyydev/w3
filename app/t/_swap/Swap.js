@@ -369,6 +369,7 @@ export default function SwapPanel({
     from: "",
     to: "",
   });
+  const [selectedDiscoveryCoinM, setSelectedDiscoveryCoinM] = useState({});
   const fromChainE =
     chainList.find((chainE) => chainE.chain == fromChain) || chainList[0];
   const toChainE =
@@ -403,29 +404,47 @@ export default function SwapPanel({
           : defi == "uniswap"
             ? UniswapClient
             : RelayClient;
-  const fromCoins = useMemo(
-    () =>
-      sortByGroupedSelectionOrder(
-        getChainCoins(fromChainE),
-        fromCoinOrder,
-        fromChain,
-      ),
-    [fromChain, fromChainE, fromCoinOrder],
-  );
-  const toCoins = useMemo(
-    () =>
-      sortByGroupedSelectionOrder(
-        getChainCoins(toChainE),
-        toCoinOrder,
-        toChain,
-      ),
-    [toChain, toChainE, toCoinOrder],
-  );
-  const fromCoinInfo = fromChainE?.coinInfoM?.[fromCoin] || {};
+  const fromDiscoveryCoinE =
+    selectedDiscoveryCoinM.from?.chain == fromChain
+      ? selectedDiscoveryCoinM.from
+      : null;
+  const toDiscoveryCoinE =
+    selectedDiscoveryCoinM.to?.chain == toChain
+      ? selectedDiscoveryCoinM.to
+      : null;
+  const fromCoins = useMemo(() => {
+    const coins = sortByGroupedSelectionOrder(
+      getChainCoins(fromChainE),
+      fromCoinOrder,
+      fromChain,
+    );
+    const discoveryCoin = fromDiscoveryCoinE?.coin || "";
+
+    return discoveryCoin && !coins.includes(discoveryCoin)
+      ? [discoveryCoin, ...coins]
+      : coins;
+  }, [fromChain, fromChainE, fromCoinOrder, fromDiscoveryCoinE?.coin]);
+  const toCoins = useMemo(() => {
+    const coins = sortByGroupedSelectionOrder(
+      getChainCoins(toChainE),
+      toCoinOrder,
+      toChain,
+    );
+    const discoveryCoin = toDiscoveryCoinE?.coin || "";
+
+    return discoveryCoin && !coins.includes(discoveryCoin)
+      ? [discoveryCoin, ...coins]
+      : coins;
+  }, [toChain, toChainE, toCoinOrder, toDiscoveryCoinE?.coin]);
+  const fromCoinInfo =
+    fromChainE?.coinInfoM?.[fromCoin] ||
+    (fromDiscoveryCoinE?.coin == fromCoin ? fromDiscoveryCoinE : {});
   const fromCoinDecimals = Number.isInteger(fromCoinInfo.decimals)
     ? fromCoinInfo.decimals
     : 18;
-  const toCoinInfo = toChainE?.coinInfoM?.[toCoin] || {};
+  const toCoinInfo =
+    toChainE?.coinInfoM?.[toCoin] ||
+    (toDiscoveryCoinE?.coin == toCoin ? toDiscoveryCoinE : {});
   const toCoinDecimals = Number.isInteger(toCoinInfo.decimals)
     ? toCoinInfo.decimals
     : 18;
@@ -467,8 +486,12 @@ export default function SwapPanel({
   const sellQty = toNum(fromQty);
   const buyQty = toNum(toQty);
   const sellSliderValue = Math.min(toNum(fromQty), maxSell);
-  const fromPriceKey = priceKey(fromChain, fromCoin);
-  const toPriceKey = priceKey(toChain, toCoin);
+  const fromPriceKey = fromCoinInfo.address
+    ? priceKey(fromChain, fromCoinInfo.address)
+    : priceKey(fromChain, fromCoin);
+  const toPriceKey = toCoinInfo.address
+    ? priceKey(toChain, toCoinInfo.address)
+    : priceKey(toChain, toCoin);
   const fromListPrice = toNum(fromBalance.price);
   const toListPrice = toNum(toBalance.price);
   const {
@@ -478,6 +501,7 @@ export default function SwapPanel({
     cacheKey: fromPriceKey,
     chain: fromChain,
     coin: fromCoin,
+    coinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
     listPrice: fromListPrice,
     getPrice: getTradeCoinPrice,
   });
@@ -488,6 +512,7 @@ export default function SwapPanel({
     cacheKey: toPriceKey,
     chain: toChain,
     coin: toCoin,
+    coinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
     listPrice: toListPrice,
     getPrice: getTradeCoinPrice,
   });
@@ -839,28 +864,32 @@ export default function SwapPanel({
       const savedCoin = getCookie(
         getSwapRouteCookie(tradeSwapFromCoinCookie, walletType, defi, fromChain),
       );
-      const nextCoin = fromCoins.includes(savedCoin)
-        ? savedCoin
-        : fromCoins[0];
+      const nextCoin = fromCoins.includes(fromCoin)
+        ? fromCoin
+        : fromCoins.includes(savedCoin)
+          ? savedCoin
+          : fromCoins[0];
       if (nextCoin != fromCoin) setFromCoin(nextCoin);
     } else if (!fromCoins.length && fromCoin) {
       setFromCoin("");
     }
-  }, [defi, fromChain, fromCoins, walletType]);
+  }, [defi, fromChain, fromCoin, fromCoins, walletType]);
 
   useEffect(() => {
     if (toCoins.length) {
       const savedCoin = getCookie(
         getSwapRouteCookie(tradeSwapToCoinCookie, walletType, defi, toChain),
       );
-      const nextCoin = toCoins.includes(savedCoin)
-        ? savedCoin
-        : toCoins[0];
+      const nextCoin = toCoins.includes(toCoin)
+        ? toCoin
+        : toCoins.includes(savedCoin)
+          ? savedCoin
+          : toCoins[0];
       if (nextCoin != toCoin) setToCoin(nextCoin);
     } else if (!toCoins.length && toCoin) {
       setToCoin("");
     }
-  }, [defi, toChain, toCoins, walletType]);
+  }, [defi, toChain, toCoin, toCoins, walletType]);
 
   useEffect(() => {
     const qty = "0";
@@ -964,9 +993,56 @@ export default function SwapPanel({
     );
   }
 
+  function getDiscoveryCoinSymbol(entry = {}) {
+    const symbol = String(entry.symbol || "").trim();
+    if (symbol) return symbol;
+
+    const cleanAddress = String(entry.address || "").replace(/^0x/i, "");
+    return cleanAddress
+      ? `TOKEN_${cleanAddress.slice(-6).toUpperCase()}`
+      : "token";
+  }
+
+  function getDiscoveryCoinE(chain = "", entry = {}) {
+    const decimals = Number(entry.decimals);
+
+    return {
+      chain,
+      coin: getDiscoveryCoinSymbol(entry),
+      address: String(entry.address || "").trim(),
+      decimals: Number.isInteger(decimals) ? decimals : undefined,
+      name: entry.name || getDiscoveryCoinSymbol(entry),
+      type: "token",
+    };
+  }
+
+  function getSelectedSwapCoinE(chain = "", coin = "", side = "from") {
+    const chainE = chainList.find((entry) => entry.chain == chain);
+    const localCoinE = chainE?.coinInfoM?.[coin];
+    if (localCoinE) {
+      return {
+        address: localCoinE.address || "",
+        decimals: localCoinE.decimals,
+        native: !!localCoinE.native,
+      };
+    }
+
+    const discoveryCoinE = selectedDiscoveryCoinM[side];
+    if (discoveryCoinE?.chain != chain || discoveryCoinE?.coin != coin) {
+      return undefined;
+    }
+
+    return {
+      address: discoveryCoinE.address || "",
+      decimals: discoveryCoinE.decimals,
+      native: !!discoveryCoinE.native,
+    };
+  }
+
   function getRefreshTarget(chain = "", coin = "", address = "") {
     const chainE = chainList.find((entry) => entry.chain == chain);
-    const coinE = chainE?.coinInfoM?.[coin];
+    const side = chain == fromChain && coin == fromCoin ? "from" : "to";
+    const coinE = getSelectedSwapCoinE(chain, coin, side);
     const localCoin = coinE?.address ? getCoinByAddress(chainE, coinE.address) : "";
     const refreshCoin = localCoin || coin;
 
@@ -1011,9 +1087,7 @@ export default function SwapPanel({
 
     try {
       const balance = await getTradeCoinBalance({
-        chain: toChain,
-        coin: toCoin,
-        address: cleanRecipient,
+        ...getRefreshTarget(toChain, toCoin, cleanRecipient),
       });
 
       setRecipientBalanceE({
@@ -1261,6 +1335,8 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
+            fromCoinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
+            toCoinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
             amount,
             recipient: toAddress,
           });
@@ -1302,6 +1378,8 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
+            fromCoinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
+            toCoinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
             amount,
             recipient: toAddress,
           });
@@ -1329,6 +1407,8 @@ export default function SwapPanel({
             toChain,
             fromCoin,
             toCoin,
+            fromCoinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
+            toCoinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
             amount,
             recipient: toAddress,
             approvalAmount,
@@ -1601,6 +1681,7 @@ export default function SwapPanel({
         chain: fromChain,
         coin: fromCoin,
         address: walletEntry.address,
+        coinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
       });
 
       return formatComputedTradeQty(
@@ -1830,16 +1911,35 @@ export default function SwapPanel({
   function selectDiscoveryCoin(entry = {}, side = "from") {
     const chain = side == "from" ? fromChain : toChain;
     const localCoin = findLocalCoinForDiscovery(chain, entry);
-    if (!localCoin) {
-      toast(`${chain} ${entry.symbol || "token"}: add coin first`);
+    const discoveryCoinE = getDiscoveryCoinE(chain, entry);
+    const selectedCoin = localCoin || discoveryCoinE.coin;
+    if (!selectedCoin) return;
+    if (!localCoin && !discoveryCoinE.address) {
+      toast(`${chain} ${selectedCoin}: token address missing`);
       return;
     }
 
     if (side == "from") {
-      selectFromCoin(localCoin);
+      if (!localCoin) {
+        setSelectedDiscoveryCoinM((coinM) => ({
+          ...coinM,
+          from: discoveryCoinE,
+        }));
+        setFromCoin(selectedCoin);
+      } else {
+        selectFromCoin(localCoin);
+      }
       setShowFromCoinMenu(false);
     } else {
-      selectToCoin(localCoin);
+      if (!localCoin) {
+        setSelectedDiscoveryCoinM((coinM) => ({
+          ...coinM,
+          to: discoveryCoinE,
+        }));
+        setToCoin(selectedCoin);
+      } else {
+        selectToCoin(localCoin);
+      }
       setShowToCoinMenu(false);
     }
   }
@@ -1930,11 +2030,23 @@ export default function SwapPanel({
   }
 
   function selectFromCoin(coin, options = {}) {
+    if (
+      selectedDiscoveryCoinM.from?.chain != fromChain ||
+      selectedDiscoveryCoinM.from?.coin != coin
+    ) {
+      setSelectedDiscoveryCoinM((coinM) => ({ ...coinM, from: null }));
+    }
     setFromCoin(coin);
     saveSwapCoinCookie(tradeSwapFromCoinCookie, fromChain, coin, options);
   }
 
   function selectToCoin(coin, options = {}) {
+    if (
+      selectedDiscoveryCoinM.to?.chain != toChain ||
+      selectedDiscoveryCoinM.to?.coin != coin
+    ) {
+      setSelectedDiscoveryCoinM((coinM) => ({ ...coinM, to: null }));
+    }
     setToCoin(coin);
     saveSwapCoinCookie(tradeSwapToCoinCookie, toChain, coin, options);
   }

@@ -223,9 +223,11 @@ export function getLendingMarkets(chainE, protocol) {
 export function getMarketLabel(entry = {}) {
   if (entry.protocol == "hyperliquid") return entry.lendCoin || "vault";
 
-  return entry?.underlyingCoin
-    ? `${entry.underlyingCoin} (${entry.lendCoin})`
-    : "coin";
+  if (entry?.underlyingCoin && entry?.lendCoin) {
+    return `${entry.underlyingCoin}-${entry.lendCoin}`;
+  }
+
+  return entry?.underlyingCoin || entry?.lendCoin || "coin";
 }
 
 export const formatApr = formatTradeMarketApr;

@@ -9,7 +9,7 @@ const arbitrum = [
   },
   {
     coin: "USDT",
-    address: "0xFd086bC7CD5C481DCC9C85ebe478A1C0b69FCbb9",
+    address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
     decimals: 6,
     name: "Tether USD",
     type: "stable",
@@ -66,7 +66,7 @@ const arbitrum = [
   },
   {
     coin: "WBTC",
-    address: "0x2f2a2543B76A4166549F7aaB2e75B0f6C1b0f",
+    address: "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
     decimals: 8,
     name: "Wrapped BTC",
     type: "wrapped",
@@ -90,8 +90,7 @@ const arbitrum = [
     address: "0x6ab707Aca953eDAeFBc4fD23bA73294241490620",
     decimals: 6,
     name: "Aave Arbitrum USDT",
-    type: "lend"
+    type: "lend",
   },
-
 ];
 export default arbitrum;

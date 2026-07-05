@@ -2,6 +2,7 @@
 
 import {
   getInitialCookie,
+  getKnownCoinPrice,
   getTradeModeCookie,
   sameAddress,
   TradePickerSortHeader,
@@ -92,12 +93,30 @@ export function getSendSelectedBalance(
 
   const row = findBalanceRow(chainEntry, walletEntry);
   if (hasTableBalance(chainEntry, selectedCoin, walletEntry)) {
-    return row.balances[selectedCoin] || {};
+    const balance = row.balances[selectedCoin] || {};
+    const price = getKnownCoinPrice(chainEntry, selectedCoin);
+    return price > 0 && !(Number(balance.price) > 0)
+      ? { ...balance, price }
+      : balance;
   }
 
-  return (
+  const fallback =
     fallbackBalanceM[
       getBalanceKey(chainEntry.chain, selectedCoin, walletEntry.address)
-    ] || {}
-  );
+    ] || {};
+  if (fallback.balance !== undefined && fallback.balance !== null) return fallback;
+
+  if (
+    row?.balances &&
+    Object.prototype.hasOwnProperty.call(chainEntry?.coinInfoM || {}, selectedCoin) &&
+    !row.errors?.[selectedCoin]
+  ) {
+    return {
+      balance: 0,
+      price: getKnownCoinPrice(chainEntry, selectedCoin),
+      usd: 0,
+    };
+  }
+
+  return fallback;
 }

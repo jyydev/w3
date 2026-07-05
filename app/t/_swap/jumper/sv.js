@@ -5,6 +5,7 @@ import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import {
   assertWhitelistedRecipient,
+  createJsonRpcProvider,
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
@@ -15,6 +16,7 @@ import {
   getPrivateKey,
   getSolanaKeypair,
   getSolanaPublicKey,
+  getTradeCoinEntry,
   getUnsignedTx,
   nativeEvmAddress,
 } from "../../sharedServer";
@@ -228,8 +230,7 @@ function filterJumperTokens(tokens = [], term = "") {
 }
 
 function getJumperToken(chain = "", coin = "") {
-  const coinE = coinM?.[chain]?.[coin];
-  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+  const coinE = getTradeCoinEntry(chain, coin);
   if (chain == "Solana") {
     if (coinE.native) return nativeSolanaAddress;
     if (!coinE.address) throw new Error(`coin address missing: ${chain} ${coin}`);
@@ -281,7 +282,7 @@ async function getJumperAllowanceInfo({
     };
   }
 
-  const coinE = coinM?.[fromChain]?.[fromCoin];
+  const coinE = getTradeCoinEntry(fromChain, fromCoin);
   const approvalAddress =
     quote.estimate?.approvalAddress ||
     quote.includedSteps?.find((step) => step?.estimate?.approvalAddress)
@@ -303,7 +304,10 @@ async function getJumperAllowanceInfo({
   const rpc = getChainRpc(fromChain);
   if (!rpc) throw new Error(`rpc not configured: ${fromChain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain: fromChain,
+    scope: "Jumper",
+  });
   try {
     const owner = ethers.getAddress(walletAddress);
     const token = new ethers.Contract(

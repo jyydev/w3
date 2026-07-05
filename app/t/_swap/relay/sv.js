@@ -11,6 +11,7 @@ import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import {
   assertWhitelistedRecipient,
+  createJsonRpcProvider,
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
@@ -22,6 +23,7 @@ import {
   getSolanaConnection,
   getSolanaKeypair,
   getSolanaPublicKey,
+  getTradeCoinEntry,
   getUnsignedTx,
   nativeEvmAddress,
 } from "../../sharedServer";
@@ -141,9 +143,8 @@ async function getSolanaUnsignedTx({ txData = {}, user = "", type = "swap" }) {
   };
 }
 
-function getRelayCurrency(chain = "", coin = "") {
-  const coinE = coinM?.[chain]?.[coin];
-  if (!coinE) throw new Error(`coin not found: ${chain} ${coin}`);
+function getRelayCurrency(chain = "", coin = "", dynamicCoinE = null) {
+  const coinE = getTradeCoinEntry(chain, coin, dynamicCoinE);
   if (chain == "Solana" && coinE.native) return nativeSolanaAddress;
   if (coinE.native) return nativeEvmAddress;
   if (!coinE.address) throw new Error(`coin address missing: ${chain} ${coin}`);
@@ -151,10 +152,15 @@ function getRelayCurrency(chain = "", coin = "") {
   return coinE.address;
 }
 
-function getRelayAmountIn({ chain = "", fromCoin = "", amount = "" } = {}) {
+function getRelayAmountIn({
+  chain = "",
+  fromCoin = "",
+  amount = "",
+  fromCoinE = null,
+} = {}) {
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
-    getCoinDecimals(chain, fromCoin),
+    getCoinDecimals(chain, fromCoin, fromCoinE),
   );
   if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
 
@@ -164,11 +170,12 @@ function getRelayAmountIn({ chain = "", fromCoin = "", amount = "" } = {}) {
 function getRelayApprovalTarget({
   fromChain = "",
   fromCoin = "",
+  fromCoinE = null,
   items = [],
 } = {}) {
   if (fromChain == "Solana") return null;
 
-  const coinE = coinM?.[fromChain]?.[fromCoin];
+  const coinE = getTradeCoinEntry(fromChain, fromCoin, fromCoinE);
   if (!coinE || coinE.native) return null;
   if (!coinE.address || !ethers.isAddress(coinE.address)) {
     throw new Error(`coin address missing: ${fromChain} ${fromCoin}`);
@@ -193,10 +200,16 @@ async function getRelayAllowanceInfo({
   walletAddress = "",
   fromChain = "",
   fromCoin = "",
+  fromCoinE = null,
   amountIn = 0n,
   items = [],
 } = {}) {
-  const target = getRelayApprovalTarget({ fromChain, fromCoin, items });
+  const target = getRelayApprovalTarget({
+    fromChain,
+    fromCoin,
+    fromCoinE,
+    items,
+  });
   if (!target) {
     return {
       needed: false,
@@ -210,7 +223,10 @@ async function getRelayAllowanceInfo({
   const rpc = getChainRpc(fromChain);
   if (!rpc) throw new Error(`rpc not configured: ${fromChain}`);
 
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = createJsonRpcProvider(rpc, {
+    chain: fromChain,
+    scope: "Relay",
+  });
   try {
     const owner = ethers.getAddress(walletAddress);
     const token = new ethers.Contract(target.token, erc20Abi, provider);
@@ -534,6 +550,8 @@ export async function executeRelaySwap({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
   approvalAmount = "",
@@ -566,6 +584,8 @@ export async function executeRelaySwap({
     toChain,
     fromCoin,
     toCoin,
+    fromCoinE,
+    toCoinE,
     amount,
     recipient,
     approvalAmount,
@@ -629,6 +649,8 @@ export async function buildRelaySwapSteps({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
   approvalAmount = "",
@@ -649,6 +671,7 @@ export async function buildRelaySwapSteps({
   const parsedAmount = getRelayAmountIn({
     chain: fromChain,
     fromCoin,
+    fromCoinE,
     amount,
   });
 
@@ -658,8 +681,8 @@ export async function buildRelaySwapSteps({
       user,
       originChainId,
       destinationChainId,
-      originCurrency: getRelayCurrency(fromChain, fromCoin),
-      destinationCurrency: getRelayCurrency(toChain, toCoin),
+      originCurrency: getRelayCurrency(fromChain, fromCoin, fromCoinE),
+      destinationCurrency: getRelayCurrency(toChain, toCoin, toCoinE),
       amount: parsedAmount.toString(),
       tradeType: "EXACT_INPUT",
       recipient: recipientAddress,
@@ -722,6 +745,7 @@ export async function buildRelaySwapSteps({
     walletAddress,
     fromChain,
     fromCoin,
+    fromCoinE,
     amountIn: parsedAmount,
     items,
   });
@@ -732,6 +756,7 @@ export async function buildRelaySwapSteps({
       approvalAmount,
       amountIn: parsedAmount,
       defaultAmount: parsedAmount,
+      decimals: fromCoinE?.decimals,
     });
     const approvalItems = [];
 
@@ -792,6 +817,8 @@ export async function getRelaySwapPreview({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
 } = {}) {
@@ -801,6 +828,8 @@ export async function getRelaySwapPreview({
     toChain,
     fromCoin,
     toCoin,
+    fromCoinE,
+    toCoinE,
     amount,
     recipient,
     includeApprovals: false,

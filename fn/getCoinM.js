@@ -27,14 +27,32 @@ function getCustomCoinM(chain) {
   }
 }
 
+function mergeCoinM(...coinMs) {
+  const merged = {};
+
+  for (const coinM of coinMs) {
+    for (const [coin, entry] of Object.entries(coinM || {})) {
+      merged[coin] = {
+        ...(merged[coin] || {}),
+        ...(entry || {}),
+      };
+    }
+  }
+
+  return merged;
+}
+
 export default function getCoinM(chain = "BSC") {
-  let m = { ...(coinM[chain] ?? coinM.BSC), ...getCustomCoinM(chain) };
+  const m = mergeCoinM(coinM[chain] ?? coinM.BSC, getCustomCoinM(chain));
   for (let [k, v] of Object.entries(process.env)) {
     let r = k.match(/^w3_(.+)$/);
-    if (r && ethers.isAddress(v)) m[r[1].toUpperCase()] = { address: v, decimals: 18 };
+    if (r && ethers.isAddress(v)) {
+      const coin = r[1].toUpperCase();
+      m[coin] = { ...(m[coin] || {}), address: v, decimals: 18 };
+    }
   }
   try {
-    return { ...m, ...(JSON.parse(process.env.w3Coins || "{}") || {}) };
+    return mergeCoinM(m, JSON.parse(process.env.w3Coins || "{}") || {});
   } catch {
     return m;
   }
