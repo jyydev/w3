@@ -29,6 +29,11 @@ export const emptyHyperliquidBridgeE = {
 let hyperliquidBridgeCache = null;
 let hyperliquidBridgePromise = null;
 
+export function clearHyperliquidClientRuntimeCache() {
+  hyperliquidBridgeCache = null;
+  hyperliquidBridgePromise = null;
+}
+
 export function isHyperliquidCoin(_coin = "", coinE = {}) {
   return coinE.type == "vault";
 }

@@ -44,6 +44,17 @@ export const emptyTokenDiscoveryE = {
 export const tokenDiscoveryCacheM = {};
 export const tokenDiscoveryPromiseM = {};
 
+function clearObject(object = {}) {
+  for (const key of Object.keys(object)) delete object[key];
+}
+
+export function clearSwapClientRuntimeCache() {
+  clearObject(swapSupportCacheM);
+  clearObject(swapSupportPromiseM);
+  clearObject(tokenDiscoveryCacheM);
+  clearObject(tokenDiscoveryPromiseM);
+}
+
 export function hasChainDiscovery(defi = "") {
   return chainDiscoveryDexs.includes(defi);
 }

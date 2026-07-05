@@ -12,6 +12,8 @@ import {
   setLocalLineFileValue,
   useLocalStorageEditor,
 } from "../_editorData/browserEditorStorage";
+import { clearClientRuntimeCache } from "../clientRuntimeCache";
+import { clearServerRuntimeCache } from "./cacheActions";
 import { clearEditorData } from "./editorClearActions";
 import { toggleOffChain } from "./chainActions";
 import {
@@ -34,6 +36,11 @@ const editorDataClearTargets = [
   ["cookie", "cookie"],
   ["defi", "defi"],
   ["wallets", "wallets"],
+];
+const runtimeCacheClearTargets = [
+  ["ALL", "ALL"],
+  ["client", "client"],
+  ["server", "server"],
 ];
 
 function encodeDisabledChains(chains) {
@@ -71,7 +78,9 @@ function WalletSettings({
   );
   const [cookieClearTarget, setCookieClearTarget] = useState("ALL");
   const [editorDataClearTarget, setEditorDataClearTarget] = useState("ALL");
+  const [runtimeCacheClearTarget, setRuntimeCacheClearTarget] = useState("ALL");
   const [clearingEditorData, setClearingEditorData] = useState(false);
+  const [clearingRuntimeCache, setClearingRuntimeCache] = useState(false);
   const cookieTargets = ckPrefix
     ? [...baseCookieClearTargets, ["app", "app"]]
     : baseCookieClearTargets;
@@ -354,6 +363,35 @@ function WalletSettings({
     }
   }
 
+  async function clearRuntimeCache() {
+    const target = runtimeCacheClearTarget || "ALL";
+    const label =
+      target == "ALL"
+        ? "ALL runtime cache"
+        : `${target} runtime cache`;
+    if (!window.confirm(`Clear ${label}?\n\nThis only clears currently reachable runtime memory cache.`)) {
+      return;
+    }
+
+    setClearingRuntimeCache(true);
+    try {
+      if (target == "ALL" || target == "client") {
+        clearClientRuntimeCache();
+      }
+      if (target == "ALL" || target == "server") {
+        const res = await clearServerRuntimeCache();
+        if (!res.ok) throw new Error(res.msg || "clear server cache failed");
+      }
+
+      toast.success(`cleared ${target} runtime cache`);
+      router.refresh();
+    } catch (e) {
+      toast.error(e.message || "clear cache failed");
+    } finally {
+      setClearingRuntimeCache(false);
+    }
+  }
+
   return (
     <span
       className={`infoHover clickInfo walletSettingsIcon ${
@@ -564,6 +602,44 @@ function WalletSettings({
                     </span>
                   </td>
                   <td>{useLocalEditorStore ? "local" : "server"}</td>
+                </tr>
+                <tr>
+                  <td>
+                    <span className="walletSettingName">
+                      clear cache
+                      <span className="infoHover hoverOnlyInfo walletSettingInfo">
+                        <span className="infoIcon">i</span>
+                        <span className="infoCard">
+                          <span>Clears runtime memory cache only.</span>
+                          <span>client clears cache in this browser tab.</span>
+                          <span>server clears warm server module cache.</span>
+                          <span>On Vercel, other warm instances may keep their cache until TTL expires.</span>
+                        </span>
+                      </span>
+                    </span>
+                  </td>
+                  <td>
+                    <span className="walletSettingsActionRow">
+                      <select
+                        value={runtimeCacheClearTarget}
+                        onChange={(e) => setRuntimeCacheClearTarget(e.target.value)}
+                      >
+                        {runtimeCacheClearTargets.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={clearingRuntimeCache}
+                        onClick={clearRuntimeCache}
+                      >
+                        clear
+                      </button>
+                    </span>
+                  </td>
+                  <td>memory</td>
                 </tr>
                 <tr>
                   <td>

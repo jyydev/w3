@@ -184,6 +184,18 @@ async function getMorphoChainId(chain = "") {
   return chains.find((entry) => entry.chain == chain)?.chainId || 0;
 }
 
+export async function clearMorphoRuntimeCache() {
+  morphoSupportedChainCache = {
+    at: 0,
+    chains: [],
+  };
+  for (const chain of Object.keys(morphoKnownChainIdM)) {
+    if (!chainIds[chain]) delete morphoKnownChainIdM[chain];
+  }
+
+  return { ok: true };
+}
+
 export async function getMorphoSupportedChains() {
   return {
     ok: true,

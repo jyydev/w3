@@ -2146,6 +2146,20 @@ function Wallet({
     );
   }
 
+  function ChainNoBalanceMsg({ chainE }) {
+    if (
+      !rows.length ||
+      activeChain != chainE.chain ||
+      chainE?.coins?.length ||
+      chainE?.error ||
+      getTotalChainUsd(chainE.chain) > 0
+    ) {
+      return null;
+    }
+
+    return <span className="gray walletChainNoBalance">no non-zero balances</span>;
+  }
+
   function ChainCoinSettings({ chainE }) {
     const chain = chainE.chain;
     const sortKey = coinSettingSortM[chain] || "";
@@ -3468,6 +3482,7 @@ function Wallet({
                   >
                     <ChainCoinSettings chainE={chainE} />
                     <ChainToggle chainE={chainE} />
+                    <ChainNoBalanceMsg chainE={chainE} />
                   </div>
                 </th>
               );
@@ -3581,7 +3596,7 @@ function Wallet({
   }
 
   function NoBalanceMsg() {
-    if (!rows.length) return null;
+    if (!rows.length || activeChain) return null;
 
     const noBalances = visibleChainList.every(
       (chainE) =>

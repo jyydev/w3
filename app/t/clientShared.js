@@ -361,6 +361,15 @@ export function useTradeDirectMarketBalance({
 const tradeFallbackPriceCacheM = {};
 const tradeFallbackPricePromiseM = {};
 
+export function clearTradeClientRuntimeCache() {
+  for (const key of Object.keys(tradeFallbackPriceCacheM)) {
+    delete tradeFallbackPriceCacheM[key];
+  }
+  for (const key of Object.keys(tradeFallbackPricePromiseM)) {
+    delete tradeFallbackPricePromiseM[key];
+  }
+}
+
 export function useTradeFallbackPrice({
   enabled = true,
   cacheKey = "",

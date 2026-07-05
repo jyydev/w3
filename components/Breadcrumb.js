@@ -22,6 +22,8 @@ const topOptions = [
 
 const refChildren = [
   { value: "rpc", label: "rpc", href: "/ref/rpc" },
+  { value: "api", label: "api", href: "/ref/api" },
+  { value: "cache", label: "cache", href: "/ref/cache" },
   { value: "cookie", label: "cookie", href: "/ref/cookie" },
   { value: "env", label: "env", href: "/ref/env" },
   { value: "editor-data", label: "editor data", href: "/ref/editor-data" },

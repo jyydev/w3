@@ -77,6 +77,10 @@ const cookieSettingRows = [
     "Deletes data/editor style data. Locally this is server project files; deployed mode uses localStorage editor data.",
   ],
   [
+    "clear cache",
+    "Clears runtime memory cache. ALL clears both client and server cache; client and server can be cleared separately.",
+  ],
+  [
     "sorting: default/cookie",
     "Stores the preferred sorting mode setting. Cookie sorting state itself is still managed by the order cookies above.",
   ],

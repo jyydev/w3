@@ -460,6 +460,9 @@ input[type="text"] {
   align-self: center;
   vertical-align: middle;
 }
+.walletChainNoBalance {
+  white-space: nowrap;
+}
 .sortHeader {
   display: inline-flex;
   align-items: center;

@@ -59,6 +59,13 @@ const sparkPsm3AddressM = {
   Base: "0x1601843c5E9bC251A3272907010AFa41Fa18347E",
   Optimism: "0xe0F9978b907853F354d79188A3dEfbD41978af62",
 };
+
+export async function clearSparkRuntimeCache() {
+  sparkSavingsRateCache = { ts: 0, rates: null };
+
+  return { ok: true };
+}
+
 const sparkKnownMarketM = {
   Ethereum: {
     sDAI: {

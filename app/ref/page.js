@@ -76,6 +76,7 @@ const balanceNotes = [
   "Stablecoin price querying is optional in settings; when disabled, common USD stablecoins use $1 fallback pricing.",
   "Disabled server chains are skipped before RPC calls.",
   "Coins with no balance across wallets are hidden while the chain is collapsed.",
+  "Runtime cache behavior is documented in /ref/cache.",
 ];
 
 const tradePanels = [
@@ -91,6 +92,7 @@ const tradeNotes = [
   "Connected browser wallets sign in the extension; local private-key mode is intended only for npm run dev.",
   "Loop wallets can run the same action across selected wallets after confirmation.",
   "Transaction receipts are shown per wallet when looping.",
+  "Protocol API and discovery sources are documented in /ref/api.",
 ];
 
 const hyperliquidNotes = [
@@ -112,6 +114,7 @@ const settingsNotes = [
   "The logo settings card controls Alchemy usage, Alchemy minimum USD filters, gas auto label display, and optional stablecoin USD price querying.",
   "Clear cookies removes browser cookie preferences such as panes, selections, favorites, and toggles.",
   "Clear data removes editable data under data/editor locally, or matching localStorage data remotely.",
+  "Clear cache removes runtime memory cache for current client and/or warm server instance.",
   "Environment variable details are documented in /ref/env.",
   "Cookie and sorting details are documented in /ref/cookie.",
   "Login uses the app-specific w3_login cookie.",
@@ -160,10 +163,20 @@ function Page() {
             RPC and Alchemy loading details
           </a>
         </p>
+        <p>
+          <a className="refLink" href="/ref/cache">
+            Runtime cache details
+          </a>
+        </p>
         <List items={balanceNotes} />
       </Section>
 
       <Section title="trade">
+        <p>
+          <a className="refLink" href="/ref/api">
+            API and discovery source details
+          </a>
+        </p>
         <Table rows={tradePanels} />
         <List items={tradeNotes} />
       </Section>
