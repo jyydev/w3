@@ -28,16 +28,29 @@ const morphoApiBase =
   process.env.MORPHO_API_BASE ||
   process.env.morpho_api_base ||
   "https://blue-api.morpho.org/graphql";
-const morphoSupportedChains = [
-  "Ethereum",
-  "Optimism",
-  "Polygon",
-  "Base",
-  "Arbitrum",
-];
-const morphoChainIds = Object.fromEntries(
-  morphoSupportedChains.map((chain) => [chain, chainIds[chain]]),
-);
+const morphoNetworkNameM = {
+  "arbitrum one": "Arbitrum",
+  "op mainnet": "Optimism",
+  "tempo mainnet": "Tempo",
+  "world chain": "WorldChain",
+  ethereum: "Ethereum",
+  polygon: "Polygon",
+  unichain: "Unichain",
+  monad: "Monad",
+  stable: "Stable",
+  hyperevm: "HyperEVM",
+  robinhood: "Robinhood",
+  base: "Base",
+  katana: "Katana",
+};
+const morphoKnownChainIdM = {
+  ...chainIds,
+};
+const morphoSupportedChainCacheMs = 5 * 60 * 1000;
+let morphoSupportedChainCache = {
+  at: 0,
+  chains: [],
+};
 const erc4626Abi = [
   "function asset() view returns (address)",
   "function convertToShares(uint256 assets) view returns (uint256)",
@@ -77,23 +90,104 @@ async function morphoFetch(query, variables = {}, timeoutMs = morphoVaultFetchTi
   }
 }
 
-function getMorphoChainId(chain = "") {
-  return morphoChainIds[chain] || chainIds[chain];
+function normalizeMorphoNetworkName(network = "") {
+  return String(network || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function getMorphoSupportedChainRows() {
-  return Object.entries(morphoChainIds)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([chain, chainId]) => ({
+function titleMorphoNetworkName(network = "") {
+  return String(network || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join("");
+}
+
+function getMorphoChainName(chainE = {}) {
+  const chainId = Number(chainE?.id || 0);
+  const network = String(chainE?.network || "").trim();
+  const normalizedNetwork = normalizeMorphoNetworkName(network);
+
+  return (
+    Object.keys(chainIds).find((chain) => chainIds[chain] == chainId) ||
+    morphoNetworkNameM[normalizedNetwork] ||
+    titleMorphoNetworkName(network) ||
+    ""
+  );
+}
+
+async function getMorphoSupportedChainRows({ refresh = false } = {}) {
+  const now = Date.now();
+  if (
+    !refresh &&
+    morphoSupportedChainCache.chains.length &&
+    now - morphoSupportedChainCache.at < morphoSupportedChainCacheMs
+  ) {
+    return morphoSupportedChainCache.chains;
+  }
+
+  const data = await morphoFetch(
+    `query{
+      vaults(
+        first: 500
+        orderBy: TotalAssetsUsd
+        orderDirection: Desc
+        where: { listed: true }
+      ) {
+        items { chain { id network currency } }
+      }
+      vaultV2s(first: 500, where: { listed: true }) {
+        items { chain { id network currency } }
+      }
+    }`,
+    {},
+  );
+  const chainRows = [
+    ...(Array.isArray(data?.vaults?.items)
+      ? data.vaults.items.map((entry) => entry.chain)
+      : []),
+    ...(Array.isArray(data?.vaultV2s?.items)
+      ? data.vaultV2s.items.map((entry) => entry.chain)
+      : []),
+  ];
+  const chainById = {};
+
+  for (const entry of chainRows) {
+    const chainId = Number(entry?.id || 0);
+    const chain = getMorphoChainName(entry);
+    if (!chain || !chainId) continue;
+
+    morphoKnownChainIdM[chain] = chainId;
+    chainById[chainId] = {
       chain,
       chainId,
-    }));
+      network: entry.network || "",
+      currency: entry.currency || "",
+    };
+  }
+
+  const chains = Object.values(chainById).sort((a, b) =>
+    a.chain.localeCompare(b.chain),
+  );
+  morphoSupportedChainCache = {
+    at: now,
+    chains,
+  };
+
+  return chains;
+}
+
+async function getMorphoChainId(chain = "") {
+  if (morphoKnownChainIdM[chain]) return morphoKnownChainIdM[chain];
+
+  const chains = await getMorphoSupportedChainRows();
+  return chains.find((entry) => entry.chain == chain)?.chainId || 0;
 }
 
 export async function getMorphoSupportedChains() {
   return {
     ok: true,
-    chains: getMorphoSupportedChainRows(),
+    chains: await getMorphoSupportedChainRows(),
   };
 }
 
@@ -187,7 +281,7 @@ async function assertMorphoMarket({
 export async function getMorphoAllMarkets({ chain = "" } = {}) {
   if (chain == "Solana") return { ok: true, chain, markets: [] };
 
-  const chainId = getMorphoChainId(chain);
+  const chainId = await getMorphoChainId(chain);
   if (!chainId) return { ok: true, chain, markets: [] };
 
   const data = await morphoFetch(
@@ -234,11 +328,10 @@ export async function getMorphoAllMarkets({ chain = "" } = {}) {
       : []),
   ];
   const rpcList = getUsableChainRpcs(chain);
-  if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
   let provider;
 
   try {
-    provider = new ethers.JsonRpcProvider(rpcList[0]);
+    provider = rpcList.length ? new ethers.JsonRpcProvider(rpcList[0]) : null;
     const markets = (
       await mapWithConcurrency(
         vaults.filter((vault) => ethers.isAddress(vault?.address)),
@@ -246,24 +339,30 @@ export async function getMorphoAllMarkets({ chain = "" } = {}) {
         async (vault) => {
           const asset = vault.asset || {};
           if (!ethers.isAddress(asset.address)) return null;
+          const fallbackUnderlyingMeta = {
+            address: ethers.getAddress(asset.address),
+            name: asset.name || asset.symbol || "",
+            symbol: asset.symbol || "",
+            decimals: Number(asset.decimals || 18),
+            fallback: true,
+          };
+          const fallbackLendMeta = {
+            address: ethers.getAddress(vault.address),
+            name: vault.name || vault.symbol || "",
+            symbol: vault.symbol || "",
+            decimals: Number(asset.decimals || 18),
+            fallback: true,
+          };
 
           const [underlyingMeta, lendMeta] = await Promise.all([
-            getTokenMeta(provider, asset.address, chain, morphoTokenMetaTimeoutMs)
-              .catch(() => ({
-                address: ethers.getAddress(asset.address),
-                name: asset.name || asset.symbol || "",
-                symbol: asset.symbol || "",
-                decimals: Number(asset.decimals || 18),
-                fallback: true,
-              })),
-            getTokenMeta(provider, vault.address, chain, morphoTokenMetaTimeoutMs)
-              .catch(() => ({
-                address: ethers.getAddress(vault.address),
-                name: vault.name || vault.symbol || "",
-                symbol: vault.symbol || "",
-                decimals: Number(asset.decimals || 18),
-                fallback: true,
-              })),
+            provider
+              ? getTokenMeta(provider, asset.address, chain, morphoTokenMetaTimeoutMs)
+                  .catch(() => fallbackUnderlyingMeta)
+              : fallbackUnderlyingMeta,
+            provider
+              ? getTokenMeta(provider, vault.address, chain, morphoTokenMetaTimeoutMs)
+                  .catch(() => fallbackLendMeta)
+              : fallbackLendMeta,
           ]);
           const addedUnderlying = getCoinByAddress(chain, underlyingMeta.address);
           const addedLend = getCoinByAddress(chain, lendMeta.address);

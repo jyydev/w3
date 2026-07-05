@@ -2,10 +2,18 @@
 
 export const morphoConfiguredChainSet = new Set([
   "Ethereum",
-  "Arbitrum",
-  "Base",
   "Optimism",
+  "Unichain",
   "Polygon",
+  "Monad",
+  "WorldChain",
+  "Stable",
+  "HyperEVM",
+  "Tempo",
+  "Robinhood",
+  "Base",
+  "Arbitrum",
+  "Katana",
 ]);
 
 export function isMorphoCoin(coin = "", coinE = {}) {
