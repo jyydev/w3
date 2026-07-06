@@ -125,7 +125,9 @@ import {
   getTradeMarketSideCoinEntry,
   getTradeMarketSyncedQty,
   getTradeWalletMarketBalance,
+  getFallbackTradeMarketEntry,
   getHistoryCycleValues,
+  TradeAssetInfoIcon,
   TradeSelectionPicker,
   yieldOptions,
   nextValue,
@@ -354,11 +356,8 @@ export default function YieldPanel({
         initialChain,
       ),
     ) || "";
-  const initialMarket = initialOrderedMarkets.some(
-    (entry) => entry.value == initialSavedMarket,
-  )
-    ? initialSavedMarket
-    : initialOrderedMarkets[0]?.value || "";
+  const initialMarket =
+    initialSavedMarket || initialOrderedMarkets[0]?.value || "";
   const initialHyperliquidMode = getInitialHyperliquidMode(
     initialCookieM,
     walletType,
@@ -866,6 +865,7 @@ export default function YieldPanel({
   const {
     markets: rawProtocolAllMarkets,
     loading: allMarketsLoading,
+    loaded: allMarketsLoaded,
     error: allMarketsError,
     retry: retryAllMarkets,
   } = useYieldAllMarkets({
@@ -960,6 +960,7 @@ export default function YieldPanel({
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
+    getFallbackTradeMarketEntry(market) ||
     visibleAddedMarkets[0];
   const marketSupplyApr = getMarketSupplyApr({
     chainE,
@@ -977,6 +978,8 @@ export default function YieldPanel({
   );
   const underlyingCoin = marketE?.underlyingCoin || "";
   const lendCoin = marketE?.lendCoin || "";
+  const underlyingCoinE = chainE?.coinInfoM?.[underlyingCoin] || {};
+  const lendCoinE = chainE?.coinInfoM?.[lendCoin] || {};
   const lendName = marketE?.lendName || lendCoin;
   const marketMatchesActiveChain =
     !marketE?.chain || marketE.chain == chainE?.chain;
@@ -1046,6 +1049,12 @@ export default function YieldPanel({
   const displayReceiptCoin = isHyperliquidDepositMode
     ? underlyingCoin
     : lendCoin;
+  const displayUnderlyingName = isHyperliquidDepositMode
+    ? hyperliquidDepositChainE?.coinInfoM?.[displayUnderlyingCoin]?.name ||
+      displayUnderlyingCoin
+    : marketE?.underlyingName ||
+      underlyingCoinE.name ||
+      underlyingCoin;
   const displayReceiptName = isHyperliquidDepositMode ? "" : lendName;
   const displayUnderlyingBalance = isHyperliquidDepositMode
     ? hyperliquidDepositBalance
@@ -1665,16 +1674,21 @@ export default function YieldPanel({
 
   useEffect(() => {
     const marketExists = marketCookieValues.includes(market);
+    const savedMarket = getCookie(
+      getProtocolCookie(
+        tradeYieldMarketCookie,
+        walletType,
+        defi,
+        chainE?.chain,
+      ),
+    );
+    const savedMarketPending =
+      hasProtocolAllMarkets &&
+      !allMarketsLoaded &&
+      savedMarket &&
+      savedMarket == market;
 
-    if (marketCookieValues.length && !marketExists) {
-      const savedMarket = getCookie(
-        getProtocolCookie(
-          tradeYieldMarketCookie,
-          walletType,
-          defi,
-          chainE?.chain,
-        ),
-      );
+    if (marketCookieValues.length && !marketExists && !savedMarketPending) {
       const nextMarket = marketCookieValues.includes(savedMarket)
         ? savedMarket
         : marketCookieValues[0];
@@ -1682,7 +1696,16 @@ export default function YieldPanel({
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
     }
-  }, [chainE?.chain, defi, market, marketCookieValues, markets, walletType]);
+  }, [
+    allMarketsLoaded,
+    chainE?.chain,
+    defi,
+    hasProtocolAllMarkets,
+    market,
+    marketCookieValues,
+    markets,
+    walletType,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -3656,6 +3679,7 @@ export default function YieldPanel({
         {!isHyperliquidDepositMode && hasProtocolAllMarkets ? (
           <YieldMarketPicker
             marketPickerRef={marketPickerRef}
+            chainE={chainE}
             chainName={chainE?.chain}
             defi={defi}
             market={market}
@@ -3789,7 +3813,48 @@ export default function YieldPanel({
                 )}
               </>
             ) : (
-              <span>{displayUnderlyingCoin || "-"}</span>
+              <span className="tradeAssetName">
+                <span>{displayUnderlyingCoin || "-"}</span>
+                <TradeAssetInfoIcon
+                  coin={displayUnderlyingCoin}
+                  name={displayUnderlyingName}
+                  chain={
+                    isHyperliquidDepositMode
+                      ? hyperliquidDepositChainE?.chain
+                      : chainE?.chain
+                  }
+                  address={
+                    isHyperliquidDepositMode
+                      ? hyperliquidDepositChainE?.coinInfoM?.[
+                          displayUnderlyingCoin
+                        ]?.address
+                      : marketE?.underlyingAddress ||
+                        underlyingCoinE.address
+                  }
+                  decimals={
+                    isHyperliquidDepositMode
+                      ? hyperliquidDepositChainE?.coinInfoM?.[
+                          displayUnderlyingCoin
+                        ]?.decimals
+                      : marketE?.underlyingDecimals ?? underlyingCoinE.decimals
+                  }
+                  type={
+                    isHyperliquidDepositMode
+                      ? hyperliquidDepositChainE?.coinInfoM?.[
+                          displayUnderlyingCoin
+                        ]?.type
+                      : underlyingCoinE.type
+                  }
+                  ref={
+                    isHyperliquidDepositMode
+                      ? hyperliquidDepositChainE?.coinInfoM?.[
+                          displayUnderlyingCoin
+                        ]?.ref
+                      : underlyingCoinE.ref
+                  }
+                  price={underlyingPrice}
+                />
+              </span>
             )}
             <span className="tradeCoinPrice">
               <span className="gray">{fmtPrice(underlyingPrice)}</span>
@@ -3801,7 +3866,7 @@ export default function YieldPanel({
               className="tradeTextButton tradeAssetBalance"
               onClick={setMaxLend}
             >
-              <span className="gray">{displayUnderlyingCoin}: </span>
+              <span className="gray">wallet: </span>
               {showUnderlyingBalanceLoading
                 ? "..."
                 : maxUnderlyingQty}
@@ -4030,10 +4095,22 @@ export default function YieldPanel({
                 )}
               </>
             ) : (
-              <span>{displayReceiptCoin || "-"}</span>
-            )}
-            {displayReceiptName && displayReceiptName != displayReceiptCoin && (
-              <span className="gray">({displayReceiptName})</span>
+              <span className="tradeAssetName">
+                <span>{displayReceiptCoin || "-"}</span>
+                <TradeAssetInfoIcon
+                  coin={displayReceiptCoin}
+                  name={displayReceiptName}
+                  chain={chainE?.chain}
+                  address={
+                    marketE?.lendAddress ||
+                    lendCoinE.address
+                  }
+                  decimals={marketE?.lendDecimals ?? lendCoinE.decimals}
+                  type={lendCoinE.type}
+                  ref={lendCoinE.ref}
+                  price={receiptPrice}
+                />
+              </span>
             )}
             <span className="tradeCoinPrice">
               <span className="gray">{fmtPrice(receiptPrice)}</span>
@@ -4041,7 +4118,7 @@ export default function YieldPanel({
           </div>
           <div className="tradeBalanceLine">
             <span className="tradeAssetBalance">
-              <span className="gray">{displayReceiptCoin}: </span>
+              <span className="gray">wallet: </span>
               {showReceiptBalanceLoading
                 ? "..."
                 : maxReceiptQty}

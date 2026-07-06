@@ -611,7 +611,7 @@ export function HyperliquidCoinMenu({
           </tbody>
         </TradePickerTable>
       </TradePickerColumn>
-      <TradePickerColumn title="all">
+      <TradePickerColumn title="discovery">
         <TradePickerTable
           className="tradeCoinAllTable"
           headers={["coin", "qty", "add"]}
@@ -772,7 +772,7 @@ export function HyperliquidChainMenu({
           </tbody>
         </TradePickerTable>
       </TradePickerColumn>
-      <TradePickerColumn title="all">
+      <TradePickerColumn title="discovery">
         <TradePickerTable
           className="tradeChainAllTable"
           headers={["chain", "add"]}

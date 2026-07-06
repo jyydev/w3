@@ -18,9 +18,10 @@ export const morphoConfiguredChainSet = new Set([
 
 export function isMorphoCoin(coin = "", coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
+  const ref = String(coinE.ref || "").toLowerCase();
   return (
     coinE.type == "lend" &&
-    (text.includes("morpho") || text.includes("metamorpho"))
+    (ref.includes("morpho") || text.includes("morpho") || text.includes("metamorpho"))
   );
 }
 

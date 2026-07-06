@@ -246,6 +246,42 @@ function getMorphoValue(vault = {}, underlyingMeta = {}, lendMeta = {}) {
   ].join(":");
 }
 
+function sameMorphoText(a = "", b = "") {
+  return (
+    String(a || "").trim().toLowerCase() ==
+    String(b || "").trim().toLowerCase()
+  );
+}
+
+async function resolveMorphoMarket({
+  chain = "",
+  underlyingCoin = "",
+  lendCoin = "",
+  lendAddress = "",
+} = {}) {
+  const addressKey = ethers.isAddress(lendAddress)
+    ? ethers.getAddress(lendAddress).toLowerCase()
+    : "";
+  const res = await getMorphoAllMarkets({ chain }).catch(() => null);
+  const markets = Array.isArray(res?.markets) ? res.markets : [];
+
+  return (
+    markets.find(
+      (entry) =>
+        addressKey &&
+        ethers.isAddress(entry.lendAddress) &&
+        ethers.getAddress(entry.lendAddress).toLowerCase() == addressKey,
+    ) ||
+    markets.find(
+      (entry) =>
+        sameMorphoText(entry.lendCoin, lendCoin) &&
+        (!underlyingCoin ||
+          sameMorphoText(entry.underlyingCoin, underlyingCoin)),
+    ) ||
+    null
+  );
+}
+
 async function assertMorphoMarket({
   provider,
   chain = "",
@@ -256,11 +292,34 @@ async function assertMorphoMarket({
   underlyingDecimals,
   lendDecimals,
 } = {}) {
-  const underlying = ethers.isAddress(underlyingAddress)
-    ? ethers.getAddress(underlyingAddress)
+  const resolvedMarket =
+    (!ethers.isAddress(underlyingAddress) ||
+      !ethers.isAddress(lendAddress) ||
+      !Number.isInteger(underlyingDecimals) ||
+      !Number.isInteger(lendDecimals)) &&
+    (await resolveMorphoMarket({
+      chain,
+      underlyingCoin,
+      lendCoin,
+      lendAddress,
+    }));
+  const resolvedUnderlyingAddress = ethers.isAddress(underlyingAddress)
+    ? underlyingAddress
+    : resolvedMarket?.underlyingAddress;
+  const resolvedLendAddress = ethers.isAddress(lendAddress)
+    ? lendAddress
+    : resolvedMarket?.lendAddress;
+  const finalUnderlyingDecimals = Number.isInteger(underlyingDecimals)
+    ? underlyingDecimals
+    : resolvedMarket?.underlyingDecimals;
+  const finalLendDecimals = Number.isInteger(lendDecimals)
+    ? lendDecimals
+    : resolvedMarket?.lendDecimals;
+  const underlying = ethers.isAddress(resolvedUnderlyingAddress)
+    ? ethers.getAddress(resolvedUnderlyingAddress)
     : getEvmTokenAddress(chain, underlyingCoin, "Morpho underlying");
-  const vaultAddress = ethers.isAddress(lendAddress)
-    ? ethers.getAddress(lendAddress)
+  const vaultAddress = ethers.isAddress(resolvedLendAddress)
+    ? ethers.getAddress(resolvedLendAddress)
     : getEvmTokenAddress(chain, lendCoin, "Morpho vault");
   const vault = new ethers.Contract(vaultAddress, erc4626Abi, provider);
   const actualUnderlying = ethers.getAddress(
@@ -276,19 +335,28 @@ async function assertMorphoMarket({
   }
 
   let receiptPerUnderlying = 1;
-  if (Number.isInteger(underlyingDecimals) && Number.isInteger(lendDecimals)) {
-    const oneUnderlying = ethers.parseUnits("1", underlyingDecimals);
+  if (
+    Number.isInteger(finalUnderlyingDecimals) &&
+    Number.isInteger(finalLendDecimals)
+  ) {
+    const oneUnderlying = ethers.parseUnits("1", finalUnderlyingDecimals);
     const shares = await withTimeout(
       vault.convertToShares(oneUnderlying),
       morphoTokenMetaTimeoutMs,
       `${chain} Morpho convertToShares timeout`,
     ).catch(() => 0n);
     receiptPerUnderlying = shares
-      ? Number(ethers.formatUnits(shares, lendDecimals))
+      ? Number(ethers.formatUnits(shares, finalLendDecimals))
       : 1;
   }
 
-  return { underlying, vaultAddress, receiptPerUnderlying };
+  return {
+    underlying,
+    vaultAddress,
+    underlyingDecimals: finalUnderlyingDecimals,
+    lendDecimals: finalLendDecimals,
+    receiptPerUnderlying,
+  };
 }
 
 export async function getMorphoAllMarkets({ chain = "" } = {}) {
@@ -494,12 +562,6 @@ export async function getMorphoLendPreview({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const amountIn = getMorphoAmount({
-    chain,
-    coin: action == "redeem" ? lendCoin : underlyingCoin,
-    amount,
-    decimals: action == "redeem" ? lendDecimals : underlyingDecimals,
-  });
   const provider = createJsonRpcProvider(rpc, {
     chain,
     scope: "Morpho",
@@ -515,6 +577,15 @@ export async function getMorphoLendPreview({
       lendAddress,
       underlyingDecimals,
       lendDecimals,
+    });
+    const amountIn = getMorphoAmount({
+      chain,
+      coin: action == "redeem" ? lendCoin : underlyingCoin,
+      amount,
+      decimals:
+        action == "redeem"
+          ? market.lendDecimals ?? lendDecimals
+          : market.underlyingDecimals ?? underlyingDecimals,
     });
     const allowance = action == "redeem"
       ? amountIn
@@ -564,12 +635,6 @@ export async function buildMorphoLendTxs({
   const chainId = chainIds[chain];
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
-  const amountIn = getMorphoAmount({
-    chain,
-    coin: action == "redeem" ? lendCoin : underlyingCoin,
-    amount,
-    decimals: action == "redeem" ? lendDecimals : underlyingDecimals,
-  });
   const provider = createJsonRpcProvider(rpc, {
     chain,
     scope: "Morpho",
@@ -585,6 +650,15 @@ export async function buildMorphoLendTxs({
       lendAddress,
       underlyingDecimals,
       lendDecimals,
+    });
+    const amountIn = getMorphoAmount({
+      chain,
+      coin: action == "redeem" ? lendCoin : underlyingCoin,
+      amount,
+      decimals:
+        action == "redeem"
+          ? market.lendDecimals ?? lendDecimals
+          : market.underlyingDecimals ?? underlyingDecimals,
     });
     const txs = [];
 
@@ -619,7 +693,7 @@ export async function buildMorphoLendTxs({
         approvalAmount,
         amountIn,
         defaultAmount: amountIn,
-        decimals: underlyingDecimals,
+        decimals: market.underlyingDecimals ?? underlyingDecimals,
       });
 
       if (allowance < amountIn && approveAmount != null) {
@@ -701,12 +775,6 @@ export async function executeMorphoLend({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const amountIn = getMorphoAmount({
-    chain,
-    coin: action == "redeem" ? lendCoin : underlyingCoin,
-    amount,
-    decimals: action == "redeem" ? lendDecimals : underlyingDecimals,
-  });
   const provider = createJsonRpcProvider(rpc, {
     chain,
     scope: "Morpho",
@@ -724,6 +792,15 @@ export async function executeMorphoLend({
       lendAddress,
       underlyingDecimals,
       lendDecimals,
+    });
+    const amountIn = getMorphoAmount({
+      chain,
+      coin: action == "redeem" ? lendCoin : underlyingCoin,
+      amount,
+      decimals:
+        action == "redeem"
+          ? market.lendDecimals ?? lendDecimals
+          : market.underlyingDecimals ?? underlyingDecimals,
     });
     const vault = new ethers.Contract(market.vaultAddress, erc4626Abi, wallet);
     const txs = [];
@@ -744,7 +821,7 @@ export async function executeMorphoLend({
         fromCoin: underlyingCoin,
         approvalAmount,
         amountIn,
-        decimals: underlyingDecimals,
+        decimals: market.underlyingDecimals ?? underlyingDecimals,
       });
       txs.push(
         ...(await approveExactIfNeeded({

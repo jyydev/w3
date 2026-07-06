@@ -558,6 +558,15 @@ img.assetIcon {
   line-height: 1;
   vertical-align: middle;
 }
+.claimCoinHeaderSource {
+  display: inline-block;
+  font-size: 0.72em;
+  line-height: 1;
+}
+.claimCoinSymbol {
+  display: inline-flex;
+  align-items: center;
+}
 .walletClaimCellLine {
   display: inline-flex;
   align-items: center;
@@ -1259,6 +1268,21 @@ img.assetIcon {
 .swapRateLine {
   white-space: nowrap;
 }
+.tradeAssetName {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tradeAssetInfo {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+.tradeAssetInfo .infoIcon {
+  width: 13px;
+  height: 13px;
+  font-size: 9px;
+}
 .tradeMiddle,
 .swapMiddle {
   grid-area: middle;
@@ -1543,24 +1567,27 @@ img.assetIcon {
   text-align: left;
   cursor: pointer;
 }
-.customPickerSecondarySelect {
-  margin-left: 4px;
+.customPickerCoinWithInfo {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
-.customPickerCoinHover {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  cursor: inherit;
+.customPickerCoinInfo {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
 }
-.customPickerCoinHover > * {
-  cursor: inherit;
+.customPickerCoinInfo .infoIcon {
+  width: 13px;
+  height: 13px;
+  font-size: 9px;
 }
-.customPickerCoinHover .infoCard {
+.customPickerCoinInfo .infoCard {
   top: 0;
   left: 100%;
   margin-left: 6px;
 }
-.customPickerCoinHover .infoCard::before {
+.customPickerCoinInfo .infoCard::before {
   top: 0;
   left: -6px;
   right: auto;

@@ -74,9 +74,14 @@ export function getUnderlyingCoin(chainE, lendCoin, protocol = "") {
     return protocolUnderlying;
   }
 
+  const exactMatch = candidates.find((coin) =>
+    text.includes(coin.toLowerCase()),
+  );
+  if (exactMatch) return exactMatch;
+  if (protocol == "morpho") return "";
+
   return (
     candidates.find((coin) => coin.toLowerCase() == protocolUnderlying.toLowerCase()) ||
-    candidates.find((coin) => text.includes(coin.toLowerCase())) ||
     candidates.find((coin) =>
       ["USDT", "USDC", "USDS", "EURC", "DAI", "USD1"].includes(coin),
     ) ||
@@ -256,6 +261,7 @@ export function LendMarketPicker(props) {
   return (
     <TradeMarketPicker
       {...props}
+      allColumnTitle="discovery"
       allEmptyText={allEmptyText}
       showAllEmptyRetry={showAllEmptyRetry}
       getAllMarketSelectValue={getAllMarketSelectValue}

@@ -417,7 +417,7 @@ function DiscoveryChainMenu({
           </tbody>
         </TradePickerTable>
       </TradePickerColumn>
-      <TradePickerColumn title="all">
+      <TradePickerColumn title="discovery">
         <TradePickerTable
           className="tradeChainAllTable"
           headers={[

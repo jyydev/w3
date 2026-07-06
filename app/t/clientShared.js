@@ -208,6 +208,7 @@ export function useTradeAllMarkets({
   const markets = marketM[cacheKey] || [];
   const loading = !!loadingM[cacheKey];
   const error = errorM[cacheKey] || "";
+  const loaded = marketM[cacheKey] !== undefined;
 
   useEffect(() => {
     if (!enabled || !cacheKey || !chain || !getAllMarkets) return;
@@ -267,7 +268,7 @@ export function useTradeAllMarkets({
     setRetryTick((tick) => tick + 1);
   }
 
-  return { markets, loading, error, retry };
+  return { markets, loading, loaded, error, retry };
 }
 
 export function useTradeDirectMarketBalance({
@@ -458,6 +459,11 @@ export function getExplorerAddressUrl(chain = "", address = "") {
   if (!scanner || !address) return "";
 
   return `${String(scanner).replace(/\/+$/, "")}/address/${address}`;
+}
+
+function shortTradeAddress(address = "") {
+  const text = String(address || "").trim();
+  return text.length > 12 ? `${text.slice(0, 6)}...${text.slice(-4)}` : text;
 }
 
 export function CustomCoinConfirmModal({
@@ -808,6 +814,43 @@ export function canonicalizeTradeMarketEntry(chainE = {}, entry = {}) {
   };
 }
 
+export function getFallbackTradeMarketEntry(value = "") {
+  const text = String(value || "");
+  if (!text) return null;
+
+  const parts = text.split(":").filter(Boolean);
+  if (parts.length >= 4) {
+    const [market, underlyingCoin, lendCoin, lendAddress] = parts;
+    return {
+      value: text,
+      market,
+      underlyingCoin,
+      underlyingName: underlyingCoin,
+      lendCoin,
+      lendName: lendCoin,
+      lendAddress,
+    };
+  }
+
+  if (parts.length >= 2) {
+    const [underlyingCoin, lendCoin, lendAddress] = parts;
+    return {
+      value: text,
+      underlyingCoin,
+      underlyingName: underlyingCoin,
+      lendCoin,
+      lendName: lendCoin,
+      lendAddress,
+    };
+  }
+
+  return {
+    value: text,
+    lendCoin: text,
+    lendName: text,
+  };
+}
+
 export function getCoinBalanceByAddress(
   chainE,
   coin = "",
@@ -1008,23 +1051,131 @@ export function TradeMarketAprText({ apr, label = true }) {
 export function TradeMarketCoinInfoCard({
   coin,
   name,
+  chain = "",
+  address = "",
+  decimals,
+  type = "",
+  ref = "",
+  price = 0,
   lockedUntilTimestamp = 0,
   formatLockedUntil = () => "",
 }) {
   const cleanCoin = String(coin || "").trim();
   const cleanName = String(name || "").trim();
+  const cleanAddress = String(address || "").trim();
+  const cleanType = String(type || "").trim();
+  const cleanRef = String(ref || "").trim();
+  const priceValue = toNum(price);
+  const addressUrl = getExplorerAddressUrl(chain, cleanAddress);
   const lockText = formatLockedUntil(lockedUntilTimestamp);
-  if ((!cleanName || cleanName == cleanCoin) && !lockText) return null;
+  const hasDecimals = Number.isInteger(decimals);
+  if (
+    (!cleanName || cleanName == cleanCoin) &&
+    !cleanAddress &&
+    !hasDecimals &&
+    !cleanType &&
+    !cleanRef &&
+    priceValue <= 0 &&
+    !lockText
+  ) {
+    return null;
+  }
 
   return (
     <span className="infoCard">
       <span className="infoCardTitle">{cleanCoin}</span>
       {cleanName && cleanName != cleanCoin && <span>{cleanName}</span>}
+      {cleanAddress && (
+        <span>
+          <span className="gray">address: </span>
+          {addressUrl ? (
+            <a href={addressUrl} target="_blank" rel="noreferrer">
+              {shortTradeAddress(cleanAddress)}
+              <span className="gray externalLinkIcon">↗</span>
+            </a>
+          ) : (
+            <span>{shortTradeAddress(cleanAddress)}</span>
+          )}
+        </span>
+      )}
+      {hasDecimals && (
+        <span>
+          <span className="gray">decimals: </span>
+          {decimals}
+        </span>
+      )}
+      {cleanType && (
+        <span>
+          <span className="gray">type: </span>
+          {cleanType}
+        </span>
+      )}
+      {cleanRef && (
+        <span>
+          <span className="gray">ref: </span>
+          {cleanRef}
+        </span>
+      )}
+      {priceValue > 0 && (
+        <span>
+          <span className="gray">price: </span>
+          {fmtPrice(priceValue)}
+        </span>
+      )}
       {lockText && (
         <span>
           locked until <span className="gray">{lockText}</span>
         </span>
       )}
+    </span>
+  );
+}
+
+export function TradeAssetInfoIcon({
+  coin = "",
+  name = "",
+  chain = "",
+  address = "",
+  decimals,
+  type = "",
+  ref = "",
+  price = 0,
+}) {
+  const cleanCoin = String(coin || "").trim();
+  const cleanName = String(name || "").trim();
+  const cleanAddress = String(address || "").trim();
+  const cleanType = String(type || "").trim();
+  const cleanRef = String(ref || "").trim();
+  const priceValue = toNum(price);
+  const hasDecimals = Number.isInteger(decimals);
+  if (
+    !cleanCoin ||
+    ((!cleanName || cleanName == cleanCoin) &&
+      !cleanAddress &&
+      !hasDecimals &&
+      !cleanType &&
+      !cleanRef &&
+      priceValue <= 0)
+  ) {
+    return null;
+  }
+
+  return (
+    <span
+      className="infoHover hoverOnlyInfo tradeAssetInfo"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span className="infoIcon">i</span>
+      <TradeMarketCoinInfoCard
+        coin={cleanCoin}
+        name={cleanName}
+        chain={chain}
+        address={cleanAddress}
+        decimals={decimals}
+        type={cleanType}
+        ref={cleanRef}
+        price={priceValue}
+      />
     </span>
   );
 }
@@ -1155,6 +1306,18 @@ function defaultMarketSelectValue(entry = {}) {
   return entry.addedValue || entry.value;
 }
 
+function getMorphoVaultUrl(chain = "", address = "") {
+  const cleanAddress = String(address || "").trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(cleanAddress)) return "";
+  const chainSlug = String(chain || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  if (!chainSlug) return "";
+
+  return `https://app.morpho.org/${chainSlug}/vault/${cleanAddress}`;
+}
+
 export function TradeMarketPicker({
   marketPickerRef,
   chainName = "",
@@ -1173,6 +1336,7 @@ export function TradeMarketPicker({
   allLoading = false,
   allError = "",
   allProtocolLabel = "",
+  allColumnTitle = "all",
   retryAllMarkets = () => {},
   addedMarketSort = "",
   setAddedMarketSort = () => {},
@@ -1191,6 +1355,7 @@ export function TradeMarketPicker({
   MarketCoinBalance = TradeMarketCoinBalance,
   AprText = TradeMarketAprText,
   LendCoinInfoCard = TradeMarketCoinInfoCard,
+  chainE = null,
 }) {
   function toggleMarketSort(section = "added", key = "") {
     const setter = section == "all" ? setAllMarketSort : setAddedMarketSort;
@@ -1213,6 +1378,85 @@ export function TradeMarketPicker({
 
   const allErrorLooksAdded =
     showAllAddedOnError && allError && visibleAddedMarkets.length > 0;
+
+  function MarketCoinInfoIcon({
+    coin = "",
+    name = "",
+    address = "",
+    decimals,
+    balance = {},
+    lockedUntilTimestamp = 0,
+  } = {}) {
+    const coinE = chainE?.coinInfoM?.[coin] || {};
+    const cleanAddress = String(address || "").trim();
+    const cleanType = String(coinE.type || "").trim();
+    const cleanRef = String(coinE.ref || "").trim();
+    const priceValue = toNum(balance?.price || coinE.price);
+    const finalDecimals = Number.isInteger(decimals) ? decimals : coinE.decimals;
+    const hasInfo =
+      (name && name != coin) ||
+      !!cleanAddress ||
+      Number.isInteger(finalDecimals) ||
+      !!cleanType ||
+      !!cleanRef ||
+      priceValue > 0 ||
+      !!lockedUntilTimestamp;
+    if (!hasInfo) return null;
+
+    return (
+      <span
+        className="infoHover hoverOnlyInfo customPickerCoinInfo"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="infoIcon">i</span>
+        <LendCoinInfoCard
+          coin={coin}
+          name={name}
+          chain={chainName}
+          address={cleanAddress || coinE.address}
+          decimals={finalDecimals}
+          type={cleanType}
+          ref={cleanRef}
+          price={priceValue}
+          lockedUntilTimestamp={lockedUntilTimestamp}
+          formatLockedUntil={formatLockedUntil}
+        />
+      </span>
+    );
+  }
+
+  function MarketInfoIcon({ entry = {} }) {
+    return (
+      <MarketCoinInfoIcon
+        coin={entry.lendCoin}
+        name={entry.lendName}
+        address={entry.lendAddress}
+        decimals={entry.lendDecimals}
+        balance={entry.lendBalance}
+        lockedUntilTimestamp={getLockedUntil(entry.lendCoin)}
+      />
+    );
+  }
+
+  function MarketExternalLink({ entry = {} }) {
+    const externalUrl =
+      defi == "morpho" ? getMorphoVaultUrl(chainName, entry.lendAddress) : "";
+    if (!externalUrl) return null;
+
+    return (
+      <a
+        className="gray externalLinkIcon"
+        href={externalUrl}
+        target="_blank"
+        rel="noreferrer"
+        title={`open Morpho ${entry.lendCoin} vault`}
+        aria-label={`open Morpho ${entry.lendCoin} vault`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        ↗
+      </a>
+    );
+  }
 
   return (
     <div className="selectCycle walletCycle tradeMarketCycle">
@@ -1255,7 +1499,16 @@ export function TradeMarketPicker({
                           onClick={() => selectMarket(entry.value)}
                         >
                           <td>
-                            <span>{entry.underlyingCoin}</span>
+                            <span className="customPickerCoinWithInfo">
+                              <span>{entry.underlyingCoin}</span>
+                              <MarketCoinInfoIcon
+                                coin={entry.underlyingCoin}
+                                name={entry.underlyingName}
+                                address={entry.underlyingAddress}
+                                decimals={entry.underlyingDecimals}
+                                balance={entry.underlyingBalance}
+                              />
+                            </span>
                           </td>
                           <td>
                             <MarketCoinBalance
@@ -1263,16 +1516,10 @@ export function TradeMarketPicker({
                             />
                           </td>
                           <td>
-                            <span className="infoHover hoverOnlyInfo customPickerCoinHover">
-                              <span className="gray">{entry.lendCoin}</span>
-                              <LendCoinInfoCard
-                                coin={entry.lendCoin}
-                                name={entry.lendName}
-                                lockedUntilTimestamp={getLockedUntil(
-                                  entry.lendCoin,
-                                )}
-                                formatLockedUntil={formatLockedUntil}
-                              />
+                            <span className="customPickerCoinWithInfo">
+                              <span>{entry.lendCoin}</span>
+                              <MarketExternalLink entry={entry} />
+                              <MarketInfoIcon entry={entry} />
                             </span>
                           </td>
                           <td>
@@ -1294,7 +1541,7 @@ export function TradeMarketPicker({
                 </tbody>
               </TradePickerTable>
             </TradePickerColumn>
-            <TradePickerColumn title="all">
+            <TradePickerColumn title={allColumnTitle}>
               <TradePickerTable
                 className="customPickerAllTable"
                 headers={[
@@ -1380,14 +1627,23 @@ export function TradeMarketPicker({
                           }
                         >
                           <td>
-                            <button
-                              type="button"
-                              className="customPickerSelect"
-                              onClick={() => selectMarket(selectedValue)}
-                              title={entry.underlyingName}
-                            >
-                              <span>{entry.underlyingCoin}</span>
-                            </button>
+                            <span className="customPickerCoinWithInfo">
+                              <button
+                                type="button"
+                                className="customPickerSelect"
+                                onClick={() => selectMarket(selectedValue)}
+                                title={entry.underlyingName}
+                              >
+                                <span>{entry.underlyingCoin}</span>
+                              </button>
+                              <MarketCoinInfoIcon
+                                coin={entry.underlyingCoin}
+                                name={entry.underlyingName}
+                                address={entry.underlyingAddress}
+                                decimals={entry.underlyingDecimals}
+                                balance={entry.underlyingBalance}
+                              />
+                            </span>
                           </td>
                           <td>
                             <MarketCoinBalance
@@ -1412,22 +1668,16 @@ export function TradeMarketPicker({
                             </button>
                           </td>
                           <td>
-                            <span className="infoHover hoverOnlyInfo customPickerCoinHover">
+                            <span className="customPickerCoinWithInfo">
                               <button
                                 type="button"
-                                className="customPickerSelect customPickerSecondarySelect"
+                                className="customPickerSelect"
                                 onClick={() => selectMarket(selectedValue)}
                               >
-                                <span className="gray">{entry.lendCoin}</span>
+                                <span>{entry.lendCoin}</span>
                               </button>
-                              <LendCoinInfoCard
-                                coin={entry.lendCoin}
-                                name={entry.lendName}
-                                lockedUntilTimestamp={getLockedUntil(
-                                  entry.lendCoin,
-                                )}
-                                formatLockedUntil={formatLockedUntil}
-                              />
+                              <MarketExternalLink entry={entry} />
+                              <MarketInfoIcon entry={entry} />
                             </span>
                           </td>
                           <td>

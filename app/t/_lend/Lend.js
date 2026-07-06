@@ -106,9 +106,11 @@ import {
   getTradeMarketSideState,
   getTradeMarketSideCoinEntry,
   getTradeMarketSyncedQty,
+  getFallbackTradeMarketEntry,
   getHistoryCycleValues,
   sortTradePickerRows,
   getTradeWalletMarketBalance,
+  TradeAssetInfoIcon,
   TradeSelectionPicker,
   TradePickerColumn,
   TradePickerMenu,
@@ -178,6 +180,10 @@ function getAaveMarketUrl(chain = "") {
 
 function hasLendChainDiscovery(defi = "") {
   return defi == "aave" || defi == "venus" || defi == "morpho";
+}
+
+function getLendChainDiscoveryColumnTitle(defi = "") {
+  return defi == "morpho" ? "discovery" : "all";
 }
 
 function getLendProtocolLabel(defi = "") {
@@ -327,11 +333,8 @@ export default function LendPanel({
         initialChain,
       ),
     ) || "";
-  const initialMarket = initialOrderedMarkets.some(
-    (entry) => entry.value == initialSavedMarket,
-  )
-    ? initialSavedMarket
-    : initialOrderedMarkets[0]?.value || "";
+  const initialMarket =
+    initialSavedMarket || initialOrderedMarkets[0]?.value || "";
   const [defi, setDefi] = useState(initialDefi);
   const [defiOrder, setDefiOrder] = useState(initialDefiOrder);
   const [chainOrder, setChainOrder] = useState(initialChainOrder);
@@ -527,6 +530,7 @@ export default function LendPanel({
   const {
     markets: rawAllMarkets,
     loading: allLoading,
+    loaded: allLoaded,
     error: allError,
     retry: retryAllMarkets,
   } = useLendAllMarkets({
@@ -547,9 +551,9 @@ export default function LendPanel({
       rawAllMarkets.map((entry) => canonicalizeTradeMarketEntry(chainE, entry)),
     [chainE, rawAllMarkets],
   );
-  const allMarkets = sortByGroupedSelectionOrder(
-    canonicalAllMarkets
-      .map((entry) => {
+  const protocolMarketRows = useMemo(
+    () =>
+      canonicalAllMarkets.map((entry) => {
         const addressKey = getTokenAddressKey(chainE?.chain, entry.lendAddress);
         const underlyingAddressKey = getTokenAddressKey(
           chainE?.chain,
@@ -572,8 +576,20 @@ export default function LendPanel({
           addedLend,
           addedValue,
         };
-      })
-      .filter((entry) => !entry.addedUnderlying || !entry.addedLend),
+      }),
+    [
+      addedCoinAddressM,
+      addedMarketAddressM,
+      allMarketKey,
+      canonicalAllMarkets,
+      chainE?.chain,
+      locallyAddedAddressM,
+    ],
+  );
+  const allMarkets = sortByGroupedSelectionOrder(
+    protocolMarketRows.filter(
+      (entry) => !entry.addedUnderlying || !entry.addedLend,
+    ),
     marketOrder,
     chainE?.chain,
     (entry) => entry.addedValue || entry.value,
@@ -590,7 +606,7 @@ export default function LendPanel({
     const protocolAllKey = allMarketKey || chainE?.chain || "";
 
     const rawMarketByLendAddress = Object.fromEntries(
-      canonicalAllMarkets
+      protocolMarketRows
         .filter((entry) => entry.lendAddress)
         .map((entry) => [
           getTokenAddressKey(chainE?.chain, entry.lendAddress),
@@ -603,7 +619,14 @@ export default function LendPanel({
         entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
       const raw =
         rawMarketByLendAddress[getTokenAddressKey(chainE?.chain, lendAddress)];
-      if (!raw) return entry;
+      if (!raw) {
+        return {
+          ...entry,
+          addedUnderlying: !!chainE?.coinInfoM?.[entry.underlyingCoin],
+          addedLend: true,
+          addedValue: entry.value,
+        };
+      }
 
       return {
         ...entry,
@@ -621,11 +644,15 @@ export default function LendPanel({
           ? entry.lendDecimals
           : raw.lendDecimals,
         addedValue: entry.value,
+        addedUnderlying: !!raw.addedUnderlying,
         addedLend: true,
       };
     });
+    const visibleMergedAddedMarkets = mergedAddedMarkets.filter(
+      (entry) => defi != "morpho" || (entry.addedUnderlying && entry.addedLend),
+    );
     const seen = new Set(
-      mergedAddedMarkets.map((entry) =>
+      visibleMergedAddedMarkets.map((entry) =>
         getTokenAddressKey(
           chainE?.chain,
           entry.lendAddress ||
@@ -636,7 +663,7 @@ export default function LendPanel({
       ),
     );
 
-    for (const entry of canonicalAllMarkets) {
+    for (const entry of protocolMarketRows) {
       const lendAddress = getTokenAddressKey(chainE?.chain, entry.lendAddress);
       const underlyingAddress = getTokenAddressKey(
         chainE?.chain,
@@ -653,10 +680,12 @@ export default function LendPanel({
         !!addedValue ||
         !!addedCoinAddressM[lendAddress] ||
         !!locallyAddedAddressM[`${protocolAllKey}:${lendAddress}`];
+      const showInAdded =
+        defi == "morpho" ? addedUnderlying && addedLend : addedLend;
 
-      if (!addedLend || !lendAddress || seen.has(lendAddress)) continue;
+      if (!showInAdded || !lendAddress || seen.has(lendAddress)) continue;
       seen.add(lendAddress);
-      mergedAddedMarkets.push({
+      visibleMergedAddedMarkets.push({
         ...entry,
         value: addedValue || entry.addedValue || entry.value,
         addedValue: addedValue || entry.addedValue || entry.value,
@@ -666,7 +695,7 @@ export default function LendPanel({
     }
 
     return sortByGroupedSelectionOrder(
-      mergedAddedMarkets,
+      visibleMergedAddedMarkets,
       marketOrder,
       chainE?.chain,
       (entry) => entry.value,
@@ -678,13 +707,35 @@ export default function LendPanel({
     allMarketKey,
     chainE?.chain,
     chainE?.coinInfoM,
-    canonicalAllMarkets,
+    defi,
     locallyAddedAddressM,
     marketOrder,
+    protocolMarketRows,
   ]);
+  const fallbackMarketE = useMemo(() => {
+    const fallback = getFallbackTradeMarketEntry(market);
+    if (defi != "morpho" || !fallback || fallback.underlyingCoin) {
+      return fallback;
+    }
+
+    const lendE = chainE?.coinInfoM?.[fallback.lendCoin] || {};
+    const text = `${fallback.lendCoin || ""} ${lendE.name || ""}`.toLowerCase();
+    const underlyingCoin = ["USDS", "USDT", "USDC", "DAI", "EURC", "USD1"].find(
+      (coin) => text.includes(coin.toLowerCase()),
+    );
+
+    return underlyingCoin
+      ? {
+          ...fallback,
+          underlyingCoin,
+          underlyingName: underlyingCoin,
+        }
+      : fallback;
+  }, [chainE?.coinInfoM, defi, market]);
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
+    fallbackMarketE ||
     visibleAddedMarkets[0];
   const fallbackMarketHistoryOptions = useMemo(() => {
     const values = getGroupedSelectionItems(marketOrder, chainE?.chain);
@@ -713,6 +764,12 @@ export default function LendPanel({
   );
   const underlyingCoin = marketE?.underlyingCoin || "";
   const lendCoin = marketE?.lendCoin || "";
+  const underlyingCoinE = chainE?.coinInfoM?.[underlyingCoin] || {};
+  const lendCoinE = chainE?.coinInfoM?.[lendCoin] || {};
+  const underlyingName =
+    marketE?.underlyingName ||
+    underlyingCoinE.name ||
+    underlyingCoin;
   const lendName = marketE?.lendName || lendCoin;
   const underlyingQtyDecimals = getQtyDecimals(
     marketE?.underlyingDecimals ??
@@ -723,8 +780,8 @@ export default function LendPanel({
   );
   const usesDirectMarket =
     hasProtocolAllMarkets &&
-    !!marketE?.underlyingAddress &&
-    !!marketE?.lendAddress;
+    !!marketE?.lendAddress &&
+    (defi == "morpho" || !!marketE?.underlyingAddress);
   const directBalanceKey = usesDirectMarket
     ? [
         defi,
@@ -785,8 +842,29 @@ export default function LendPanel({
     receiptBalance.balance,
     receiptQtyDecimals,
   );
-  const underlyingPriceKey = priceKey(chainE?.chain || "", underlyingCoin);
-  const receiptPriceKey = priceKey(chainE?.chain || "", lendCoin);
+  const underlyingPriceAddress =
+    marketE?.underlyingAddress || underlyingCoinE.address || "";
+  const receiptPriceAddress = marketE?.lendAddress || lendCoinE.address || "";
+  const underlyingPriceKey = priceKey(
+    chainE?.chain || "",
+    underlyingPriceAddress || underlyingCoin,
+  );
+  const receiptPriceKey = priceKey(
+    chainE?.chain || "",
+    receiptPriceAddress || lendCoin,
+  );
+  const underlyingPriceCoinE = underlyingPriceAddress
+    ? {
+        address: underlyingPriceAddress,
+        decimals: marketE?.underlyingDecimals ?? underlyingCoinE.decimals,
+      }
+    : null;
+  const receiptPriceCoinE = receiptPriceAddress
+    ? {
+        address: receiptPriceAddress,
+        decimals: marketE?.lendDecimals ?? lendCoinE.decimals,
+      }
+    : null;
   const marketPreviewKey = `${defi}:${chainE?.chain || ""}:${underlyingCoin}:${lendCoin}`;
   const marketPreview = marketPreviewM[marketPreviewKey];
   const marketPreviewLoaded = marketPreview !== undefined;
@@ -804,6 +882,7 @@ export default function LendPanel({
     cacheKey: underlyingPriceKey,
     chain: chainE?.chain,
     coin: underlyingCoin,
+    coinE: underlyingPriceCoinE,
     listPrice: underlyingListPrice,
     getPrice: getTradeCoinPrice,
   });
@@ -812,6 +891,7 @@ export default function LendPanel({
       cacheKey: receiptPriceKey,
       chain: chainE?.chain,
       coin: lendCoin,
+      coinE: receiptPriceCoinE,
       listPrice: receiptListPrice,
       getPrice: getTradeCoinPrice,
     });
@@ -1176,16 +1256,21 @@ export default function LendPanel({
 
   useEffect(() => {
     const marketExists = marketCookieValues.includes(market);
+    const savedMarket = getCookie(
+      getProtocolCookie(
+        tradeLendMarketCookie,
+        walletType,
+        defi,
+        chainE?.chain,
+      ),
+    );
+    const savedMarketPending =
+      hasProtocolAllMarkets &&
+      !allLoaded &&
+      savedMarket &&
+      savedMarket == market;
 
-    if (marketCookieValues.length && !marketExists) {
-      const savedMarket = getCookie(
-        getProtocolCookie(
-          tradeLendMarketCookie,
-          walletType,
-          defi,
-          chainE?.chain,
-        ),
-      );
+    if (marketCookieValues.length && !marketExists && !savedMarketPending) {
       const nextMarket = marketCookieValues.includes(savedMarket)
         ? savedMarket
         : marketCookieValues[0];
@@ -1193,7 +1278,16 @@ export default function LendPanel({
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
     }
-  }, [chainE?.chain, defi, market, marketCookieValues, markets, walletType]);
+  }, [
+    allLoaded,
+    chainE?.chain,
+    defi,
+    hasProtocolAllMarkets,
+    market,
+    marketCookieValues,
+    markets,
+    walletType,
+  ]);
 
   useEffect(() => {
     function closeChainMenu(e) {
@@ -1727,7 +1821,7 @@ export default function LendPanel({
             </tbody>
           </TradePickerTable>
         </TradePickerColumn>
-        <TradePickerColumn title="discovery">
+        <TradePickerColumn title={getLendChainDiscoveryColumnTitle(defi)}>
           <TradePickerTable
             className="tradeChainAllTable"
             headers={[
@@ -2403,6 +2497,7 @@ export default function LendPanel({
           {hasProtocolAllMarkets ? (
             <LendMarketPicker
               marketPickerRef={marketPickerRef}
+              chainE={chainE}
               chainName={chainE?.chain}
               defi={defi}
               market={market}
@@ -2461,7 +2556,24 @@ export default function LendPanel({
         <div className="tradeRows">
           <div className="tradeBox">
             <div className="tradeAssetLine">
-              <span>{underlyingCoin || "-"}</span>
+              <span className="tradeAssetName">
+                <span>{underlyingCoin || "-"}</span>
+                <TradeAssetInfoIcon
+                  coin={underlyingCoin}
+                  name={underlyingName}
+                  chain={chainE?.chain}
+                  address={
+                    marketE?.underlyingAddress ||
+                    underlyingCoinE.address
+                  }
+                  decimals={
+                    marketE?.underlyingDecimals ?? underlyingCoinE.decimals
+                  }
+                  type={underlyingCoinE.type}
+                  ref={underlyingCoinE.ref}
+                  price={underlyingPrice}
+                />
+              </span>
               <span className="tradeCoinPrice">
                 <span className="gray">{fmtPrice(underlyingPrice)}</span>
               </span>
@@ -2472,7 +2584,7 @@ export default function LendPanel({
                 className="tradeTextButton tradeAssetBalance"
                 onClick={setMaxLend}
               >
-                <span className="gray">{underlyingCoin}: </span>
+                <span className="gray">wallet: </span>
                 {underlyingBalanceLoading ? "..." : maxUnderlyingQty}
                 {underlyingUsd > 0 && (
                   <span className="gray"> ${fmt(underlyingUsd, 2)}</span>
@@ -2590,17 +2702,29 @@ export default function LendPanel({
 
           <div className="tradeBox">
             <div className="tradeAssetLine">
-              <span>{lendCoin || "-"}</span>
-              {lendName && lendName != lendCoin && (
-                <span className="gray">({lendName})</span>
-              )}
+              <span className="tradeAssetName">
+                <span>{lendCoin || "-"}</span>
+                <TradeAssetInfoIcon
+                  coin={lendCoin}
+                  name={lendName}
+                  chain={chainE?.chain}
+                  address={
+                    marketE?.lendAddress ||
+                    lendCoinE.address
+                  }
+                  decimals={marketE?.lendDecimals ?? lendCoinE.decimals}
+                  type={lendCoinE.type}
+                  ref={lendCoinE.ref}
+                  price={receiptPrice}
+                />
+              </span>
               <span className="tradeCoinPrice">
                 <span className="gray">{fmtPrice(receiptPrice)}</span>
               </span>
             </div>
             <div className="tradeBalanceLine">
               <span className="tradeAssetBalance">
-                <span className="gray">{lendCoin}: </span>
+                <span className="gray">wallet: </span>
                 {receiptBalanceLoading ? "..." : maxReceiptQty}
                 {receiptUsd > 0 && (
                   <span className="gray"> ${fmt(receiptUsd, 2)}</span>

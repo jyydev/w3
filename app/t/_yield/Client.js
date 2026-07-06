@@ -272,11 +272,27 @@ export function formatLockUntil(value) {
   return new Date(ms).toLocaleString();
 }
 
-export function LendCoinInfoCard({ coin, name, lockedUntilTimestamp = 0 }) {
+export function LendCoinInfoCard({
+  coin,
+  name,
+  chain = "",
+  address = "",
+  decimals,
+  type = "",
+  ref = "",
+  price = 0,
+  lockedUntilTimestamp = 0,
+}) {
   return (
     <TradeMarketCoinInfoCard
       coin={coin}
       name={name}
+      chain={chain}
+      address={address}
+      decimals={decimals}
+      type={type}
+      ref={ref}
+      price={price}
       lockedUntilTimestamp={lockedUntilTimestamp}
       formatLockedUntil={formatLockUntil}
     />
@@ -294,6 +310,7 @@ export function YieldMarketPicker(props) {
   return (
     <TradeMarketPicker
       {...props}
+      allColumnTitle="discovery"
       allEmptyText={visibleAddedMarkets.length ? "all added" : "-"}
       showAllEmptyRetry={!visibleAddedMarkets.length}
       showAllAddedOnError

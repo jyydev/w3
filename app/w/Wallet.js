@@ -16,7 +16,7 @@ import {
   parseSelectionOrder,
   rememberSelectionValue,
 } from "@/fn/selectionOrder";
-import { ckPrefix, scanners } from "@/sets";
+import { ckPrefix, scanners, walletChainFilterPriority } from "@/sets";
 import {
   CustomHistoryPicker,
   CycleButtonPair,
@@ -994,12 +994,21 @@ function Wallet({
   }
 
   function getChainSelectOptions() {
+    const priorityChains = Array.isArray(walletChainFilterPriority)
+      ? walletChainFilterPriority
+      : [];
+    const chainOptions = chainList.map((chainE) => ({
+      value: chainE.chain,
+      label: chainE.chain,
+    }));
+    const prioritySet = new Set(priorityChains);
+
     return [
       { value: "", label: "all" },
-      ...chainList.map((chainE) => ({
-        value: chainE.chain,
-        label: chainE.chain,
-      })),
+      ...priorityChains
+        .map((chain) => chainOptions.find((option) => option.value == chain))
+        .filter(Boolean),
+      ...chainOptions.filter((option) => !prioritySet.has(option.value)),
     ];
   }
 
@@ -3712,15 +3721,6 @@ function Wallet({
 
     return (
       <span className="infoCard claimCoinInfoCard">
-        <span className="claimCoinInfoSummary">
-          <CoinInfoCardBody
-            chainE={sourceChainE}
-            coin={coin}
-            coinE={coinE}
-            price={rewardPrice}
-            canAddCoin={false}
-          />
-        </span>
         <span className="claimCoinInfoColumns">
           <span className="claimCoinInfoColumn">
             <CoinInfoCardBody
@@ -3760,6 +3760,10 @@ function Wallet({
     const displayCoin = getCoinDisplayLabel(chainE.chain, coin, coinE);
     const claimSourceChain =
       chainE.chain == "Claim" ? String(coinE.sourceChain || "").trim() : "";
+    const claimDisplayParts =
+      chainE.chain == "Claim" ? String(displayCoin).split("<-") : [];
+    const claimDisplayCoin = claimDisplayParts[0] || displayCoin;
+    const claimDisplaySource = claimDisplayParts.slice(1).join("<-");
     const price = getCoinPrice(chainE.chain, coin);
     const sortKey = `coin:${chainE.chain}:${coin}`;
     const canAddCoin = getCanAddCoin({ chainE, coin, coinE });
@@ -3774,10 +3778,20 @@ function Wallet({
               <CoinIcon coin={coin} coinE={coinE} />
             )}
             <span
-              className="coinSymbol"
+              className={claimDisplaySource ? "coinSymbol claimCoinSymbol" : "coinSymbol"}
               title={displayCoin == coin ? undefined : coin}
             >
-              {displayCoin}
+              {claimDisplaySource ? (
+                <>
+                  {claimDisplayCoin}
+                  <span className="claimCoinHeaderSource">
+                    {"←"}
+                    {claimDisplaySource}
+                  </span>
+                </>
+              ) : (
+                displayCoin
+              )}
             </span>
           </span>
         </SortHeader>

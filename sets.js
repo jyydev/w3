@@ -26,6 +26,8 @@ exports.yields = [
   { value: "hyperliquid", label: "Hyperliquid" },
 ];
 
+exports.walletChainFilterPriority = ["Hyperliquid", "Claim"];
+
 exports.sets = {
   useAlchemy: 1,
   alchemyMinUsd: 0.01,
