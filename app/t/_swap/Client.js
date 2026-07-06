@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { pc } from "@/fn/basic";
-import { CycleButton } from "@/components/Shared";
+import { CycleButtonPair } from "@/components/Shared";
 import { isAcrossSupportedForChain } from "./across/Client";
 import { isJumperSupportedForChain } from "./jumper/Client";
 import { isJupiterSwapSupportedForChain } from "./jupiter/Client";
@@ -11,10 +11,12 @@ import { isUniswapSupportedForChain } from "./uniswap/Client";
 import {
   dexOptions,
   getInitialCookie,
+  getHistoryCycleValues,
   getTokenAddressKey,
   getTradeModeCookie,
   inputQty,
   tradeSwapDexCookie,
+  TradeSelectionPicker,
   TradePickerColumn,
   TradePickerMenu,
   TradePickerSortHeader,
@@ -287,6 +289,8 @@ function DiscoveryChainMenu({
   side = "from",
   selectedChain = "",
   addedChains = [],
+  historyChains = [],
+  allChainOptions = [],
   allChains = [],
   swapSupportE = {},
   defi = "",
@@ -530,11 +534,13 @@ export function SwapChainSelect({
   side = "from",
   selectedChain = "",
   addedChains = [],
+  historyChains = [],
+  allChainOptions = [],
   allChains = [],
   disabled = false,
-  buttonWidth = "8ch",
   title = "",
   onSelect = () => {},
+  onRemoveHistory,
   onPrev = () => {},
   onNext = () => {},
   onFocusChain = () => {},
@@ -552,48 +558,49 @@ export function SwapChainSelect({
   showManualChain = () => {},
   retrySwapSupport = () => {},
 }) {
+  const chainCycleValues = getHistoryCycleValues(
+    historyChains,
+    allChainOptions.length ? allChainOptions : addedChains,
+  );
+
   if (!hasDiscovery) {
     return (
-      <span className="selectCycle">
-        <CycleButton
-          direction="prev"
-          onClick={onPrev}
-          disabled={disabled || addedChains.length < 2}
-        />
-        <select
-          value={selectedChain}
-          onChange={(e) => onSelect(e.target.value)}
-          onClick={onFocusChain}
-          onFocus={onFocusChain}
-          disabled={disabled}
-          title={title}
-        >
-          {addedChains.map((chain) => (
-            <option key={chain} value={chain}>
-              {chain}
-            </option>
-          ))}
-        </select>
-        <CycleButton
-          onClick={onNext}
-          disabled={disabled || addedChains.length < 2}
-        />
-      </span>
+      <TradeSelectionPicker
+        selectedValue={selectedChain}
+        historyOptions={historyChains}
+        allOptions={allChainOptions.length ? allChainOptions : addedChains}
+        showMenu={showMenu}
+        setShowMenu={setShowMenu}
+        pickerRef={pickerRef}
+        pickerSortM={pickerSortM}
+        setPickerSortM={setPickerSortM}
+        sortKeyPrefix={`swap${side}Chain:${defi || "dex"}`}
+        header="chain"
+        className="swapChainCycle"
+        menuClassName="tradeChainMenu"
+        disabled={disabled}
+        cycleDisabled={disabled || chainCycleValues.length < 2}
+        onSelect={onSelect}
+        onRemoveHistory={onRemoveHistory}
+        onPrev={onPrev}
+        onNext={onNext}
+        onOpen={onFocusChain}
+        onFocus={onFocusChain}
+      />
     );
   }
 
   return (
     <div className="selectCycle walletCycle swapChainCycle">
-      <CycleButton
-        direction="prev"
-        onClick={onPrev}
-        disabled={disabled || addedChains.length < 2}
+      <CycleButtonPair
+        onPrev={onPrev}
+        onNext={onNext}
+        disabled={disabled || chainCycleValues.length < 2}
       />
       <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
           className="customPickerButton"
-          style={{ width: buttonWidth }}
           disabled={disabled}
           title={title}
           onClick={() => {
@@ -622,10 +629,6 @@ export function SwapChainSelect({
           />
         )}
       </div>
-      <CycleButton
-        onClick={onNext}
-        disabled={disabled || addedChains.length < 2}
-      />
     </div>
   );
 }
@@ -635,6 +638,8 @@ function DiscoveryCoinMenu({
   chain = "",
   selectedCoin = "",
   addedCoins = [],
+  historyCoins = [],
+  allCoinOptions = [],
   allTokens = [],
   tokenDiscoveryE = {},
   strictSupport = true,
@@ -966,6 +971,8 @@ export function SwapCoinSelect({
   chain = "",
   selectedCoin = "",
   addedCoins = [],
+  historyCoins = [],
+  allCoinOptions = [],
   allTokens = [],
   tokenDiscoveryE = {},
   strictSupport = true,
@@ -976,6 +983,7 @@ export function SwapCoinSelect({
   onOpen = () => {},
   showSearch = false,
   onSelect = () => {},
+  onRemoveHistory,
   onPrev = () => {},
   onNext = () => {},
   showMenu = false,
@@ -997,35 +1005,41 @@ export function SwapCoinSelect({
   addingCoin = false,
   getDiscoveryTokenKey = () => "",
 }) {
+  const coinCycleValues = getHistoryCycleValues(
+    historyCoins,
+    allCoinOptions.length ? allCoinOptions : addedCoins,
+  );
+
   if (!hasDiscovery) {
     return (
-      <span className="selectCycle">
-        <CycleButton
-          direction="prev"
-          onClick={onPrev}
-          disabled={addedCoins.length < 2}
-        />
-        <select value={selectedCoin} onChange={(e) => onSelect(e.target.value)}>
-          {addedCoins.map((coin) => (
-            <option key={coin} value={coin}>
-              {coin}
-            </option>
-          ))}
-        </select>
-        <CycleButton
-          onClick={onNext}
-          disabled={addedCoins.length < 2}
-        />
-      </span>
+      <TradeSelectionPicker
+        selectedValue={selectedCoin}
+        historyOptions={historyCoins}
+        allOptions={allCoinOptions.length ? allCoinOptions : addedCoins}
+        showMenu={showMenu}
+        setShowMenu={setShowMenu}
+        pickerRef={pickerRef}
+        pickerSortM={pickerSortM}
+        setPickerSortM={setPickerSortM}
+        sortKeyPrefix={`swap${side}Coin:${defi || "dex"}:${chain || ""}`}
+        header="coin"
+        className="swapCoinCycle"
+        menuClassName="tradeCoinMenu"
+        cycleDisabled={coinCycleValues.length < 2}
+        onSelect={onSelect}
+        onRemoveHistory={onRemoveHistory}
+        onPrev={onPrev}
+        onNext={onNext}
+      />
     );
   }
 
   return (
     <div className="selectCycle walletCycle swapCoinCycle selectedCompact">
-      <CycleButton
-        direction="prev"
-        onClick={onPrev}
-        disabled={addedCoins.length < 2}
+      <CycleButtonPair
+        onPrev={onPrev}
+        onNext={onNext}
+        disabled={coinCycleValues.length < 2}
       />
       <div className="customPicker" ref={pickerRef}>
         <button
@@ -1070,10 +1084,6 @@ export function SwapCoinSelect({
           />
         )}
       </div>
-      <CycleButton
-        onClick={onNext}
-        disabled={addedCoins.length < 2}
-      />
     </div>
   );
 }

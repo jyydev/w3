@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
-import { CycleButton } from "@/components/Shared";
+import { CycleButtonPair } from "@/components/Shared";
 import {
   getAllLocalCustomCoinM,
   localEditorStorageEvent,
@@ -20,6 +20,7 @@ import {
   encodeSelectionOrder,
   normalizeSelectionOrder,
   parseSelectionOrder,
+  removeSelectionValue,
   rememberSelectionValue,
   sortBySelectionOrder,
 } from "@/fn/selectionOrder";
@@ -32,6 +33,7 @@ import { getTradeCoinBalance } from "./svShared";
 import {
   cookieMaxAge,
   findWalletEntryByAddress,
+  getHistoryCycleValues,
   getInitialCookie,
   getWalletPrivateKeyFlag,
   getWalletOptions,
@@ -41,6 +43,7 @@ import {
   tradeLeftPaneCookie,
   tradePaneOrderCookie,
   tradeRightPaneSelectCookie,
+  TradeSelectionPicker,
   shortAddress,
   tradeShowCookie,
   walletBalancePatchEvent,
@@ -328,8 +331,15 @@ function Panels({
       tradeTypes,
     ),
   );
+  const [showPaneMenu, setShowPaneMenu] = useState(false);
+  const [panePickerSortM, setPanePickerSortM] = useState({});
+  const panePickerRef = useRef(null);
   const orderedTradeTypes = useMemo(
     () => sortBySelectionOrder(tradeTypes, paneOrder),
+    [paneOrder, tradeTypes],
+  );
+  const tradeHistoryTypes = useMemo(
+    () => paneOrder.filter((type) => tradeTypes.includes(type)),
     [paneOrder, tradeTypes],
   );
   const orderedPaneTypes = orderedTradeTypes;
@@ -774,6 +784,15 @@ function Panels({
     });
   }, [pane, paneCookiesLoaded]);
 
+  useEffect(() => {
+    function closePaneMenu(e) {
+      if (!panePickerRef.current?.contains(e.target)) setShowPaneMenu(false);
+    }
+
+    document.addEventListener("mousedown", closePaneMenu);
+    return () => document.removeEventListener("mousedown", closePaneMenu);
+  }, []);
+
   function cycleWallet(direction) {
     if (wallets.length < 2) return;
     const nextIndex =
@@ -803,15 +822,25 @@ function Panels({
   }
 
   function cycleTradeType(direction = 1) {
-    const values = orderedTradeTypes.length ? orderedTradeTypes : tradeTypes;
+    const values = getHistoryCycleValues(tradeHistoryTypes, tradeTypes);
+    if (!values.length) return;
     const index = values.indexOf(tradeType);
     selectTradeType(values[(index + direction + values.length) % values.length], {
       rememberOrder: false,
     });
   }
 
+  function removePaneHistory(value) {
+    const nextOrder = removeSelectionValue(paneOrder, value);
+    setPaneOrder(nextOrder);
+    setCookie(tradePaneOrderCookie, encodeSelectionOrder(nextOrder), {
+      maxAge: cookieMaxAge,
+    });
+  }
+
   function cyclePane(direction = 1) {
-    const values = orderedPaneTypes.length ? orderedPaneTypes : paneTypes;
+    const values = getHistoryCycleValues(tradeHistoryTypes, paneTypes);
+    if (!values.length) return;
     const index = values.indexOf(pane);
     selectPane(values[(index + direction + values.length) % values.length], {
       rememberOrder: false,
@@ -926,7 +955,10 @@ function Panels({
         initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={orderedTradeTypes}
+        tradeHistoryTypes={tradeHistoryTypes}
+        allTradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
+        onTradeTypeHistoryRemove={removePaneHistory}
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
@@ -942,7 +974,10 @@ function Panels({
         initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={orderedTradeTypes}
+        tradeHistoryTypes={tradeHistoryTypes}
+        allTradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
+        onTradeTypeHistoryRemove={removePaneHistory}
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
@@ -958,7 +993,10 @@ function Panels({
         initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={orderedTradeTypes}
+        tradeHistoryTypes={tradeHistoryTypes}
+        allTradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
+        onTradeTypeHistoryRemove={removePaneHistory}
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
@@ -976,7 +1014,10 @@ function Panels({
         initialCookieM={initialCookieM}
         tradeType={panelType}
         tradeTypes={orderedTradeTypes}
+        tradeHistoryTypes={tradeHistoryTypes}
+        allTradeTypes={tradeTypes}
         onTradeTypeChange={setPanelType}
+        onTradeTypeHistoryRemove={removePaneHistory}
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         onFromWalletChange={setWallet}
@@ -1003,9 +1044,9 @@ function Panels({
           <span className="gray">Trade</span>
           <label htmlFor="tradeWallet">
             {wallets.length != 1 && (
-              <CycleButton
-                direction="prev"
-                onClick={() => cycleWallet("prev")}
+              <CycleButtonPair
+                onPrev={() => cycleWallet("prev")}
+                onNext={() => cycleWallet("next")}
               />
             )}
             <select
@@ -1022,11 +1063,6 @@ function Panels({
                 </option>
               ))}
             </select>
-            {wallets.length != 1 && (
-              <CycleButton
-                onClick={() => cycleWallet("next")}
-              />
-            )}
           </label>
           {loopWalletEntries.length > 0 && (
             <label
@@ -1079,26 +1115,27 @@ function Panels({
               />
               <span className="slider"></span>
             </label>
-            <label htmlFor="tradePane">
+            <span>
               <span className="gray">pane:</span>
-              <CycleButton
-                direction="prev"
-                onClick={() => cyclePane(-1)}
-                disabled={orderedPaneTypes.length < 2}
+              <TradeSelectionPicker
+                selectedValue={pane}
+                historyOptions={tradeHistoryTypes}
+                allOptions={paneTypes}
+                showMenu={showPaneMenu}
+                setShowMenu={setShowPaneMenu}
+                pickerRef={panePickerRef}
+                pickerSortM={panePickerSortM}
+                setPickerSortM={setPanePickerSortM}
+                sortKeyPrefix="tradePaneRight"
+                header="pane"
+                className="tradeTypeCycle"
+                menuClassName="tradeTypeMenu"
+                onSelect={selectPane}
+                onRemoveHistory={removePaneHistory}
+                onPrev={() => cyclePane(-1)}
+                onNext={() => cyclePane(1)}
               />
-              <select
-                id="tradePane"
-                value={pane}
-                onChange={(e) => selectPane(e.target.value)}
-              >
-                {orderedPaneTypes.map((paneType) => (
-                  <option key={paneType} value={paneType}>
-                    {paneType}
-                  </option>
-                ))}
-              </select>
-              <CycleButton onClick={() => cyclePane(1)} />
-            </label>
+            </span>
           </span>
           {browserSignerReady && <span className="gray">browser wallet</span>}
           {loadingLocalWalletData && (

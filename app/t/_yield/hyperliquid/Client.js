@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButton } from "@/components/Shared";
+import { CycleButtonPair } from "@/components/Shared";
 import { getHyperliquidSpotBridgeDiscovery } from "./sv";
 import {
   emitTradeChainSelect,
@@ -541,16 +541,6 @@ export function useHyperliquidBridgeSelection({
   };
 }
 
-function getHyperliquidPickerWidth(values = [], selected = "", max = 18) {
-  const length = Math.max(
-    5,
-    String(selected || "").length,
-    ...values.map((value) => String(value || "").length),
-  );
-
-  return `${Math.min(length + 2, max)}ch`;
-}
-
 export function HyperliquidCoinMenu({
   side = "deposit",
   chain = "",
@@ -883,6 +873,7 @@ export function HyperliquidCoinSelect({
   showMenu = false,
   setShowMenu = () => {},
   pickerRef,
+  cycleDisabled,
   onSelect = () => {},
   onPrev = () => {},
   onNext = () => {},
@@ -892,21 +883,15 @@ export function HyperliquidCoinSelect({
 }) {
   return (
     <div className="selectCycle walletCycle tradeCoinCycle">
-      <CycleButton
-        direction="prev"
-        onClick={onPrev}
-        disabled={addedCoins.length < 2 && allCoins.length < 2}
+      <CycleButtonPair
+        onPrev={onPrev}
+        onNext={onNext}
+        disabled={cycleDisabled ?? (addedCoins.length < 2 && allCoins.length < 2)}
       />
       <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
           className="customPickerButton"
-          style={{
-            width: getHyperliquidPickerWidth(
-              [...addedCoins, ...allCoins],
-              selectedCoin,
-            ),
-          }}
           disabled={!allCoins.length}
           onClick={() => setShowMenu((show) => !show)}
         >
@@ -928,10 +913,6 @@ export function HyperliquidCoinSelect({
           />
         )}
       </div>
-      <CycleButton
-        onClick={onNext}
-        disabled={addedCoins.length < 2 && allCoins.length < 2}
-      />
     </div>
   );
 }
@@ -945,6 +926,7 @@ export function HyperliquidChainSelect({
   showMenu = false,
   setShowMenu = () => {},
   pickerRef,
+  cycleDisabled,
   onSelect = () => {},
   onPrev = () => {},
   onNext = () => {},
@@ -952,21 +934,15 @@ export function HyperliquidChainSelect({
 }) {
   return (
     <div className="selectCycle walletCycle tradeChainCycle">
-      <CycleButton
-        direction="prev"
-        onClick={onPrev}
-        disabled={addedChains.length < 2 && allChains.length < 2}
+      <CycleButtonPair
+        onPrev={onPrev}
+        onNext={onNext}
+        disabled={cycleDisabled ?? (addedChains.length < 2 && allChains.length < 2)}
       />
       <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
           className="customPickerButton"
-          style={{
-            width: getHyperliquidPickerWidth(
-              [...addedChains, ...allChains],
-              selectedChain,
-            ),
-          }}
           disabled={!allChains.length}
           onClick={() => {
             if (selectedChain) emitTradeChainSelect(selectedChain);
@@ -988,10 +964,6 @@ export function HyperliquidChainSelect({
           />
         )}
       </div>
-      <CycleButton
-        onClick={onNext}
-        disabled={addedChains.length < 2 && allChains.length < 2}
-      />
     </div>
   );
 }

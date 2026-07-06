@@ -688,6 +688,178 @@ async function getAaveStakingRewards({
   };
 }
 
+function getClaimableAaveStakingRewards(rewards = []) {
+  return rewards.filter((reward) => BigInt(reward?.amount || 0n) > 0n);
+}
+
+async function getAaveStakingClaimContext({
+  provider,
+  chain = "",
+  stakingAddress = "",
+  walletAddress = "",
+} = {}) {
+  if (chain == "Solana" || chain == "Hyperliquid") {
+    throw new Error("Aave Staking is EVM-only here");
+  }
+  if (!ethers.isAddress(walletAddress)) {
+    throw new Error("EVM wallet address required");
+  }
+  if (!ethers.isAddress(stakingAddress)) {
+    throw new Error("staking address invalid");
+  }
+
+  const stakingVault = new ethers.Contract(
+    ethers.getAddress(stakingAddress),
+    erc4626Abi,
+    provider,
+  );
+  const rewards = await getAaveStakingRewards({
+    provider,
+    stakingVault,
+    stakingAddress,
+    walletAddress,
+    chain,
+  });
+  const claimableRewards = getClaimableAaveStakingRewards(rewards.rewards);
+  if (!claimableRewards.length) throw new Error("no claimable rewards");
+
+  return {
+    stakingAddress: ethers.getAddress(stakingAddress),
+    controller: rewards.controller,
+    rewards: rewards.rewards,
+    claimableRewards,
+  };
+}
+
+export async function buildAaveStakingClaimTxs({
+  walletAddress = "",
+  chain = "",
+  stakingAddress = "",
+} = {}) {
+  const rpc = getChainRpc(chain);
+  if (!rpc) throw new Error(`rpc not configured: ${chain}`);
+
+  const chainId = chainIds[chain];
+  if (!chainId) throw new Error(`chain unsupported: ${chain}`);
+
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Aave Staking",
+  });
+
+  try {
+    const claim = await getAaveStakingClaimContext({
+      provider,
+      chain,
+      stakingAddress,
+      walletAddress,
+    });
+    const txData = await withAaveStakingGasBuffer(
+      provider,
+      {
+        to: claim.controller,
+        data: rewardsControllerInterface.encodeFunctionData("claimAllRewards", [
+          claim.stakingAddress,
+          ethers.getAddress(walletAddress),
+        ]),
+        value: "0",
+      },
+      walletAddress,
+    );
+
+    return {
+      ok: true,
+      chain,
+      action: "claim",
+      rewards: claim.rewards,
+      txs: [
+        getUnsignedTx({
+          chain,
+          chainId,
+          type: "claim",
+          txData,
+        }),
+      ],
+    };
+  } finally {
+    provider.destroy?.();
+  }
+}
+
+export async function executeAaveStakingClaim({
+  walletName = "",
+  walletAddress = "",
+  chain = "",
+  stakingAddress = "",
+} = {}) {
+  if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
+
+  const privateKey = getPrivateKey(walletName);
+  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+
+  const rpc = getChainRpc(chain);
+  if (!rpc) throw new Error(`rpc not configured: ${chain}`);
+
+  const provider = createJsonRpcProvider(rpc, {
+    chain,
+    scope: "Aave Staking",
+  });
+
+  try {
+    const wallet = getWallet(privateKey, provider);
+    assertWalletMatches(wallet, walletAddress);
+
+    const claim = await getAaveStakingClaimContext({
+      provider,
+      chain,
+      stakingAddress,
+      walletAddress: wallet.address,
+    });
+    const claimData = rewardsControllerInterface.encodeFunctionData(
+      "claimAllRewards",
+      [claim.stakingAddress, wallet.address],
+    );
+    const controller = new ethers.Contract(
+      claim.controller,
+      rewardsControllerAbi,
+      wallet,
+    );
+    const gasLimit =
+      (await getBufferedGasLimit(
+        provider,
+        {
+          to: claim.controller,
+          data: claimData,
+          value: "0",
+        },
+        wallet.address,
+      )) || aaveStakingFallbackGasLimit;
+    const claimTx = await controller.claimAllRewards(
+      claim.stakingAddress,
+      wallet.address,
+      { gasLimit },
+    );
+    const receipt = await claimTx.wait();
+
+    return {
+      ok: true,
+      chain,
+      action: "claim",
+      rewards: claim.rewards,
+      txs: [
+        {
+          chain,
+          type: "claim",
+          hash: claimTx.hash,
+          blockNumber: receipt?.blockNumber ?? null,
+        },
+      ],
+    };
+  } finally {
+    provider.destroy?.();
+  }
+}
+
 export async function getAaveStakingLendPreview({
   walletAddress = "",
   chain = "",

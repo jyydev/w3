@@ -1,4 +1,6 @@
-import { forwardRef } from "react";
+"use client";
+
+import { forwardRef, useEffect, useRef, useState } from "react";
 
 export function CycleButton({
   direction = "next",
@@ -21,6 +23,36 @@ export function CycleButton({
     >
       {label}
     </button>
+  );
+}
+
+export function CycleButtonPair({
+  onPrev,
+  onNext,
+  prevDisabled = false,
+  nextDisabled = false,
+  disabled = false,
+  size = "small",
+  className = "",
+  prevProps = {},
+  nextProps = {},
+}) {
+  return (
+    <span className={["cycleButtonPair", className].filter(Boolean).join(" ")}>
+      <CycleButton
+        {...prevProps}
+        size={size}
+        direction="prev"
+        onClick={onPrev}
+        disabled={disabled || prevDisabled || prevProps.disabled}
+      />
+      <CycleButton
+        {...nextProps}
+        size={size}
+        onClick={onNext}
+        disabled={disabled || nextDisabled || nextProps.disabled}
+      />
+    </span>
   );
 }
 
@@ -179,5 +211,296 @@ export function CustomPickerSortHeader({
     >
       {children}
     </TableSortHeader>
+  );
+}
+
+function getCustomPickerOptionValue(option) {
+  return typeof option == "string" ? option : String(option?.value ?? "");
+}
+
+function getCustomPickerOptionLabel(option) {
+  if (typeof option == "string") return option;
+  return String(option?.label ?? option?.value ?? "");
+}
+
+function sortCustomPickerOptions(options = [], sortKey = "", getters = {}) {
+  if (!sortKey) return options;
+  const getter = getters[sortKey] || getCustomPickerOptionLabel;
+
+  return [...options].sort((a, b) =>
+    String(getter(a) ?? "").localeCompare(String(getter(b) ?? ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }),
+  );
+}
+
+export function getCustomPickerHistoryCycleValues(
+  historyOptions = [],
+  allOptions = [],
+  getOptionValue = getCustomPickerOptionValue,
+) {
+  const source = historyOptions.length ? historyOptions : allOptions;
+  return source.map(getOptionValue).filter(Boolean);
+}
+
+export function CustomHistoryPicker({
+  selectedValue = "",
+  selectedLabel = "",
+  historyOptions = [],
+  allOptions = [],
+  showMenu,
+  setShowMenu,
+  pickerRef,
+  pickerSortM,
+  setPickerSortM,
+  sortKeyPrefix = "customHistoryPicker",
+  header = "select",
+  historyTitle = "history",
+  allTitle = "all",
+  emptyHistoryText = "-",
+  emptyAllText = "-",
+  className = "",
+  pickerClassName = "",
+  buttonClassName = "",
+  menuClassName = "",
+  tableClassName = "",
+  allTableClassName = "",
+  showCycle,
+  cycleSize = "small",
+  cycleDisabled,
+  disabled = false,
+  getOptionValue = getCustomPickerOptionValue,
+  getOptionLabel = getCustomPickerOptionLabel,
+  getOptionLink = () => "",
+  getOptionTitle = getCustomPickerOptionLabel,
+  isOptionDisabled = (option) => !!option?.disabled,
+  onSelect = () => {},
+  onRemoveHistory,
+  onPrev = () => {},
+  onNext = () => {},
+  onOpen = () => {},
+  onFocus,
+}) {
+  const internalRef = useRef(null);
+  const effectiveRef = pickerRef || internalRef;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [internalSortM, setInternalSortM] = useState({});
+  const isControlledOpen = showMenu !== undefined;
+  const isControlledSort = pickerSortM !== undefined;
+  const open = isControlledOpen ? showMenu : internalOpen;
+  const sortM = isControlledSort ? pickerSortM : internalSortM;
+  const setOpen = setShowMenu || setInternalOpen;
+  const setSortM = setPickerSortM || setInternalSortM;
+  const shouldShowCycle = showCycle ?? !!(onPrev || onNext);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutsideClick(e) {
+      if (!effectiveRef.current?.contains(e.target)) setOpen(false);
+    }
+
+    function closeOnEscape(e) {
+      if (e.key == "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [effectiveRef, open, setOpen]);
+
+  function pickerSortKey(section = "all") {
+    return `${sortKeyPrefix}:${section || "all"}`;
+  }
+
+  function toggleSort(section = "all", sortKey = "") {
+    const key = pickerSortKey(section);
+    setSortM((prev = {}) => ({
+      ...prev,
+      [key]: prev[key] == sortKey ? "" : sortKey,
+    }));
+  }
+
+  function SortHeader({ section = "all", sortKey = "label", children }) {
+    return (
+      <CustomPickerSortHeader
+        activeSort={sortM[pickerSortKey(section)] || ""}
+        sortKey={sortKey}
+        onSort={() => toggleSort(section, sortKey)}
+      >
+        {children}
+      </CustomPickerSortHeader>
+    );
+  }
+
+  function sortedOptions(section = "all", options = []) {
+    return sortCustomPickerOptions(
+      options,
+      sortM[pickerSortKey(section)] || "",
+      { label: getOptionLabel },
+    );
+  }
+
+  function selectOption(option) {
+    if (!option || isOptionDisabled(option)) return;
+    onSelect(getOptionValue(option), option);
+    setOpen(false);
+  }
+
+  function removeHistoryOption(e, option) {
+    e.stopPropagation();
+    if (!option) return;
+    onRemoveHistory?.(getOptionValue(option), option);
+  }
+
+  function renderRows(section = "all", options = [], emptyText = "-") {
+    const rows = sortedOptions(section, options);
+    if (!rows.length) {
+      return (
+        <tr>
+          <CustomPickerCell colSpan={1}>
+            <span className="gray">{emptyText}</span>
+          </CustomPickerCell>
+        </tr>
+      );
+    }
+
+    return rows.map((option) => {
+      const value = getOptionValue(option);
+      const label = getOptionLabel(option);
+      const optionLink = getOptionLink(option);
+      const linkHref =
+        typeof optionLink == "string" ? optionLink : optionLink?.href || "";
+      const linkLabel =
+        typeof optionLink == "string" ? "↗" : optionLink?.label || "↗";
+      const linkTitle =
+        typeof optionLink == "string"
+          ? `open ${label}`
+          : optionLink?.title || `open ${label}`;
+      const history = section == "history";
+      return (
+        <CustomPickerRow
+          key={`${section}_${value}`}
+          active={value == selectedValue}
+          unsupported={isOptionDisabled(option)}
+          onClick={() => selectOption(option)}
+          title={getOptionTitle(option)}
+        >
+          <CustomPickerCell>
+            {label}
+            {linkHref && (
+              <>
+                {" "}
+                <a
+                  className="gray externalLinkIcon"
+                  href={linkHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={linkTitle}
+                  aria-label={linkTitle}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {linkLabel}
+                </a>
+              </>
+            )}
+            {history && onRemoveHistory && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="walletDeleteButton walletHistoryRemoveButton"
+                  title={`remove ${label} from history`}
+                  aria-label={`remove ${label} from history`}
+                  onClick={(e) => removeHistoryOption(e, option)}
+                >
+                  <TrashIcon />
+                </button>
+              </>
+            )}
+          </CustomPickerCell>
+        </CustomPickerRow>
+      );
+    });
+  }
+
+  const cycleValues = getCustomPickerHistoryCycleValues(
+    historyOptions,
+    allOptions,
+    getOptionValue,
+  );
+  const buttonText =
+    selectedLabel ||
+    getOptionLabel(
+      [...historyOptions, ...allOptions].find(
+        (option) => getOptionValue(option) == selectedValue,
+      ),
+    ) ||
+    selectedValue ||
+    header;
+  const picker = (
+    <CustomPicker className={pickerClassName} ref={effectiveRef}>
+      <CustomPickerButton
+        className={buttonClassName}
+        disabled={disabled || !allOptions.length}
+        onClick={() => {
+          const nextOpen = !open;
+          setOpen(nextOpen);
+          if (nextOpen) onOpen();
+        }}
+        onFocus={onFocus}
+        aria-expanded={open}
+      >
+        {buttonText}
+      </CustomPickerButton>
+      {open && (
+        <CustomPickerMenu className={menuClassName}>
+          <CustomPickerColumn title={historyTitle}>
+            <CustomPickerTable
+              className={tableClassName}
+              headers={[
+                <SortHeader key="history_label" section="history" sortKey="label">
+                  {header}
+                </SortHeader>,
+              ]}
+            >
+              <tbody>
+                {renderRows("history", historyOptions, emptyHistoryText)}
+              </tbody>
+            </CustomPickerTable>
+          </CustomPickerColumn>
+          <CustomPickerColumn title={allTitle}>
+            <CustomPickerTable
+              className={cn(allTableClassName, tableClassName)}
+              headers={[
+                <SortHeader key="all_label" section="all" sortKey="label">
+                  {header}
+                </SortHeader>,
+              ]}
+            >
+              <tbody>{renderRows("all", allOptions, emptyAllText)}</tbody>
+            </CustomPickerTable>
+          </CustomPickerColumn>
+        </CustomPickerMenu>
+      )}
+    </CustomPicker>
+  );
+
+  if (!shouldShowCycle) return picker;
+
+  return (
+    <span className={cn("selectCycle", "walletCycle", className)}>
+      <CycleButtonPair
+        size={cycleSize}
+        onPrev={onPrev}
+        onNext={onNext}
+        disabled={cycleDisabled ?? cycleValues.length < 2}
+      />
+      {picker}
+    </span>
   );
 }

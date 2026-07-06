@@ -3,13 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
-import { CycleButton } from "@/components/Shared";
+import { CycleButtonPair } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
+  getGroupedSelectionItems,
   normalizeSelectionOrder,
   parseGroupedSelectionOrder,
   parseSelectionOrder,
+  removeGroupedSelectionValue,
+  removeSelectionValue,
   rememberGroupedSelectionValue,
   rememberSelectionValue,
   sortByGroupedSelectionOrder,
@@ -70,10 +73,7 @@ import {
   getVenusSupportedChains,
 } from "./venus/sv";
 import VenusClient from "./venus/Client";
-import {
-  getTradeCoinBalance,
-  getTradeCoinPrice,
-} from "./sv";
+import { getTradeCoinBalance, getTradeCoinPrice } from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
@@ -106,9 +106,10 @@ import {
   getTradeMarketSideState,
   getTradeMarketSideCoinEntry,
   getTradeMarketSyncedQty,
-  getTradePickerButtonWidth,
+  getHistoryCycleValues,
   sortTradePickerRows,
   getTradeWalletMarketBalance,
+  TradeSelectionPicker,
   TradePickerColumn,
   TradePickerMenu,
   TradePickerSortHeader,
@@ -186,12 +187,24 @@ function getLendProtocolLabel(defi = "") {
   return "Aave";
 }
 
+function getLendProtocolUrl(defi = "") {
+  if (defi == "venus") return "https://app.venus.io/";
+  if (defi == "morpho") return "https://app.morpho.org/";
+  if (defi == "jupiter") return "https://jup.ag/lend";
+  if (defi == "aave") return "https://app.aave.com/markets/";
+  return "";
+}
+
 function getLendProtocolChainUrl(defi = "", entry = {}) {
   if (defi == "aave") return getAaveMarketUrl(entry.chain);
   if (defi == "morpho" && entry.chainId) {
     return `https://app.morpho.org/vaults?chains=${encodeURIComponent(entry.chainId)}`;
   }
-  if (defi == "venus") return "https://app.venus.io/";
+  if (defi == "venus" && entry.chainId) {
+    // return `https://app.venus.io/#/core-pool/market?chainId=${encodeURIComponent(entry.chainId)}`;
+    return `https://venus.io/#/markets/any?chainId=${encodeURIComponent(entry.chainId)}`;
+  }
+  if (defi == "venus") return "https://app.venus.io/#/core-pool/market";
   return "";
 }
 
@@ -201,7 +214,7 @@ function LendProtocolChainLink({ defi = "", entry = {} }) {
 
   return (
     <a
-      className="gray"
+      className="gray externalLinkIcon"
       href={url}
       target="_blank"
       rel="noreferrer"
@@ -220,7 +233,10 @@ export default function LendPanel({
   initialCookieM = {},
   tradeType,
   tradeTypes = [],
+  tradeHistoryTypes = [],
+  allTradeTypes = [],
   onTradeTypeChange,
+  onTradeTypeHistoryRemove = () => {},
   onPrevTradeType = () => {},
   onCycleTradeType,
   showGasAutoLabel = false,
@@ -241,7 +257,7 @@ export default function LendPanel({
           walletType == "solana"
             ? chainE.chain == "Solana"
             : chainE.chain != "Solana",
-      ),
+        ),
     [data, walletType],
   );
   const initialChainMarketsM = useMemo(() => {
@@ -311,10 +327,11 @@ export default function LendPanel({
         initialChain,
       ),
     ) || "";
-  const initialMarket =
-    initialOrderedMarkets.some((entry) => entry.value == initialSavedMarket)
-      ? initialSavedMarket
-      : initialOrderedMarkets[0]?.value || "";
+  const initialMarket = initialOrderedMarkets.some(
+    (entry) => entry.value == initialSavedMarket,
+  )
+    ? initialSavedMarket
+    : initialOrderedMarkets[0]?.value || "";
   const [defi, setDefi] = useState(initialDefi);
   const [defiOrder, setDefiOrder] = useState(initialDefiOrder);
   const [chainOrder, setChainOrder] = useState(initialChainOrder);
@@ -336,6 +353,8 @@ export default function LendPanel({
   const [autoApproval, setAutoApproval] = useState(
     getInitialAutoApproval(initialCookieM),
   );
+  const [showDefiMenu, setShowDefiMenu] = useState(false);
+  const [showTradeTypeMenu, setShowTradeTypeMenu] = useState(false);
   const [showChainMenu, setShowChainMenu] = useState(false);
   const [chainPickerSortM, setChainPickerSortM] = useState({});
   const [chainDiscoveryM, setChainDiscoveryM] = useState({});
@@ -343,6 +362,8 @@ export default function LendPanel({
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
   const [addedMarketSort, setAddedMarketSort] = useState("");
   const [allMarketSort, setAllMarketSort] = useState("");
+  const tradeTypePickerRef = useRef(null);
+  const defiPickerRef = useRef(null);
   const chainPickerRef = useRef(null);
   const marketPickerRef = useRef(null);
   const useLocalEditorStore = useLocalStorageEditor();
@@ -364,7 +385,10 @@ export default function LendPanel({
   });
   const chainMarketsM = useMemo(() => {
     return Object.fromEntries(
-      chainList.map((chainE) => [chainE.chain, getLendingMarkets(chainE, defi)]),
+      chainList.map((chainE) => [
+        chainE.chain,
+        getLendingMarkets(chainE, defi),
+      ]),
     );
   }, [chainList, defi]);
   const marketChains = useMemo(
@@ -396,14 +420,23 @@ export default function LendPanel({
       .map((chainE) => chainE.chain)
       .filter(Boolean)
       .filter((chainName) =>
-        discovered.size ? discovered.has(chainName) : marketChains.includes(chainName),
+        discovered.size
+          ? discovered.has(chainName)
+          : marketChains.includes(chainName),
       );
 
     return [...new Set(chains)];
   }, [chainList, discoveredChainSet, hasChainDiscovery, marketChains]);
-  const rawSelectableChains = hasChainDiscovery ? selectableProtocolChains : marketChains;
+  const rawSelectableChains = hasChainDiscovery
+    ? selectableProtocolChains
+    : marketChains;
   const selectableChains = useMemo(
     () => sortBySelectionOrder(rawSelectableChains, chainOrder),
+    [chainOrder, rawSelectableChains],
+  );
+  const chainHistoryOptions = useMemo(
+    () =>
+      chainOrder.filter((chainName) => rawSelectableChains.includes(chainName)),
     [chainOrder, rawSelectableChains],
   );
   const activeChain = selectableChains.includes(chain)
@@ -413,15 +446,28 @@ export default function LendPanel({
     chainList.find((entry) => entry.chain == activeChain) ||
     chainList.find((entry) => selectableChains.includes(entry.chain)) ||
     chainList[0];
+  const supportedLendingOptions = useMemo(() => {
+    return lendingOptions.filter((option) =>
+      isLendingProtocolSupportedForWallet(option, walletType),
+    );
+  }, [walletType]);
   const availableLendingOptions = useMemo(
-    () => {
-      const options = lendingOptions.filter((option) =>
-        isLendingProtocolSupportedForWallet(option, walletType),
-      );
-
-      return sortBySelectionOrder(options, defiOrder, (option) => option.value);
-    },
-    [defiOrder, walletType],
+    () =>
+      sortBySelectionOrder(
+        supportedLendingOptions,
+        defiOrder,
+        (option) => option.value,
+      ),
+    [defiOrder, supportedLendingOptions],
+  );
+  const lendingHistoryOptions = useMemo(
+    () =>
+      defiOrder
+        .map((value) =>
+          supportedLendingOptions.find((option) => option.value == value),
+        )
+        .filter(Boolean),
+    [defiOrder, supportedLendingOptions],
   );
   const lendingE =
     availableLendingOptions.find((entry) => entry.value == defi) || noLending;
@@ -464,7 +510,11 @@ export default function LendPanel({
           ? "Morpho"
           : "Aave";
   const allMarketKey =
-    defi == "jupiter" ? (chainE?.chain == "Solana" ? "Solana" : "") : chainE?.chain || "";
+    defi == "jupiter"
+      ? chainE?.chain == "Solana"
+        ? "Solana"
+        : ""
+      : chainE?.chain || "";
   const jupiterAllKey = defi == "jupiter" ? allMarketKey : "";
   const getAllLendMarkets =
     defi == "venus"
@@ -485,10 +535,16 @@ export default function LendPanel({
     chain: allMarketKey,
     protocolLabel: allProtocolLabel,
     getAllMarkets: getAllLendMarkets,
-    timeoutMs: defi == "aave" && allMarketKey == "Ethereum" ? 45000 : defi == "venus" ? 45000 : 25000,
+    timeoutMs:
+      defi == "aave" && allMarketKey == "Ethereum"
+        ? 45000
+        : defi == "venus"
+          ? 45000
+          : 25000,
   });
   const canonicalAllMarkets = useMemo(
-    () => rawAllMarkets.map((entry) => canonicalizeTradeMarketEntry(chainE, entry)),
+    () =>
+      rawAllMarkets.map((entry) => canonicalizeTradeMarketEntry(chainE, entry)),
     [chainE, rawAllMarkets],
   );
   const allMarkets = sortByGroupedSelectionOrder(
@@ -545,9 +601,8 @@ export default function LendPanel({
     const mergedAddedMarkets = addedMarkets.map((entry) => {
       const lendAddress =
         entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
-      const raw = rawMarketByLendAddress[
-        getTokenAddressKey(chainE?.chain, lendAddress)
-      ];
+      const raw =
+        rawMarketByLendAddress[getTokenAddressKey(chainE?.chain, lendAddress)];
       if (!raw) return entry;
 
       return {
@@ -587,7 +642,8 @@ export default function LendPanel({
         chainE?.chain,
         entry.underlyingAddress,
       );
-      const addedValue = addedMarketAddressM[lendAddress] || entry.addedValue || "";
+      const addedValue =
+        addedMarketAddressM[lendAddress] || entry.addedValue || "";
       const addedUnderlying =
         entry.addedUnderlying ||
         !!addedCoinAddressM[underlyingAddress] ||
@@ -630,19 +686,23 @@ export default function LendPanel({
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
     visibleAddedMarkets[0];
+  const fallbackMarketHistoryOptions = useMemo(() => {
+    const values = getGroupedSelectionItems(marketOrder, chainE?.chain);
+    return values
+      .map((value) => markets.find((entry) => entry.value == value))
+      .filter(Boolean)
+      .map((entry) => ({ ...entry, label: getMarketLabel(entry) }));
+  }, [chainE?.chain, marketOrder, markets]);
+  const fallbackMarketOptions = useMemo(
+    () => markets.map((entry) => ({ ...entry, label: getMarketLabel(entry) })),
+    [markets],
+  );
   const marketSupplyApr = getMarketSupplyApr({
     chainE,
     defi,
     marketE,
     rawMarkets: canonicalAllMarkets,
   });
-  const marketButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth(
-        visibleAddedMarkets.map((entry) => getMarketLabel(entry)),
-      ),
-    [visibleAddedMarkets],
-  );
   const coinTypeOptions = useMemo(
     () =>
       getCoinTypeOptions(
@@ -655,7 +715,8 @@ export default function LendPanel({
   const lendCoin = marketE?.lendCoin || "";
   const lendName = marketE?.lendName || lendCoin;
   const underlyingQtyDecimals = getQtyDecimals(
-    marketE?.underlyingDecimals ?? chainE?.coinInfoM?.[underlyingCoin]?.decimals,
+    marketE?.underlyingDecimals ??
+      chainE?.coinInfoM?.[underlyingCoin]?.decimals,
   );
   const receiptQtyDecimals = getQtyDecimals(
     marketE?.lendDecimals ?? chainE?.coinInfoM?.[lendCoin]?.decimals,
@@ -701,7 +762,9 @@ export default function LendPanel({
     protocolLabel: allProtocolLabel,
   });
   const underlyingBalanceLoading =
-    directBalanceLoading && !hasLocalUnderlyingBalance && !directBalance.underlying;
+    directBalanceLoading &&
+    !hasLocalUnderlyingBalance &&
+    !directBalance.underlying;
   const receiptBalanceLoading =
     directBalanceLoading && !hasLocalReceiptBalance && !directBalance.lend;
   const underlyingBalance =
@@ -744,16 +807,14 @@ export default function LendPanel({
     listPrice: underlyingListPrice,
     getPrice: getTradeCoinPrice,
   });
-  const {
-    fallbackPrice: receiptFallbackPrice,
-    loading: receiptPriceLoading,
-  } = useTradeFallbackPrice({
-    cacheKey: receiptPriceKey,
-    chain: chainE?.chain,
-    coin: lendCoin,
-    listPrice: receiptListPrice,
-    getPrice: getTradeCoinPrice,
-  });
+  const { fallbackPrice: receiptFallbackPrice, loading: receiptPriceLoading } =
+    useTradeFallbackPrice({
+      cacheKey: receiptPriceKey,
+      chain: chainE?.chain,
+      coin: lendCoin,
+      listPrice: receiptListPrice,
+      getPrice: getTradeCoinPrice,
+    });
   const underlyingPrice =
     underlyingListPrice || toNum(underlyingFallbackPrice) || 0;
   const receiptPrice =
@@ -768,11 +829,12 @@ export default function LendPanel({
   const receiptRate =
     defi == "aave"
       ? 1
-      : (defi == "venus" || defi == "jupiter" || defi == "morpho") && marketReceiptRate
+      : (defi == "venus" || defi == "jupiter" || defi == "morpho") &&
+          marketReceiptRate
         ? marketReceiptRate
-      : underlyingPrice && receiptPrice
-        ? underlyingPrice / receiptPrice
-        : 1;
+        : underlyingPrice && receiptPrice
+          ? underlyingPrice / receiptPrice
+          : 1;
   const {
     underlyingQtyNum: underlyingQty,
     receiptQtyNum,
@@ -840,7 +902,11 @@ export default function LendPanel({
   ) {
     if (!walletEntry?.address || !chainE?.chain) return {};
 
-    if (usesDirectMarket && marketE?.underlyingAddress && marketE?.lendAddress) {
+    if (
+      usesDirectMarket &&
+      marketE?.underlyingAddress &&
+      marketE?.lendAddress
+    ) {
       const res = await withClientTimeout(
         getProtocolMarketBalance()({
           walletAddress: walletEntry.address,
@@ -866,14 +932,20 @@ export default function LendPanel({
     });
   }
 
-  async function getWalletUnderlyingBalanceForEnd(walletEntry = selectedWalletEntry) {
+  async function getWalletUnderlyingBalanceForEnd(
+    walletEntry = selectedWalletEntry,
+  ) {
     const balance = getWalletUnderlyingBalance(walletEntry);
     if (hasLoadedBalance(balance)) return balance;
 
-    return queryWalletMarketBalance(walletEntry, "underlying").catch(() => ({}));
+    return queryWalletMarketBalance(walletEntry, "underlying").catch(
+      () => ({}),
+    );
   }
 
-  async function getWalletReceiptBalanceForEnd(walletEntry = selectedWalletEntry) {
+  async function getWalletReceiptBalanceForEnd(
+    walletEntry = selectedWalletEntry,
+  ) {
     const balance = getWalletReceiptBalance(walletEntry);
     if (hasLoadedBalance(balance)) return balance;
 
@@ -934,7 +1006,10 @@ export default function LendPanel({
     });
   }
 
-  async function shouldAaveWithdrawAll(walletEntry = selectedWalletEntry, qty = "") {
+  async function shouldAaveWithdrawAll(
+    walletEntry = selectedWalletEntry,
+    qty = "",
+  ) {
     if (defi != "aave") return false;
 
     const balance = await getWalletReceiptBalanceForEnd(walletEntry);
@@ -1023,7 +1098,9 @@ export default function LendPanel({
             chains: [],
             loading: false,
             loaded: true,
-            error: e?.message || `${getLendProtocolLabel(defi)} chain discovery failed`,
+            error:
+              e?.message ||
+              `${getLendProtocolLabel(defi)} chain discovery failed`,
           },
         }));
       });
@@ -1034,7 +1111,9 @@ export default function LendPanel({
   }, [chainDiscovery.loaded, defi]);
 
   useEffect(() => {
-    const savedDefi = getCookie(getTradeModeCookie(tradeLendDefiCookie, walletType));
+    const savedDefi = getCookie(
+      getTradeModeCookie(tradeLendDefiCookie, walletType),
+    );
     if (savedDefi && lendingOptions.some((entry) => entry.value == savedDefi)) {
       setDefi(savedDefi);
     }
@@ -1052,14 +1131,18 @@ export default function LendPanel({
     setChainOrder(
       normalizeSelectionOrder(
         parseSelectionOrder(
-          getCookie(getProtocolCookie(tradeLendChainOrderCookie, walletType, defi)),
+          getCookie(
+            getProtocolCookie(tradeLendChainOrderCookie, walletType, defi),
+          ),
         ),
         rawSelectableChains,
       ),
     );
     setMarketOrder(
       parseGroupedSelectionOrder(
-        getCookie(getProtocolCookie(tradeLendMarketOrderCookie, walletType, defi)),
+        getCookie(
+          getProtocolCookie(tradeLendMarketOrderCookie, walletType, defi),
+        ),
       ),
     );
   }, [defi, rawSelectableChains, walletType]);
@@ -1110,17 +1193,16 @@ export default function LendPanel({
     } else if (!markets.length && !allMarkets.length && market) {
       setMarket("");
     }
-  }, [
-    chainE?.chain,
-    defi,
-    market,
-    marketCookieValues,
-    markets,
-    walletType,
-  ]);
+  }, [chainE?.chain, defi, market, marketCookieValues, markets, walletType]);
 
   useEffect(() => {
     function closeChainMenu(e) {
+      if (!tradeTypePickerRef.current?.contains(e.target)) {
+        setShowTradeTypeMenu(false);
+      }
+      if (!defiPickerRef.current?.contains(e.target)) {
+        setShowDefiMenu(false);
+      }
       if (!chainPickerRef.current?.contains(e.target)) {
         setShowChainMenu(false);
       }
@@ -1389,23 +1471,26 @@ export default function LendPanel({
   }
 
   function nextDefi() {
-    const next = nextValue(
-      availableLendingOptions.map((option) => option.value),
-      defi,
+    const values = getHistoryCycleValues(
+      lendingHistoryOptions,
+      supportedLendingOptions,
     );
+    const next = nextValue(values, defi);
     if (next) selectDefi(next, { rememberOrder: false });
   }
 
   function prevDefi() {
-    const prev = prevValue(
-      availableLendingOptions.map((option) => option.value),
-      defi,
+    const values = getHistoryCycleValues(
+      lendingHistoryOptions,
+      supportedLendingOptions,
     );
+    const prev = prevValue(values, defi);
     if (prev) selectDefi(prev, { rememberOrder: false });
   }
 
   function selectDefi(value, { rememberOrder = true } = {}) {
     setDefi(value);
+    setShowDefiMenu(false);
     if (!value) return;
     setCookie(getTradeModeCookie(tradeLendDefiCookie, walletType), value, {
       maxAge: cookieMaxAge,
@@ -1424,13 +1509,25 @@ export default function LendPanel({
     );
   }
 
+  function removeDefiHistory(value) {
+    const nextOrder = removeSelectionValue(defiOrder, value);
+    setDefiOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeLendDefiOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
   function nextChain() {
-    const next = nextValue(selectableChains, activeChain || chain);
+    const values = getHistoryCycleValues(chainHistoryOptions, selectableChains);
+    const next = nextValue(values, activeChain || chain);
     if (next) selectChain(next, { rememberOrder: false });
   }
 
   function prevChain() {
-    const prev = prevValue(selectableChains, activeChain || chain);
+    const values = getHistoryCycleValues(chainHistoryOptions, selectableChains);
+    const prev = prevValue(values, activeChain || chain);
     if (prev) selectChain(prev, { rememberOrder: false });
   }
 
@@ -1448,11 +1545,29 @@ export default function LendPanel({
 
   function saveLendChainCookie(chain, { rememberOrder = true } = {}) {
     if (!defi || !chain || !selectableChains.includes(chain)) return;
-    setCookie(getProtocolCookie(tradeLendChainCookie, walletType, defi), chain, {
-      maxAge: cookieMaxAge,
-    });
+    setCookie(
+      getProtocolCookie(tradeLendChainCookie, walletType, defi),
+      chain,
+      {
+        maxAge: cookieMaxAge,
+      },
+    );
     if (!rememberOrder) return;
-    const nextOrder = rememberSelectionValue(chainOrder, chain, rawSelectableChains);
+    const nextOrder = rememberSelectionValue(
+      chainOrder,
+      chain,
+      rawSelectableChains,
+    );
+    setChainOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(tradeLendChainOrderCookie, walletType, defi),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeChainHistory(value) {
+    const nextOrder = removeSelectionValue(chainOrder, value);
     setChainOrder(nextOrder);
     setCookie(
       getProtocolCookie(tradeLendChainOrderCookie, walletType, defi),
@@ -1583,7 +1698,9 @@ export default function LendPanel({
                         onClick={() =>
                           entry.supported
                             ? selectChain(entry.chain)
-                            : toast.error(`${entry.chain} is not supported by ${protocolLabel}`)
+                            : toast.error(
+                                `${entry.chain} is not supported by ${protocolLabel}`,
+                              )
                         }
                       >
                         {entry.chain}
@@ -1595,7 +1712,9 @@ export default function LendPanel({
                         </>
                       )}
                     </td>
-                    <td>{entry.supported ? "" : <span className="gray">off</span>}</td>
+                    <td>
+                      {entry.supported ? "" : <span className="gray">off</span>}
+                    </td>
                   </tr>
                 ))
               ) : (
@@ -1679,8 +1798,7 @@ export default function LendPanel({
                         onClick={() => selectProtocolDiscoveryChain(entry)}
                       >
                         {entry.chain}
-                      </button>
-                      {" "}
+                      </button>{" "}
                       <LendProtocolChainLink defi={defi} entry={entry} />
                     </td>
                     <td>
@@ -1708,54 +1826,47 @@ export default function LendPanel({
   function renderChainSelect() {
     if (!hasChainDiscovery) {
       return (
-        <span className="selectCycle">
-          <CycleButton
-            direction="prev"
-            onClick={prevChain}
-            disabled={selectableChains.length < 2}
-          />
-          <select
-            value={marketChains.length ? chainE?.chain || "" : ""}
-            onChange={(e) => selectChain(e.target.value)}
-            onClick={focusSelectedChain}
-            onFocus={focusSelectedChain}
-            disabled={!selectableChains.length}
-          >
-            {!selectableChains.length && <option value="">no chain</option>}
-            {selectableChains.map((chainName) => (
-              <option key={chainName} value={chainName}>
-                {chainName}
-              </option>
-            ))}
-          </select>
-          <CycleButton
-            onClick={nextChain}
-            disabled={selectableChains.length < 2}
-          />
-        </span>
+        <TradeSelectionPicker
+          selectedValue={marketChains.length ? chainE?.chain || "" : ""}
+          historyOptions={chainHistoryOptions}
+          allOptions={rawSelectableChains}
+          showMenu={showChainMenu}
+          setShowMenu={setShowChainMenu}
+          pickerRef={chainPickerRef}
+          pickerSortM={chainPickerSortM}
+          setPickerSortM={setChainPickerSortM}
+          sortKeyPrefix={`lendChain:${defi || "defi"}`}
+          header="chain"
+          className="tradeChainCycle"
+          menuClassName="tradeChainMenu"
+          disabled={!selectableChains.length}
+          getOptionLink={(chain) =>
+            getLendProtocolChainUrl(defi, { chain }) || getLendProtocolUrl(defi)
+          }
+          onSelect={selectChain}
+          onRemoveHistory={removeChainHistory}
+          onPrev={prevChain}
+          onNext={nextChain}
+          onOpen={focusSelectedChain}
+          onFocus={focusSelectedChain}
+        />
       );
     }
 
-    const chainButtonWidth = getTradePickerButtonWidth(
-      [
-        ...selectableChains,
-        ...(chainDiscovery.chains || []).map((entry) => entry.chain),
-      ],
-      { minLength: 7 },
-    );
-
     return (
       <div className="selectCycle walletCycle tradeChainCycle">
-        <CycleButton
-          direction="prev"
-          onClick={prevChain}
-          disabled={selectableProtocolChains.length < 2}
+        <CycleButtonPair
+          onPrev={prevChain}
+          onNext={nextChain}
+          disabled={
+            getHistoryCycleValues(chainHistoryOptions, selectableChains)
+              .length < 2
+          }
         />
         <div className="customPicker" ref={chainPickerRef}>
           <button
             type="button"
             className="customPickerButton"
-            style={{ width: chainButtonWidth }}
             disabled={!chainList.length && !chainDiscovery.chains.length}
             onClick={() => {
               focusSelectedChain();
@@ -1767,38 +1878,40 @@ export default function LendPanel({
           </button>
           {showChainMenu && renderProtocolChainMenu()}
         </div>
-        <CycleButton
-          onClick={nextChain}
-          disabled={selectableProtocolChains.length < 2}
-        />
       </div>
     );
   }
 
-  function nextMarket() {
-    const cycleMarkets = hasProtocolAllMarkets
+  function getMarketCycleValues() {
+    const allCycleMarkets = hasProtocolAllMarkets
       ? visibleAddedMarkets.length
         ? visibleAddedMarkets
         : allMarkets
       : markets;
-    const next = nextValue(
-      cycleMarkets.map((entry) => entry.value),
-      market,
+    const historyMarkets = hasProtocolAllMarkets
+      ? visibleAddedMarkets
+      : fallbackMarketHistoryOptions;
+    return getHistoryCycleValues(
+      historyMarkets.map((entry) => ({
+        value: entry.value,
+        label: getMarketLabel(entry),
+      })),
+      allCycleMarkets.map((entry) => ({
+        value: entry.value,
+        label: getMarketLabel(entry),
+      })),
     );
+  }
+
+  function nextMarket() {
+    const values = getMarketCycleValues();
+    const next = nextValue(values, market);
     if (next) selectMarket(next, { rememberOrder: false });
   }
 
   function prevMarket() {
-    const cycleMarkets = hasProtocolAllMarkets
-      ? visibleAddedMarkets.length
-        ? visibleAddedMarkets
-        : allMarkets
-      : markets;
-    const values = cycleMarkets.map((entry) => entry.value);
-    const index = values.indexOf(market);
-    const next = values.length
-      ? values[(index - 1 + values.length) % values.length]
-      : "";
+    const values = getMarketCycleValues();
+    const next = prevValue(values, market);
     if (next) selectMarket(next, { rememberOrder: false });
   }
 
@@ -1811,12 +1924,7 @@ export default function LendPanel({
   function saveLendMarketCookie(value, { rememberOrder = true } = {}) {
     if (!defi || !chainE?.chain || !marketCookieValues.includes(value)) return;
     setCookie(
-      getProtocolCookie(
-        tradeLendMarketCookie,
-        walletType,
-        defi,
-        chainE.chain,
-      ),
+      getProtocolCookie(tradeLendMarketCookie, walletType, defi, chainE.chain),
       value,
       { maxAge: cookieMaxAge },
     );
@@ -1829,6 +1937,21 @@ export default function LendPanel({
         validGroups: rawSelectableChains,
         validValues: marketCookieValues,
       },
+    );
+    setMarketOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(tradeLendMarketOrderCookie, walletType, defi),
+      encodeGroupedSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeMarketHistory(value) {
+    if (!chainE?.chain) return;
+    const nextOrder = removeGroupedSelectionValue(
+      marketOrder,
+      chainE.chain,
+      value,
     );
     setMarketOrder(nextOrder);
     setCookie(
@@ -1894,7 +2017,12 @@ export default function LendPanel({
               entry: {
                 ...(res.entry || {}),
                 type: "lend",
-                ref: defi == "morpho" ? "DeFi: Morpho" : defi == "aave" ? "1:1, increasing qty" : res.entry?.ref,
+                ref:
+                  defi == "morpho"
+                    ? "DeFi: Morpho"
+                    : defi == "aave"
+                      ? "1:1, increasing qty"
+                      : res.entry?.ref,
               },
             }
           : res,
@@ -2002,7 +2130,7 @@ export default function LendPanel({
       return;
     }
     const withdrawAll =
-      isAave && submitRedeem && await shouldAaveWithdrawAll(walletEntry, qty);
+      isAave && submitRedeem && (await shouldAaveWithdrawAll(walletEntry, qty));
 
     const useBrowserWallet = !!walletEntry?.isBrowserWallet;
     const buildTxs = isVenus
@@ -2036,7 +2164,9 @@ export default function LendPanel({
             marketName: marketE.market,
           }
         : {};
-    const toastId = tradeToast.loading(`${protocol}: preparing ${submitAction}...`);
+    const toastId = tradeToast.loading(
+      `${protocol}: preparing ${submitAction}...`,
+    );
     setLendPending(true);
     setLendPendingAction(submitAction);
     setLendResult(null);
@@ -2044,9 +2174,12 @@ export default function LendPanel({
     try {
       let res;
       if (useBrowserWallet) {
-        tradeToast.loading(`${protocol}: building ${submitAction} wallet prompt...`, {
-          id: toastId,
-        });
+        tradeToast.loading(
+          `${protocol}: building ${submitAction} wallet prompt...`,
+          {
+            id: toastId,
+          },
+        );
         const built = await buildTxs({
           walletAddress: walletEntry.address,
           chain: chainE.chain,
@@ -2210,375 +2343,379 @@ export default function LendPanel({
   return (
     <ProtocolClient>
       <div className="tradePane tradeWidePane lendPane">
-      <CustomCoinConfirmModal
-        preview={customCoinPreview}
-        draft={customCoinDraft}
-        setDraft={setCustomCoinDraft}
-        adding={addingCoin}
-        coinTypeOptions={coinTypeOptions}
-        idPrefix="lendCoinConfirm"
-        onCancel={clearCustomCoinPreview}
-        onConfirm={confirmCustomCoin}
-      />
-      <div className="flex tradePaneTop">
-        <label htmlFor="tradeTypeLend">
-          <CycleButton size="nx" direction="prev" onClick={onPrevTradeType} />
-          <select
-            id="tradeTypeLend"
-            value={tradeType}
-            onChange={(e) => onTradeTypeChange(e.target.value)}
-          >
-            {tradeTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-          <CycleButton size="nx" onClick={onCycleTradeType} />
-        </label>
-        <label htmlFor="lendDefi">
-          <span className="gray">DeFi:</span>
-          <CycleButton
-            size="nx"
-            direction="prev"
-            onClick={prevDefi}
-            disabled={availableLendingOptions.length < 2}
+        <CustomCoinConfirmModal
+          preview={customCoinPreview}
+          draft={customCoinDraft}
+          setDraft={setCustomCoinDraft}
+          adding={addingCoin}
+          coinTypeOptions={coinTypeOptions}
+          idPrefix="lendCoinConfirm"
+          onCancel={clearCustomCoinPreview}
+          onConfirm={confirmCustomCoin}
+        />
+        <div className="flex tradePaneTop">
+          <TradeSelectionPicker
+            selectedValue={tradeType}
+            historyOptions={tradeHistoryTypes}
+            allOptions={allTradeTypes.length ? allTradeTypes : tradeTypes}
+            showMenu={showTradeTypeMenu}
+            setShowMenu={setShowTradeTypeMenu}
+            pickerRef={tradeTypePickerRef}
+            pickerSortM={chainPickerSortM}
+            setPickerSortM={setChainPickerSortM}
+            sortKeyPrefix="tradePane"
+            header="pane"
+            className="tradeTypeCycle"
+            menuClassName="tradeTypeMenu"
+            cycleSize="nx"
+            onSelect={onTradeTypeChange}
+            onRemoveHistory={onTradeTypeHistoryRemove}
+            onPrev={onPrevTradeType}
+            onNext={onCycleTradeType}
           />
-          <select
-            id="lendDefi"
-            value={availableLendingOptions.length ? defi : ""}
-            onChange={(e) => selectDefi(e.target.value)}
-            disabled={!availableLendingOptions.length}
-          >
-            {!availableLendingOptions.length && (
-              <option value="">no DeFi</option>
-            )}
-            {availableLendingOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <CycleButton
-            size="nx"
-            onClick={nextDefi}
-            disabled={availableLendingOptions.length < 2}
-          />
-        </label>
-        {renderChainSelect()}
-        {hasProtocolAllMarkets ? (
-          <LendMarketPicker
-            marketPickerRef={marketPickerRef}
-            marketButtonWidth={marketButtonWidth}
-            chainName={chainE?.chain}
-            defi={defi}
-            market={market}
-            marketE={marketE}
-            getMarketLabel={getMarketLabel}
-            showMarketMenu={showMarketMenu}
-            setShowMarketMenu={setShowMarketMenu}
-            prevMarket={prevMarket}
-            nextMarket={nextMarket}
-            visibleAddedMarkets={visibleAddedMarkets}
-            addedRows={visibleAddedMarkets.map(getMarketTableRow)}
-            allRows={allMarkets.map(getMarketTableRow)}
-            rawAllMarkets={canonicalAllMarkets}
-            allLoading={allLoading}
-            allError={allError}
-            allProtocolLabel={allProtocolLabel}
-            retryAllMarkets={retryAllMarkets}
-            jupiterAllKey={jupiterAllKey}
-            addedMarketSort={addedMarketSort}
-            setAddedMarketSort={setAddedMarketSort}
-            allMarketSort={allMarketSort}
-            setAllMarketSort={setAllMarketSort}
-            selectMarket={selectMarket}
-            openProtocolCoinConfirm={openProtocolCoinConfirm}
-            addingCoin={addingCoin}
-            marketSupplyApr={marketSupplyApr}
-            getLockedUntil={(coin) =>
-              chainE?.coinInfoM?.[coin]?.lockedUntilTimestamp
-            }
-          />
-        ) : (
-          <span className="selectCycle">
-            <CycleButton
-              direction="prev"
-              onClick={prevMarket}
-              disabled={markets.length < 2}
-            />
-            <select
-              value={marketE?.value || ""}
-              onChange={(e) => selectMarket(e.target.value)}
-              disabled={!markets.length}
-            >
-              {!markets.length && <option value="">no coin</option>}
-              {markets.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {getMarketLabel(entry)}
-                </option>
-              ))}
-            </select>
-            <CycleButton
-              onClick={nextMarket}
-              disabled={markets.length < 2}
+          <span>
+            <span className="gray">DeFi:</span>
+            <TradeSelectionPicker
+              selectedValue={defi}
+              selectedLabel={lendingE.label}
+              historyOptions={lendingHistoryOptions}
+              allOptions={supportedLendingOptions}
+              showMenu={showDefiMenu}
+              setShowMenu={setShowDefiMenu}
+              pickerRef={defiPickerRef}
+              pickerSortM={chainPickerSortM}
+              setPickerSortM={setChainPickerSortM}
+              sortKeyPrefix="lendDefi"
+              header="DeFi"
+              className="tradeDefiCycle"
+              menuClassName="tradeDefiMenu"
+              cycleSize="nx"
+              getOptionLink={(option) =>
+                option?.url || getLendProtocolUrl(option?.value)
+              }
+              onSelect={selectDefi}
+              onRemoveHistory={removeDefiHistory}
+              onPrev={prevDefi}
+              onNext={nextDefi}
             />
           </span>
-        )}
-      </div>
-
-      <div className="tradeRows">
-        <div className="tradeBox">
-          <div className="tradeAssetLine">
-            <span>{underlyingCoin || "-"}</span>
-            <span className="tradeCoinPrice">
-              <span className="gray">{fmtPrice(underlyingPrice)}</span>
-            </span>
-          </div>
-          <div className="tradeBalanceLine">
-            <button
-              type="button"
-              className="tradeTextButton tradeAssetBalance"
-              onClick={setMaxLend}
-            >
-              <span className="gray">{underlyingCoin}: </span>
-              {underlyingBalanceLoading ? "..." : maxUnderlyingQty}
-              {underlyingUsd > 0 && (
-                <span className="gray"> ${fmt(underlyingUsd, 2)}</span>
-              )}
-            </button>
-          </div>
-          <div className="tradeAmountLine">
-            <span className="gray">end</span>
-            <label className="switch small tradeEndSwitch">
-              <input
-                type="checkbox"
-                checked={lendEndWith}
-                onChange={(e) => updateLendEndWith(e.target.checked)}
-              />
-              <span className="slider" />
-            </label>
-            <input
-              className="tradeQtyInput"
-              type="text"
-              inputMode="decimal"
-              min="0"
-              step="any"
-              size={qtyInputSize(underlyingEndInputValue)}
-              style={qtyInputStyle(underlyingEndInputValue)}
-              value={underlyingEndInputValue}
-              onChange={(e) => updateUnderlyingEnd(e.target.value)}
-              onBlur={() => setUnderlyingEndDraft("")}
-            />
-            {underlyingPrice > 0 && (
-              <span className="gray">${fmt(underlyingEndUsd, 2)}</span>
-            )}
-          </div>
-          <div className="tradeAmountLine">
-            <span className="gray">lend</span>
-            <input
-              className="tradeQtyInput"
-              type="text"
-              inputMode="decimal"
-              step="any"
-              size={qtyInputSize(lendQty)}
-              style={qtyInputStyle(lendQty)}
-              value={lendQty}
-              onChange={(e) => updateLendQty(e.target.value)}
-            />
-            {underlyingPrice > 0 && (
-              <span className="gray">${fmt(underlyingQtyUsd, 2)}</span>
-            )}
-          </div>
-          <div className="tradeBoxControls">
-            <input
-              className="tradeMiddleRange"
-              type="range"
-              min="0"
-              max={maxUnderlying || 0}
-              step="any"
-              value={lendSliderValue}
-              onChange={(e) =>
-                updateLendQty(
-                  rangeQtyInput(
-                    e.target.value,
-                    maxUnderlying,
-                    maxUnderlyingQty,
-                    underlyingQtyDecimals,
-                  ),
-                )
+          {renderChainSelect()}
+          {hasProtocolAllMarkets ? (
+            <LendMarketPicker
+              marketPickerRef={marketPickerRef}
+              chainName={chainE?.chain}
+              defi={defi}
+              market={market}
+              marketE={marketE}
+              getMarketLabel={getMarketLabel}
+              showMarketMenu={showMarketMenu}
+              setShowMarketMenu={setShowMarketMenu}
+              prevMarket={prevMarket}
+              nextMarket={nextMarket}
+              cycleDisabled={getMarketCycleValues().length < 2}
+              visibleAddedMarkets={visibleAddedMarkets}
+              addedRows={visibleAddedMarkets.map(getMarketTableRow)}
+              allRows={allMarkets.map(getMarketTableRow)}
+              rawAllMarkets={canonicalAllMarkets}
+              allLoading={allLoading}
+              allError={allError}
+              allProtocolLabel={allProtocolLabel}
+              retryAllMarkets={retryAllMarkets}
+              jupiterAllKey={jupiterAllKey}
+              addedMarketSort={addedMarketSort}
+              setAddedMarketSort={setAddedMarketSort}
+              allMarketSort={allMarketSort}
+              setAllMarketSort={setAllMarketSort}
+              selectMarket={selectMarket}
+              openProtocolCoinConfirm={openProtocolCoinConfirm}
+              addingCoin={addingCoin}
+              marketSupplyApr={marketSupplyApr}
+              getLockedUntil={(coin) =>
+                chainE?.coinInfoM?.[coin]?.lockedUntilTimestamp
               }
-              disabled={!maxUnderlying}
             />
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={setMaxLend}
-              disabled={!maxUnderlying}
-            >
-              max
-            </button>
-            <button
-              type="button"
-              className="btn tradeActionButton bgCyan"
-              onClick={() => runLend("lend")}
-              disabled={lendPending}
-            >
-              {lendPendingAction == "lend" ? "LENDING" : "LEND"}
-            </button>
-          </div>
-        </div>
-
-        <div className="tradeMiddle">
-          {showGasAutoLabel && (
-            <label className="tradeGasSelect">
-              <span className="gray">gas:</span>
-              <select value="default" disabled>
-                <option value="default">auto</option>
-              </select>
-            </label>
-          )}
-          {!selectedWalletEntry?.isBrowserWallet && defi != "jupiter" && (
-            <label className="tradeAutoApproval">
-              <input
-                type="checkbox"
-                checked={autoApproval}
-                onChange={(e) => updateAutoApproval(e.target.checked)}
-              />
-              <span className="gray">auto approve</span>
-            </label>
-          )}
-          <span className="tradeRateLine">
-            <span className="gray">rate:</span>{" "}
-            {underlyingCoin && lendCoin
-              ? `1 ${underlyingCoin} = ${fmtRate(receiptRate)} ${lendCoin}`
-              : "-"}
-            {priceStatus && <span className="gray"> {priceStatus}</span>}
-          </span>
-        </div>
-
-        <div className="tradeBox">
-          <div className="tradeAssetLine">
-            <span>{lendCoin || "-"}</span>
-            {lendName && lendName != lendCoin && (
-              <span className="gray">({lendName})</span>
-            )}
-            <span className="tradeCoinPrice">
-              <span className="gray">{fmtPrice(receiptPrice)}</span>
-            </span>
-          </div>
-          <div className="tradeBalanceLine">
-            <span className="tradeAssetBalance">
-              <span className="gray">{lendCoin}: </span>
-              {receiptBalanceLoading ? "..." : maxReceiptQty}
-              {receiptUsd > 0 && (
-                <span className="gray"> ${fmt(receiptUsd, 2)}</span>
-              )}
-            </span>
-          </div>
-          <div className="tradeAmountLine">
-            <span className="gray">end</span>
-            <label className="switch small tradeEndSwitch">
-              <input
-                type="checkbox"
-                checked={redeemEndWith}
-                onChange={(e) => updateRedeemEndWith(e.target.checked)}
-              />
-              <span className="slider" />
-            </label>
-            <input
-              className="tradeQtyInput"
-              type="text"
-              inputMode="decimal"
-              min="0"
-              step="any"
-              size={qtyInputSize(receiptEndInputValue)}
-              style={qtyInputStyle(receiptEndInputValue)}
-              value={receiptEndInputValue}
-              onChange={(e) => updateReceiptEnd(e.target.value)}
-              onBlur={() => setReceiptEndDraft("")}
-            />
-            {receiptPrice > 0 && (
-              <span className="gray">${fmt(receiptEndUsd, 2)}</span>
-            )}
-          </div>
-          <div className="tradeAmountLine">
-            <span className="gray">redeem</span>
-            <input
-              className="tradeQtyInput"
-              type="text"
-              inputMode="decimal"
-              step="any"
-              size={qtyInputSize(receiptQty)}
-              style={qtyInputStyle(receiptQty)}
-              value={receiptQty}
-              onChange={(e) => updateRedeemQty(e.target.value)}
-            />
-            {receiptPrice > 0 && (
-              <span className="gray">${fmt(receiptQtyUsd, 2)}</span>
-            )}
-          </div>
-          <div className="tradeBoxControls">
-            <input
-              className="tradeMiddleRange"
-              type="range"
-              min="0"
-              max={maxReceipt || 0}
-              step="any"
-              value={redeemSliderValue}
-              onChange={(e) =>
-                updateRedeemQty(
-                  rangeQtyInput(
-                    e.target.value,
-                    maxReceipt,
-                    maxReceiptQty,
-                    receiptQtyDecimals,
-                  ),
-                )
-              }
-              disabled={!maxReceipt}
-            />
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={setMaxRedeem}
-              disabled={!maxReceipt}
-            >
-              max
-            </button>
-            <button
-              type="button"
-              className="btn tradeActionButton bgCyan"
-              onClick={() => runLend("redeem")}
-              disabled={lendPending}
-            >
-              {lendPendingAction == "redeem" ? "REDEEMING" : "REDEEM"}
-            </button>
-          </div>
-        </div>
-      </div>
-      {lendResult && (
-        <div className="tradeResult">
-          {lendResult.ok ? (
-            <>
-              <span className="gray">
-                {lendResult.defi || lendingE.label} {lendResult.action}:
-              </span>{" "}
-              {lendResult.txs?.map((tx, index) => (
-                <SwapTxLink key={`${tx.walletLabel || ""}_${tx.hash}_${index}`} tx={tx} />
-              ))}
-              {lendResult.loopErrors?.map((entry) => (
-                <span key={`${entry.walletLabel}_${entry.error}`} className="red">
-                  {" "}
-                  {entry.walletLabel}: {entry.error}
-                </span>
-              ))}
-            </>
           ) : (
-            <span className="red">{lendResult.error}</span>
+            <TradeSelectionPicker
+              selectedValue={marketE?.value || ""}
+              selectedLabel={marketE ? getMarketLabel(marketE) : ""}
+              historyOptions={fallbackMarketHistoryOptions}
+              allOptions={fallbackMarketOptions}
+              showMenu={showMarketMenu}
+              setShowMenu={setShowMarketMenu}
+              pickerRef={marketPickerRef}
+              pickerSortM={chainPickerSortM}
+              setPickerSortM={setChainPickerSortM}
+              sortKeyPrefix={`lendMarket:${defi || "defi"}:${chainE?.chain || ""}`}
+              header="coin"
+              className="tradeMarketCycle"
+              menuClassName="tradeMarketMenu"
+              disabled={!markets.length}
+              onSelect={selectMarket}
+              onRemoveHistory={removeMarketHistory}
+              onPrev={prevMarket}
+              onNext={nextMarket}
+            />
           )}
         </div>
-      )}
+
+        <div className="tradeRows">
+          <div className="tradeBox">
+            <div className="tradeAssetLine">
+              <span>{underlyingCoin || "-"}</span>
+              <span className="tradeCoinPrice">
+                <span className="gray">{fmtPrice(underlyingPrice)}</span>
+              </span>
+            </div>
+            <div className="tradeBalanceLine">
+              <button
+                type="button"
+                className="tradeTextButton tradeAssetBalance"
+                onClick={setMaxLend}
+              >
+                <span className="gray">{underlyingCoin}: </span>
+                {underlyingBalanceLoading ? "..." : maxUnderlyingQty}
+                {underlyingUsd > 0 && (
+                  <span className="gray"> ${fmt(underlyingUsd, 2)}</span>
+                )}
+              </button>
+            </div>
+            <div className="tradeAmountLine">
+              <span className="gray">end</span>
+              <label className="switch small tradeEndSwitch">
+                <input
+                  type="checkbox"
+                  checked={lendEndWith}
+                  onChange={(e) => updateLendEndWith(e.target.checked)}
+                />
+                <span className="slider" />
+              </label>
+              <input
+                className="tradeQtyInput"
+                type="text"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                size={qtyInputSize(underlyingEndInputValue)}
+                style={qtyInputStyle(underlyingEndInputValue)}
+                value={underlyingEndInputValue}
+                onChange={(e) => updateUnderlyingEnd(e.target.value)}
+                onBlur={() => setUnderlyingEndDraft("")}
+              />
+              {underlyingPrice > 0 && (
+                <span className="gray">${fmt(underlyingEndUsd, 2)}</span>
+              )}
+            </div>
+            <div className="tradeAmountLine">
+              <span className="gray">lend</span>
+              <input
+                className="tradeQtyInput"
+                type="text"
+                inputMode="decimal"
+                step="any"
+                size={qtyInputSize(lendQty)}
+                style={qtyInputStyle(lendQty)}
+                value={lendQty}
+                onChange={(e) => updateLendQty(e.target.value)}
+              />
+              {underlyingPrice > 0 && (
+                <span className="gray">${fmt(underlyingQtyUsd, 2)}</span>
+              )}
+            </div>
+            <div className="tradeBoxControls">
+              <input
+                className="tradeMiddleRange"
+                type="range"
+                min="0"
+                max={maxUnderlying || 0}
+                step="any"
+                value={lendSliderValue}
+                onChange={(e) =>
+                  updateLendQty(
+                    rangeQtyInput(
+                      e.target.value,
+                      maxUnderlying,
+                      maxUnderlyingQty,
+                      underlyingQtyDecimals,
+                    ),
+                  )
+                }
+                disabled={!maxUnderlying}
+              />
+              <button
+                type="button"
+                className="btn small bgGray"
+                onClick={setMaxLend}
+                disabled={!maxUnderlying}
+              >
+                max
+              </button>
+              <button
+                type="button"
+                className="btn tradeActionButton bgCyan"
+                onClick={() => runLend("lend")}
+                disabled={lendPending}
+              >
+                {lendPendingAction == "lend" ? "LENDING" : "LEND"}
+              </button>
+            </div>
+          </div>
+
+          <div className="tradeMiddle">
+            {showGasAutoLabel && (
+              <label className="tradeGasSelect">
+                <span className="gray">gas:</span>
+                <select value="default" disabled>
+                  <option value="default">auto</option>
+                </select>
+              </label>
+            )}
+            {!selectedWalletEntry?.isBrowserWallet && defi != "jupiter" && (
+              <label className="tradeAutoApproval">
+                <input
+                  type="checkbox"
+                  checked={autoApproval}
+                  onChange={(e) => updateAutoApproval(e.target.checked)}
+                />
+                <span className="gray">auto approve</span>
+              </label>
+            )}
+            <span className="tradeRateLine">
+              <span className="gray">rate:</span>{" "}
+              {underlyingCoin && lendCoin
+                ? `1 ${underlyingCoin} = ${fmtRate(receiptRate)} ${lendCoin}`
+                : "-"}
+              {priceStatus && <span className="gray"> {priceStatus}</span>}
+            </span>
+          </div>
+
+          <div className="tradeBox">
+            <div className="tradeAssetLine">
+              <span>{lendCoin || "-"}</span>
+              {lendName && lendName != lendCoin && (
+                <span className="gray">({lendName})</span>
+              )}
+              <span className="tradeCoinPrice">
+                <span className="gray">{fmtPrice(receiptPrice)}</span>
+              </span>
+            </div>
+            <div className="tradeBalanceLine">
+              <span className="tradeAssetBalance">
+                <span className="gray">{lendCoin}: </span>
+                {receiptBalanceLoading ? "..." : maxReceiptQty}
+                {receiptUsd > 0 && (
+                  <span className="gray"> ${fmt(receiptUsd, 2)}</span>
+                )}
+              </span>
+            </div>
+            <div className="tradeAmountLine">
+              <span className="gray">end</span>
+              <label className="switch small tradeEndSwitch">
+                <input
+                  type="checkbox"
+                  checked={redeemEndWith}
+                  onChange={(e) => updateRedeemEndWith(e.target.checked)}
+                />
+                <span className="slider" />
+              </label>
+              <input
+                className="tradeQtyInput"
+                type="text"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                size={qtyInputSize(receiptEndInputValue)}
+                style={qtyInputStyle(receiptEndInputValue)}
+                value={receiptEndInputValue}
+                onChange={(e) => updateReceiptEnd(e.target.value)}
+                onBlur={() => setReceiptEndDraft("")}
+              />
+              {receiptPrice > 0 && (
+                <span className="gray">${fmt(receiptEndUsd, 2)}</span>
+              )}
+            </div>
+            <div className="tradeAmountLine">
+              <span className="gray">redeem</span>
+              <input
+                className="tradeQtyInput"
+                type="text"
+                inputMode="decimal"
+                step="any"
+                size={qtyInputSize(receiptQty)}
+                style={qtyInputStyle(receiptQty)}
+                value={receiptQty}
+                onChange={(e) => updateRedeemQty(e.target.value)}
+              />
+              {receiptPrice > 0 && (
+                <span className="gray">${fmt(receiptQtyUsd, 2)}</span>
+              )}
+            </div>
+            <div className="tradeBoxControls">
+              <input
+                className="tradeMiddleRange"
+                type="range"
+                min="0"
+                max={maxReceipt || 0}
+                step="any"
+                value={redeemSliderValue}
+                onChange={(e) =>
+                  updateRedeemQty(
+                    rangeQtyInput(
+                      e.target.value,
+                      maxReceipt,
+                      maxReceiptQty,
+                      receiptQtyDecimals,
+                    ),
+                  )
+                }
+                disabled={!maxReceipt}
+              />
+              <button
+                type="button"
+                className="btn small bgGray"
+                onClick={setMaxRedeem}
+                disabled={!maxReceipt}
+              >
+                max
+              </button>
+              <button
+                type="button"
+                className="btn tradeActionButton bgCyan"
+                onClick={() => runLend("redeem")}
+                disabled={lendPending}
+              >
+                {lendPendingAction == "redeem" ? "REDEEMING" : "REDEEM"}
+              </button>
+            </div>
+          </div>
+        </div>
+        {lendResult && (
+          <div className="tradeResult">
+            {lendResult.ok ? (
+              <>
+                <span className="gray">
+                  {lendResult.defi || lendingE.label} {lendResult.action}:
+                </span>{" "}
+                {lendResult.txs?.map((tx, index) => (
+                  <SwapTxLink
+                    key={`${tx.walletLabel || ""}_${tx.hash}_${index}`}
+                    tx={tx}
+                  />
+                ))}
+                {lendResult.loopErrors?.map((entry) => (
+                  <span
+                    key={`${entry.walletLabel}_${entry.error}`}
+                    className="red"
+                  >
+                    {" "}
+                    {entry.walletLabel}: {entry.error}
+                  </span>
+                ))}
+              </>
+            ) : (
+              <span className="red">{lendResult.error}</span>
+            )}
+          </div>
+        )}
       </div>
     </ProtocolClient>
   );

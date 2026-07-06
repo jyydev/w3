@@ -46,10 +46,14 @@ const venusMarketFetchConcurrency = 8;
 const venusGoodMarketRatio = 0.8;
 const venusBlocksPerYearM = {
   Arbitrum: 126144000,
+  Base: 15768000,
   BSC: 10512000,
   Ethereum: 2628000,
   Optimism: 15768000,
   zkSyncEra: 31536000,
+};
+const venusComptrollerSeedsM = {
+  Base: ["0x0C7973F9598AA62f9e03B94E92C967fD5437426C"],
 };
 
 function getVenusRateApr(rate = 0n, multiplier = 0) {
@@ -97,8 +101,21 @@ function getSavedVenusMarkets(chain = "") {
   });
 }
 
+function getVenusComptrollerSeeds(chain = "") {
+  return [
+    ...new Set(
+      (venusComptrollerSeedsM[chain] || [])
+        .filter((address) => ethers.isAddress(address))
+        .map((address) => ethers.getAddress(address)),
+    ),
+  ];
+}
+
 function getVenusSupportedChainRows() {
-  const chains = new Set(Object.keys(venusBlocksPerYearM));
+  const chains = new Set([
+    ...Object.keys(venusBlocksPerYearM),
+    ...Object.keys(venusComptrollerSeedsM),
+  ]);
 
   for (const chain of Object.keys(coinM || {})) {
     if (getSavedVenusMarkets(chain).length) chains.add(chain);
@@ -127,7 +144,8 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
   if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
 
   const savedMarkets = getSavedVenusMarkets(chain);
-  if (!savedMarkets.length) {
+  const seedComptrollers = getVenusComptrollerSeeds(chain);
+  if (!savedMarkets.length && !seedComptrollers.length) {
     return { ok: true, chain, markets: [] };
   }
 
@@ -141,23 +159,22 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
     });
 
     try {
+      const savedComptrollers = await Promise.all(
+        savedMarkets.map(async ([, coinE]) =>
+          withTimeout(
+            new ethers.Contract(
+              coinE.address,
+              venusTokenAbi,
+              provider,
+            ).comptroller(),
+            venusTokenMetaTimeoutMs,
+            `${chain} Venus comptroller timeout`,
+          ).catch(() => ""),
+        ),
+      );
       const comptrollers = [
         ...new Set(
-          (
-            await Promise.all(
-              savedMarkets.map(async ([, coinE]) =>
-                withTimeout(
-                  new ethers.Contract(
-                    coinE.address,
-                    venusTokenAbi,
-                    provider,
-                  ).comptroller(),
-                  venusTokenMetaTimeoutMs,
-                  `${chain} Venus comptroller timeout`,
-                ).catch(() => ""),
-              ),
-            )
-          )
+          [...seedComptrollers, ...savedComptrollers]
             .filter((address) => ethers.isAddress(address))
             .map((address) => ethers.getAddress(address)),
         ),

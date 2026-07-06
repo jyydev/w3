@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import cgb from "@/app/context";
 import {
   clearStoredWallet,
   readStoredWallet,
@@ -590,9 +591,12 @@ function BrowserWalletConnect({
   walletEntries = [],
 }) {
   const router = useRouter();
+  const { setWalletLoading } = cgb();
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState("");
   const [connectedWallet, setConnectedWallet] = useState(null);
+  const walletLoadingTimerRef = useRef(null);
+  const pendingWalletLoadingUrlRef = useRef("");
   const displayAddress = connected;
   const currentType =
     (connectedWallet?.type || walletType) == "solana" ? "Solana" : "EVM";
@@ -618,6 +622,39 @@ function BrowserWalletConnect({
     ],
     [],
   );
+
+  function stopWalletLoading() {
+    clearTimeout(walletLoadingTimerRef.current);
+    pendingWalletLoadingUrlRef.current = "";
+    setWalletLoading?.(false);
+  }
+
+  function startWalletLoading(targetUrl = "") {
+    clearTimeout(walletLoadingTimerRef.current);
+    pendingWalletLoadingUrlRef.current = targetUrl;
+    setWalletLoading?.(true);
+
+    const currentUrl =
+      typeof window == "undefined"
+        ? ""
+        : `${window.location.pathname}${window.location.search}`;
+    const timeoutMs = targetUrl && targetUrl == currentUrl ? 600 : 20000;
+    walletLoadingTimerRef.current = setTimeout(stopWalletLoading, timeoutMs);
+  }
+
+  useEffect(() => {
+    const pendingUrl = pendingWalletLoadingUrlRef.current;
+    if (!pendingUrl) return;
+
+    const currentUrl = getWalletUrl({
+      routeBase,
+      walletType,
+      address: selectedAddress,
+    });
+    if (currentUrl == pendingUrl) stopWalletLoading();
+  }, [routeBase, selectedAddress, walletType]);
+
+  useEffect(() => () => stopWalletLoading(), [setWalletLoading]);
 
   useEffect(() => {
     requestEip6963Providers();
@@ -685,6 +722,8 @@ function BrowserWalletConnect({
   }, [connectedWallet]);
 
   function openAddress(address, type, walletMeta = connectedWallet) {
+    const url = getWalletUrl({ routeBase, walletType: type, address });
+
     setConnected(address);
     if (walletMeta) {
       const nextMeta = { ...walletMeta, type, address };
@@ -692,7 +731,8 @@ function BrowserWalletConnect({
       saveStoredWallet(nextMeta);
     }
     setOpen(false);
-    router.push(getWalletUrl({ routeBase, walletType: type, address }));
+    startWalletLoading(url);
+    router.push(url);
   }
 
   async function connectEvm(wallet, label) {
@@ -787,7 +827,9 @@ function BrowserWalletConnect({
     setConnectedWallet(null);
     clearStoredWallet(connectedWallet?.type || getConnectType(walletType));
     if (closeCard) setOpen(false);
-    router.push(getWalletUrl({ routeBase, walletType }));
+    const url = getWalletUrl({ routeBase, walletType });
+    startWalletLoading(url);
+    router.push(url);
   }
 
   return (

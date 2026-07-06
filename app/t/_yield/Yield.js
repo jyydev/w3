@@ -3,13 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
-import { CycleButton } from "@/components/Shared";
+import { chainIds } from "@/data/basic";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
   normalizeSelectionOrder,
+  getGroupedSelectionItems,
   parseGroupedSelectionOrder,
   parseSelectionOrder,
+  removeGroupedSelectionValue,
+  removeSelectionValue,
   rememberGroupedSelectionValue,
   rememberSelectionValue,
   sortByGroupedSelectionOrder,
@@ -121,8 +124,9 @@ import {
   getTradeMarketSideState,
   getTradeMarketSideCoinEntry,
   getTradeMarketSyncedQty,
-  getTradePickerButtonWidth,
   getTradeWalletMarketBalance,
+  getHistoryCycleValues,
+  TradeSelectionPicker,
   yieldOptions,
   nextValue,
   noYield,
@@ -216,6 +220,33 @@ function hasPositiveRawAmount(value = "0") {
   }
 }
 
+function getYieldProtocolUrl(defi = "") {
+  if (defi == "spark") return "https://app.spark.fi/savings/";
+  if (defi == "aaveStaking") return "https://app.aave.com/staking/";
+  if (defi == "venusFlux") return "https://flux.venus.io/lending/56";
+  if (defi == "hyperliquid") return "https://app.hyperliquid.xyz/vaults";
+  return "";
+}
+
+function getYieldProtocolChainUrl(defi = "", chain = "") {
+  const chainId = chainIds[chain];
+  if (defi == "venusFlux" && chainId) {
+    return `https://flux.venus.io/lending/${encodeURIComponent(chainId)}`;
+  }
+  if (defi == "aaveStaking") {
+    return "https://app.aave.com/staking/?marketName=proto_mainnet_v3";
+  }
+  if (defi == "spark") return "https://app.spark.fi/savings/";
+  return "";
+}
+
+function getHyperliquidVaultUrl(address = "") {
+  const cleanAddress = String(address || "").trim();
+  return cleanAddress
+    ? `https://app.hyperliquid.xyz/vaults/${cleanAddress}`
+    : "";
+}
+
 export default function YieldPanel({
   data = [],
   selectedWalletEntry,
@@ -223,7 +254,10 @@ export default function YieldPanel({
   initialCookieM = {},
   tradeType,
   tradeTypes = [],
+  tradeHistoryTypes = [],
+  allTradeTypes = [],
   onTradeTypeChange,
+  onTradeTypeHistoryRemove = () => {},
   onPrevTradeType = () => {},
   onCycleTradeType,
   showGasAutoLabel = false,
@@ -454,7 +488,12 @@ export default function YieldPanel({
   const [autoApproval, setAutoApproval] = useState(
     getInitialAutoApproval(initialCookieM),
   );
+  const [showDefiMenu, setShowDefiMenu] = useState(false);
+  const [showTradeTypeMenu, setShowTradeTypeMenu] = useState(false);
+  const [showChainMenu, setShowChainMenu] = useState(false);
+  const [showHyperliquidModeMenu, setShowHyperliquidModeMenu] = useState(false);
   const [showMarketMenu, setShowMarketMenu] = useState(false);
+  const [simplePickerSortM, setSimplePickerSortM] = useState({});
   const [addedMarketSort, setAddedMarketSort] = useState("");
   const [allMarketSort, setAllMarketSort] = useState("");
   const [showHyperliquidDepositCoinMenu, setShowHyperliquidDepositCoinMenu] =
@@ -469,6 +508,10 @@ export default function YieldPanel({
   ] = useState(false);
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
   const [nowMs, setNowMs] = useState(0);
+  const tradeTypePickerRef = useRef(null);
+  const defiPickerRef = useRef(null);
+  const chainPickerRef = useRef(null);
+  const hyperliquidModePickerRef = useRef(null);
   const marketPickerRef = useRef(null);
   const hyperliquidDepositCoinPickerRef = useRef(null);
   const hyperliquidDepositChainPickerRef = useRef(null);
@@ -517,6 +560,10 @@ export default function YieldPanel({
   );
   const orderedMarketChains = useMemo(
     () => sortBySelectionOrder(marketChains, chainOrder),
+    [chainOrder, marketChains],
+  );
+  const chainHistoryOptions = useMemo(
+    () => chainOrder.filter((chainName) => marketChains.includes(chainName)),
     [chainOrder, marketChains],
   );
   const activeChain = orderedMarketChains.includes(chain)
@@ -569,6 +616,13 @@ export default function YieldPanel({
     () => sortBySelectionOrder(["vault", "deposit"], hyperliquidModeOrder),
     [hyperliquidModeOrder],
   );
+  const hyperliquidModeHistoryOptions = useMemo(
+    () =>
+      hyperliquidModeOrder.filter((mode) =>
+        ["vault", "deposit"].includes(mode),
+      ),
+    [hyperliquidModeOrder],
+  );
   const orderedHyperliquidDepositChains = useMemo(
     () =>
       sortBySelectionOrder(
@@ -585,6 +639,13 @@ export default function YieldPanel({
       ),
     [hyperliquidChainOrder, hyperliquidDepositAddedChains],
   );
+  const hyperliquidDepositChainHistoryOptions = useMemo(
+    () =>
+      hyperliquidChainOrder.filter((chainName) =>
+        hyperliquidDepositChains.includes(chainName),
+      ),
+    [hyperliquidChainOrder, hyperliquidDepositChains],
+  );
   const orderedHyperliquidWithdrawChains = useMemo(
     () =>
       sortBySelectionOrder(
@@ -600,6 +661,13 @@ export default function YieldPanel({
         hyperliquidChainOrder,
       ),
     [hyperliquidChainOrder, hyperliquidWithdrawAddedChains],
+  );
+  const hyperliquidWithdrawChainHistoryOptions = useMemo(
+    () =>
+      hyperliquidChainOrder.filter((chainName) =>
+        hyperliquidWithdrawChains.includes(chainName),
+      ),
+    [hyperliquidChainOrder, hyperliquidWithdrawChains],
   );
   const orderedHyperliquidDepositAddedCoins = useMemo(
     () =>
@@ -621,6 +689,18 @@ export default function YieldPanel({
         hyperliquidDepositCoinOrder,
         activeHyperliquidDepositChain,
       ),
+    [
+      activeHyperliquidDepositChain,
+      hyperliquidDepositCoinOrder,
+      hyperliquidDepositCoins,
+    ],
+  );
+  const hyperliquidDepositCoinHistoryOptions = useMemo(
+    () =>
+      getGroupedSelectionItems(
+        hyperliquidDepositCoinOrder,
+        activeHyperliquidDepositChain,
+      ).filter((coinName) => hyperliquidDepositCoins.includes(coinName)),
     [
       activeHyperliquidDepositChain,
       hyperliquidDepositCoinOrder,
@@ -667,6 +747,18 @@ export default function YieldPanel({
       hyperliquidWithdrawCoins,
     ],
   );
+  const hyperliquidWithdrawCoinHistoryOptions = useMemo(
+    () =>
+      getGroupedSelectionItems(
+        hyperliquidWithdrawCoinOrder,
+        activeHyperliquidWithdrawChain,
+      ).filter((coinName) => hyperliquidWithdrawCoins.includes(coinName)),
+    [
+      activeHyperliquidWithdrawChain,
+      hyperliquidWithdrawCoinOrder,
+      hyperliquidWithdrawCoins,
+    ],
+  );
   const orderedHyperliquidWithdrawAllCoinEntries = useMemo(
     () =>
       sortByGroupedSelectionOrder(
@@ -681,23 +773,63 @@ export default function YieldPanel({
       hyperliquidWithdrawCoinOrder,
     ],
   );
-  const availableYieldOptions = useMemo(
+  const supportedYieldOptions = useMemo(
     () => {
-      const options = yieldOptions.filter((option) =>
+      return yieldOptions.filter((option) =>
         isYieldProtocolSupportedForWallet(option, walletType),
       );
-
-      return sortBySelectionOrder(options, defiOrder, (option) => option.value);
     },
-    [defiOrder, walletType],
+    [walletType],
+  );
+  const availableYieldOptions = useMemo(
+    () =>
+      sortBySelectionOrder(
+        supportedYieldOptions,
+        defiOrder,
+        (option) => option.value,
+      ),
+    [defiOrder, supportedYieldOptions],
+  );
+  const yieldHistoryOptions = useMemo(
+    () =>
+      defiOrder
+        .map((value) =>
+          supportedYieldOptions.find((option) => option.value == value),
+        )
+        .filter(Boolean),
+    [defiOrder, supportedYieldOptions],
   );
   const yieldE =
     availableYieldOptions.find((entry) => entry.value == defi) || noYield;
+  function getYieldMarketOptionLink(entry = {}) {
+    if (!isHyperliquid) return "";
+    const address =
+      entry.lendAddress ||
+      chainE?.coinInfoM?.[entry.lendCoin || entry.value]?.address ||
+      "";
+    return getHyperliquidVaultUrl(address);
+  }
+
+  const rawChainMarkets = chainMarketsM[chainE?.chain] || [];
   const markets = sortByGroupedSelectionOrder(
-    chainMarketsM[chainE?.chain] || [],
+    rawChainMarkets,
     activeMarketOrder,
     activeMarketOrderGroup,
     (entry) => entry.value,
+  );
+  const marketHistoryOptions = useMemo(() => {
+    const values = getGroupedSelectionItems(
+      activeMarketOrder,
+      activeMarketOrderGroup,
+    );
+    return values
+      .map((value) => rawChainMarkets.find((entry) => entry.value == value))
+      .filter(Boolean)
+      .map((entry) => ({ ...entry, label: getMarketLabel(entry) }));
+  }, [activeMarketOrder, activeMarketOrderGroup, rawChainMarkets]);
+  const allMarketOptions = useMemo(
+    () => rawChainMarkets.map((entry) => ({ ...entry, label: getMarketLabel(entry) })),
+    [rawChainMarkets],
   );
   const addedMarkets = markets;
   const addedMarketAddressM = useMemo(() => {
@@ -835,13 +967,6 @@ export default function YieldPanel({
     marketE,
     rawMarkets: canonicalAllMarkets,
   });
-  const marketButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth(
-        visibleAddedMarkets.map((entry) => getMarketLabel(entry)),
-      ),
-    [visibleAddedMarkets],
-  );
   const coinTypeOptions = useMemo(
     () =>
       getCoinTypeOptions(
@@ -1570,6 +1695,18 @@ export default function YieldPanel({
   useEffect(() => {
     function closeMarketMenu(e) {
       const target = e.target;
+      if (!tradeTypePickerRef.current?.contains(target)) {
+        setShowTradeTypeMenu(false);
+      }
+      if (!defiPickerRef.current?.contains(target)) {
+        setShowDefiMenu(false);
+      }
+      if (!chainPickerRef.current?.contains(target)) {
+        setShowChainMenu(false);
+      }
+      if (!hyperliquidModePickerRef.current?.contains(target)) {
+        setShowHyperliquidModeMenu(false);
+      }
       if (!marketPickerRef.current?.contains(target)) {
         setShowMarketMenu(false);
       }
@@ -2014,23 +2151,20 @@ export default function YieldPanel({
   }
 
   function nextDefi() {
-    const next = nextValue(
-      availableYieldOptions.map((option) => option.value),
-      defi,
-    );
+    const values = getHistoryCycleValues(yieldHistoryOptions, supportedYieldOptions);
+    const next = nextValue(values, defi);
     if (next) selectDefi(next, { rememberOrder: false });
   }
 
   function prevDefi() {
-    const prev = prevValue(
-      availableYieldOptions.map((option) => option.value),
-      defi,
-    );
+    const values = getHistoryCycleValues(yieldHistoryOptions, supportedYieldOptions);
+    const prev = prevValue(values, defi);
     if (prev) selectDefi(prev, { rememberOrder: false });
   }
 
   function selectDefi(value, { rememberOrder = true } = {}) {
     setDefi(value);
+    setShowDefiMenu(false);
     if (!value) return;
     setCookie(getTradeModeCookie(tradeYieldDefiCookie, walletType), value, {
       maxAge: cookieMaxAge,
@@ -2049,24 +2183,44 @@ export default function YieldPanel({
     );
   }
 
+  function removeDefiHistory(value) {
+    const nextOrder = removeSelectionValue(defiOrder, value);
+    setDefiOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeYieldDefiOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
   function nextChain() {
-    const next = nextValue(orderedMarketChains, chainE?.chain || chain);
+    const values = getHistoryCycleValues(chainHistoryOptions, orderedMarketChains);
+    const next = nextValue(values, chainE?.chain || chain);
     if (next) selectChain(next, { rememberOrder: false });
   }
 
   function prevChain() {
-    const prev = prevValue(orderedMarketChains, chainE?.chain || chain);
+    const values = getHistoryCycleValues(chainHistoryOptions, orderedMarketChains);
+    const prev = prevValue(values, chainE?.chain || chain);
     if (prev) selectChain(prev, { rememberOrder: false });
   }
 
   function nextHyperliquidMode() {
-    selectHyperliquidMode(nextValue(orderedHyperliquidModes, hyperliquidMode), {
+    const values = getHistoryCycleValues(
+      hyperliquidModeHistoryOptions,
+      orderedHyperliquidModes,
+    );
+    selectHyperliquidMode(nextValue(values, hyperliquidMode), {
       rememberOrder: false,
     });
   }
 
   function prevHyperliquidMode() {
-    selectHyperliquidMode(prevValue(orderedHyperliquidModes, hyperliquidMode), {
+    const values = getHistoryCycleValues(
+      hyperliquidModeHistoryOptions,
+      orderedHyperliquidModes,
+    );
+    selectHyperliquidMode(prevValue(values, hyperliquidMode), {
       rememberOrder: false,
     });
   }
@@ -2075,6 +2229,7 @@ export default function YieldPanel({
     const nextMode = value == "deposit" ? "deposit" : "vault";
     setHyperliquidMode(nextMode);
     saveHyperliquidModeCookie(nextMode, options);
+    setShowHyperliquidModeMenu(false);
     setShowMarketMenu(false);
     setLendQty("0");
     setReceiptQty("0");
@@ -2082,17 +2237,39 @@ export default function YieldPanel({
     setReceiptEndDraft("");
   }
 
+  function removeHyperliquidModeHistory(value) {
+    const nextOrder = removeSelectionValue(hyperliquidModeOrder, value);
+    setHyperliquidModeOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidModeOrderCookie,
+        walletType,
+        "hyperliquid",
+      ),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
   function nextHyperliquidDepositChain() {
-    const next = nextValue(
+    const values = getHistoryCycleValues(
+      hyperliquidDepositChainHistoryOptions,
       orderedHyperliquidDepositChains,
+    );
+    const next = nextValue(
+      values,
       activeHyperliquidDepositChain,
     );
     if (next) selectHyperliquidDepositChain(next, { rememberOrder: false });
   }
 
   function prevHyperliquidDepositChain() {
-    const prev = prevValue(
+    const values = getHistoryCycleValues(
+      hyperliquidDepositChainHistoryOptions,
       orderedHyperliquidDepositChains,
+    );
+    const prev = prevValue(
+      values,
       activeHyperliquidDepositChain,
     );
     if (prev) selectHyperliquidDepositChain(prev, { rememberOrder: false });
@@ -2127,16 +2304,24 @@ export default function YieldPanel({
   }
 
   function nextHyperliquidDepositCoin() {
-    const next = nextValue(
+    const values = getHistoryCycleValues(
+      hyperliquidDepositCoinHistoryOptions,
       orderedHyperliquidDepositCoins,
+    );
+    const next = nextValue(
+      values,
       activeHyperliquidDepositCoin,
     );
     if (next) selectHyperliquidDepositCoin(next, { rememberOrder: false });
   }
 
   function prevHyperliquidDepositCoin() {
-    const prev = prevValue(
+    const values = getHistoryCycleValues(
+      hyperliquidDepositCoinHistoryOptions,
       orderedHyperliquidDepositCoins,
+    );
+    const prev = prevValue(
+      values,
       activeHyperliquidDepositCoin,
     );
     if (prev) selectHyperliquidDepositCoin(prev, { rememberOrder: false });
@@ -2162,16 +2347,24 @@ export default function YieldPanel({
   }
 
   function nextHyperliquidWithdrawChain() {
-    const next = nextValue(
+    const values = getHistoryCycleValues(
+      hyperliquidWithdrawChainHistoryOptions,
       orderedHyperliquidWithdrawChains,
+    );
+    const next = nextValue(
+      values,
       activeHyperliquidWithdrawChain,
     );
     if (next) selectHyperliquidWithdrawChain(next, { rememberOrder: false });
   }
 
   function prevHyperliquidWithdrawChain() {
-    const prev = prevValue(
+    const values = getHistoryCycleValues(
+      hyperliquidWithdrawChainHistoryOptions,
       orderedHyperliquidWithdrawChains,
+    );
+    const prev = prevValue(
+      values,
       activeHyperliquidWithdrawChain,
     );
     if (prev) selectHyperliquidWithdrawChain(prev, { rememberOrder: false });
@@ -2206,16 +2399,24 @@ export default function YieldPanel({
   }
 
   function nextHyperliquidWithdrawCoin() {
-    const next = nextValue(
+    const values = getHistoryCycleValues(
+      hyperliquidWithdrawCoinHistoryOptions,
       orderedHyperliquidWithdrawCoins,
+    );
+    const next = nextValue(
+      values,
       activeHyperliquidWithdrawCoin,
     );
     if (next) selectHyperliquidWithdrawCoin(next, { rememberOrder: false });
   }
 
   function prevHyperliquidWithdrawCoin() {
-    const prev = prevValue(
+    const values = getHistoryCycleValues(
+      hyperliquidWithdrawCoinHistoryOptions,
       orderedHyperliquidWithdrawCoins,
+    );
+    const prev = prevValue(
+      values,
       activeHyperliquidWithdrawCoin,
     );
     if (prev) selectHyperliquidWithdrawCoin(prev, { rememberOrder: false });
@@ -2244,6 +2445,7 @@ export default function YieldPanel({
     setChain(chain);
     saveYieldChainCookie(chain, options);
     emitTradeChainSelect(chain);
+    setShowChainMenu(false);
   }
 
   function focusSelectedChain() {
@@ -2270,22 +2472,44 @@ export default function YieldPanel({
     );
   }
 
-  function nextMarket() {
-    const cycleMarkets = hasProtocolAllMarkets ? visibleAddedMarkets : markets;
-    const next = nextValue(
-      cycleMarkets.map((entry) => entry.value),
-      market,
+  function removeChainHistory(value) {
+    const nextOrder = removeSelectionValue(chainOrder, value);
+    setChainOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(tradeYieldChainOrderCookie, walletType, defi),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
     );
+  }
+
+  function getMarketCycleValues() {
+    const allCycleMarkets = hasProtocolAllMarkets
+      ? visibleAddedMarkets
+      : markets;
+    const historyMarkets = hasProtocolAllMarkets
+      ? visibleAddedMarkets
+      : marketHistoryOptions;
+    return getHistoryCycleValues(
+      historyMarkets.map((entry) => ({
+        value: entry.value,
+        label: getMarketLabel(entry),
+      })),
+      allCycleMarkets.map((entry) => ({
+        value: entry.value,
+        label: getMarketLabel(entry),
+      })),
+    );
+  }
+
+  function nextMarket() {
+    const values = getMarketCycleValues();
+    const next = nextValue(values, market);
     if (next) selectMarket(next, { rememberOrder: false });
   }
 
   function prevMarket() {
-    const cycleMarkets = hasProtocolAllMarkets ? visibleAddedMarkets : markets;
-    const values = cycleMarkets.map((entry) => entry.value);
-    const index = values.indexOf(market);
-    const next = values.length
-      ? values[(index - 1 + values.length) % values.length]
-      : "";
+    const values = getMarketCycleValues();
+    const next = prevValue(values, market);
     if (next) selectMarket(next, { rememberOrder: false });
   }
 
@@ -2333,6 +2557,39 @@ export default function YieldPanel({
         validGroups: marketChains,
         validValues: marketCookieValues,
       },
+    );
+    setMarketOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(tradeYieldMarketOrderCookie, walletType, defi),
+      encodeGroupedSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeMarketHistory(value) {
+    if (isHyperliquid) {
+      const nextVaultOrder = removeGroupedSelectionValue(
+        hyperliquidVaultOrder,
+        "vault",
+        value,
+      );
+      setHyperliquidVaultOrder(nextVaultOrder);
+      setCookie(
+        getProtocolCookie(
+          tradeYieldHyperliquidCoinOrderCookie,
+          walletType,
+          "hyperliquid",
+        ),
+        encodeGroupedSelectionOrder(nextVaultOrder),
+        { maxAge: cookieMaxAge },
+      );
+      return;
+    }
+    if (!chainE?.chain) return;
+    const nextOrder = removeGroupedSelectionValue(
+      marketOrder,
+      chainE.chain,
+      value,
     );
     setMarketOrder(nextOrder);
     setCookie(
@@ -3306,100 +3563,99 @@ export default function YieldPanel({
         onConfirm={confirmCustomCoin}
       />
       <div className="flex tradePaneTop">
-        <label htmlFor="tradeTypeLend">
-          <CycleButton size="nx" direction="prev" onClick={onPrevTradeType} />
-          <select
-            id="tradeTypeLend"
-            value={tradeType}
-            onChange={(e) => onTradeTypeChange(e.target.value)}
-          >
-            {tradeTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-          <CycleButton size="nx" onClick={onCycleTradeType} />
-        </label>
-        <label htmlFor="lendDefi">
+        <TradeSelectionPicker
+          selectedValue={tradeType}
+          historyOptions={tradeHistoryTypes}
+          allOptions={allTradeTypes.length ? allTradeTypes : tradeTypes}
+          showMenu={showTradeTypeMenu}
+          setShowMenu={setShowTradeTypeMenu}
+          pickerRef={tradeTypePickerRef}
+          pickerSortM={simplePickerSortM}
+          setPickerSortM={setSimplePickerSortM}
+          sortKeyPrefix="tradePane"
+          header="pane"
+          className="tradeTypeCycle"
+          menuClassName="tradeTypeMenu"
+          cycleSize="nx"
+          onSelect={onTradeTypeChange}
+          onRemoveHistory={onTradeTypeHistoryRemove}
+          onPrev={onPrevTradeType}
+          onNext={onCycleTradeType}
+        />
+        <span>
           <span className="gray">DeFi:</span>
-          <CycleButton
-            size="nx"
-            direction="prev"
-            onClick={prevDefi}
-            disabled={availableYieldOptions.length < 2}
+          <TradeSelectionPicker
+            selectedValue={defi}
+            selectedLabel={yieldE.label}
+            historyOptions={yieldHistoryOptions}
+            allOptions={supportedYieldOptions}
+            showMenu={showDefiMenu}
+            setShowMenu={setShowDefiMenu}
+            pickerRef={defiPickerRef}
+            pickerSortM={simplePickerSortM}
+            setPickerSortM={setSimplePickerSortM}
+            sortKeyPrefix="yieldDefi"
+            header="DeFi"
+            className="tradeDefiCycle"
+            menuClassName="tradeDefiMenu"
+            cycleSize="nx"
+            getOptionLink={(option) =>
+              option?.url || getYieldProtocolUrl(option?.value)
+            }
+            onSelect={selectDefi}
+            onRemoveHistory={removeDefiHistory}
+            onPrev={prevDefi}
+            onNext={nextDefi}
           />
-          <select
-            id="lendDefi"
-            value={availableYieldOptions.length ? defi : ""}
-            onChange={(e) => selectDefi(e.target.value)}
-            disabled={!availableYieldOptions.length}
-          >
-            {!availableYieldOptions.length && <option value="">no DeFi</option>}
-            {availableYieldOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <CycleButton
-            size="nx"
-            onClick={nextDefi}
-            disabled={availableYieldOptions.length < 2}
-          />
-        </label>
+        </span>
         {isHyperliquid ? (
           <>
-            <span className="selectCycle">
-              <CycleButton
-                direction="prev"
-                onClick={prevHyperliquidMode}
-                disabled={orderedHyperliquidModes.length < 2}
-              />
-              <select
-                value={hyperliquidMode}
-                onChange={(e) => selectHyperliquidMode(e.target.value)}
-              >
-                {orderedHyperliquidModes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {mode}
-                  </option>
-                ))}
-              </select>
-              <CycleButton onClick={nextHyperliquidMode} />
-            </span>
+            <TradeSelectionPicker
+              selectedValue={hyperliquidMode}
+              historyOptions={hyperliquidModeHistoryOptions}
+              allOptions={["vault", "deposit"]}
+              showMenu={showHyperliquidModeMenu}
+              setShowMenu={setShowHyperliquidModeMenu}
+              pickerRef={hyperliquidModePickerRef}
+              pickerSortM={simplePickerSortM}
+              setPickerSortM={setSimplePickerSortM}
+              sortKeyPrefix="yieldHyperliquidMode"
+              header="mode"
+              className="tradeModeCycle"
+              menuClassName="tradeModeMenu"
+              onSelect={selectHyperliquidMode}
+              onRemoveHistory={removeHyperliquidModeHistory}
+              onPrev={prevHyperliquidMode}
+              onNext={nextHyperliquidMode}
+            />
           </>
         ) : (
-          <span className="selectCycle">
-            <CycleButton
-              direction="prev"
-              onClick={prevChain}
-              disabled={orderedMarketChains.length < 2}
-            />
-            <select
-              value={orderedMarketChains.length ? chainE?.chain || "" : ""}
-              onChange={(e) => selectChain(e.target.value)}
-              onClick={focusSelectedChain}
-              onFocus={focusSelectedChain}
-              disabled={!orderedMarketChains.length}
-            >
-              {!orderedMarketChains.length && <option value="">no chain</option>}
-              {orderedMarketChains.map((chainName) => (
-                <option key={chainName} value={chainName}>
-                  {chainName}
-                </option>
-              ))}
-            </select>
-            <CycleButton
-              onClick={nextChain}
-              disabled={orderedMarketChains.length < 2}
-            />
-          </span>
+          <TradeSelectionPicker
+            selectedValue={orderedMarketChains.length ? chainE?.chain || "" : ""}
+            historyOptions={chainHistoryOptions}
+            allOptions={marketChains}
+            showMenu={showChainMenu}
+            setShowMenu={setShowChainMenu}
+            pickerRef={chainPickerRef}
+            pickerSortM={simplePickerSortM}
+            setPickerSortM={setSimplePickerSortM}
+            sortKeyPrefix={`yieldChain:${defi || "defi"}`}
+            header="chain"
+            className="tradeChainCycle"
+            menuClassName="tradeChainMenu"
+            disabled={!orderedMarketChains.length}
+            getOptionLink={(chain) => getYieldProtocolChainUrl(defi, chain)}
+            onSelect={selectChain}
+            onRemoveHistory={removeChainHistory}
+            onPrev={prevChain}
+            onNext={nextChain}
+            onOpen={focusSelectedChain}
+            onFocus={focusSelectedChain}
+          />
         )}
         {!isHyperliquidDepositMode && hasProtocolAllMarkets ? (
           <YieldMarketPicker
             marketPickerRef={marketPickerRef}
-            marketButtonWidth={marketButtonWidth}
             chainName={chainE?.chain}
             defi={defi}
             market={market}
@@ -3409,6 +3665,7 @@ export default function YieldPanel({
             setShowMarketMenu={setShowMarketMenu}
             prevMarket={prevMarket}
             nextMarket={nextMarket}
+            cycleDisabled={getMarketCycleValues().length < 2}
             visibleAddedMarkets={visibleAddedMarkets}
             addedRows={visibleAddedMarkets.map(getMarketTableRow)}
             allRows={allMarkets.map(getMarketTableRow)}
@@ -3429,29 +3686,27 @@ export default function YieldPanel({
             }
           />
         ) : !isHyperliquidDepositMode ? (
-          <span className="selectCycle">
-            <CycleButton
-              direction="prev"
-              onClick={prevMarket}
-              disabled={markets.length < 2}
-            />
-            <select
-              value={marketE?.value || ""}
-              onChange={(e) => selectMarket(e.target.value)}
-              disabled={!markets.length}
-            >
-              {!markets.length && <option value="">no coin</option>}
-              {markets.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {getMarketLabel(entry)}
-                </option>
-              ))}
-            </select>
-            <CycleButton
-              onClick={nextMarket}
-              disabled={markets.length < 2}
-            />
-          </span>
+          <TradeSelectionPicker
+            selectedValue={marketE?.value || ""}
+            selectedLabel={marketE ? getMarketLabel(marketE) : ""}
+            historyOptions={marketHistoryOptions}
+            allOptions={allMarketOptions}
+            showMenu={showMarketMenu}
+            setShowMenu={setShowMarketMenu}
+            pickerRef={marketPickerRef}
+            pickerSortM={simplePickerSortM}
+            setPickerSortM={setSimplePickerSortM}
+            sortKeyPrefix={`yieldMarket:${defi || "defi"}:${chainE?.chain || ""}`}
+            header="coin"
+            className="tradeMarketCycle"
+            menuClassName="tradeMarketMenu"
+            disabled={!markets.length}
+            getOptionLink={getYieldMarketOptionLink}
+            onSelect={selectMarket}
+            onRemoveHistory={removeMarketHistory}
+            onPrev={prevMarket}
+            onNext={nextMarket}
+          />
         ) : null}
       </div>
 
@@ -3470,6 +3725,12 @@ export default function YieldPanel({
                   showMenu={showHyperliquidDepositChainMenu}
                   setShowMenu={setShowHyperliquidDepositChainMenu}
                   pickerRef={hyperliquidDepositChainPickerRef}
+                  cycleDisabled={
+                    getHistoryCycleValues(
+                      hyperliquidDepositChainHistoryOptions,
+                      orderedHyperliquidDepositChains,
+                    ).length < 2
+                  }
                   onSelect={selectHyperliquidDepositChain}
                   onPrev={prevHyperliquidDepositChain}
                   onNext={nextHyperliquidDepositChain}
@@ -3486,6 +3747,12 @@ export default function YieldPanel({
                   showMenu={showHyperliquidDepositCoinMenu}
                   setShowMenu={setShowHyperliquidDepositCoinMenu}
                   pickerRef={hyperliquidDepositCoinPickerRef}
+                  cycleDisabled={
+                    getHistoryCycleValues(
+                      hyperliquidDepositCoinHistoryOptions,
+                      orderedHyperliquidDepositCoins,
+                    ).length < 2
+                  }
                   onSelect={selectHyperliquidDepositCoin}
                   onPrev={prevHyperliquidDepositCoin}
                   onNext={nextHyperliquidDepositCoin}
@@ -3702,6 +3969,12 @@ export default function YieldPanel({
                   showMenu={showHyperliquidWithdrawChainMenu}
                   setShowMenu={setShowHyperliquidWithdrawChainMenu}
                   pickerRef={hyperliquidWithdrawChainPickerRef}
+                  cycleDisabled={
+                    getHistoryCycleValues(
+                      hyperliquidWithdrawChainHistoryOptions,
+                      orderedHyperliquidWithdrawChains,
+                    ).length < 2
+                  }
                   onSelect={selectHyperliquidWithdrawChain}
                   onPrev={prevHyperliquidWithdrawChain}
                   onNext={nextHyperliquidWithdrawChain}
@@ -3718,6 +3991,12 @@ export default function YieldPanel({
                   showMenu={showHyperliquidWithdrawCoinMenu}
                   setShowMenu={setShowHyperliquidWithdrawCoinMenu}
                   pickerRef={hyperliquidWithdrawCoinPickerRef}
+                  cycleDisabled={
+                    getHistoryCycleValues(
+                      hyperliquidWithdrawCoinHistoryOptions,
+                      orderedHyperliquidWithdrawCoins,
+                    ).length < 2
+                  }
                   onSelect={selectHyperliquidWithdrawCoin}
                   onPrev={prevHyperliquidWithdrawCoin}
                   onNext={nextHyperliquidWithdrawCoin}

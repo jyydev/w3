@@ -550,6 +550,27 @@ img.assetIcon {
   align-items: center;
   gap: 4px;
 }
+.claimCoinHeaderChain {
+  display: inline-block;
+  color: var(--gray);
+  font-size: 10px;
+  font-weight: normal;
+  line-height: 1;
+  vertical-align: middle;
+}
+.walletClaimCellLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.walletClaimButton {
+  padding: 1px 5px;
+}
+.cycleButtonPair {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .coinIcon {
   color: white;
 }
@@ -762,6 +783,34 @@ img.assetIcon {
 }
 .infoCardTitle {
   color: white;
+}
+.infoHover:hover > .claimCoinInfoCard,
+.infoHover:focus-within > .claimCoinInfoCard,
+.infoHover.infoOpen > .claimCoinInfoCard {
+  flex-direction: column;
+  gap: 8px;
+}
+.claimCoinInfoSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+.claimCoinInfoColumns {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.claimCoinInfoColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 190px;
+}
+.claimCoinInfoColumn + .claimCoinInfoColumn {
+  padding-left: 10px;
+  border-left: 1px solid #333;
 }
 .walletSettingsCard {
   min-width: 250px;
@@ -1147,20 +1196,11 @@ img.assetIcon {
   align-items: center;
 }
 .walletCycle {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
+.selectCycle:has(.customPicker),
 .selectedCompact {
-  grid-template-columns: auto max-content auto auto;
-}
-.selectedCompact .customPicker {
-  width: max-content;
-  max-width: min(58ch, 48vw);
-}
-.selectedCompact .customPickerButton {
-  width: max-content;
-  max-width: 100%;
-  min-width: 0;
-  padding-right: 14px;
+  grid-template-columns: auto max-content auto;
 }
 .sendWalletTail {
   white-space: nowrap;
@@ -1298,11 +1338,16 @@ img.assetIcon {
 .customPicker {
   position: relative;
   min-width: 0;
+  width: max-content;
+  max-width: min(58ch, 48vw);
 }
 .customPickerButton {
   position: relative;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
   height: 24px;
-  padding: 1px 7px 1px 2px;
+  padding: 1px 14px 1px 2px;
   border: 0;
   border-radius: 0;
   background: black;
@@ -1431,6 +1476,12 @@ img.assetIcon {
   padding: 3px 5px;
   vertical-align: middle;
   white-space: nowrap;
+}
+.externalLinkIcon {
+  display: inline-block;
+  font-size: 0.82em;
+  line-height: 1;
+  vertical-align: 0.08em;
 }
 .customPickerAllTable td:nth-child(3),
 .customPickerAllTable td:nth-child(6) {

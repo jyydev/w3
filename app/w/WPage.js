@@ -28,6 +28,7 @@ import {
 } from "./walletSettingData";
 import {
   defaultWalletType,
+  getAaveStakingClaimBalances,
   getAlchemyWalletTokenCache,
   getHyperliquidWalletBalances,
   getWalletBalances,
@@ -449,11 +450,18 @@ async function WPage({
               : []),
           ],
         );
+  const claimData =
+    selectedWalletType == "solana"
+      ? null
+      : await getAaveStakingClaimBalances({
+          data,
+          usdPriceQuery,
+        }).catch(() => null);
+  const walletData = claimData ? [...data, claimData] : data;
   const dataByChain = new Map(
-    (Array.isArray(data) ? data : data ? [data] : []).map((chainE) => [
-      chainE.chain,
-      chainE,
-    ]),
+    (Array.isArray(walletData) ? walletData : walletData ? [walletData] : []).map(
+      (chainE) => [chainE.chain, chainE],
+    ),
   );
   const alchemyChainM = Object.fromEntries(
     availableChains.map((chain) => [chain, Boolean(alchemyNetworks?.[chain])]),
@@ -525,7 +533,7 @@ async function WPage({
       </div>
       <Wallet
         routeBase={routeBase}
-        data={data}
+        data={walletData}
         customCoinM={customCoinM}
         customCoinChains={customCoinChains}
         walletNotes={walletNotes}
@@ -537,6 +545,7 @@ async function WPage({
         requestedWallet={walletFile}
         selectedWalletName={selectedWalletName}
         walletEntries={walletEntries}
+        walletPkM={walletPkM}
         disabledWallets={disabledWallets}
         offAddrs={offAddrs}
         disabledCoinM={disabledCoinM}
@@ -551,7 +560,7 @@ async function WPage({
       {isValidElement(afterWallet)
         ? cloneElement(afterWallet, {
             data: tradeData,
-            walletData: data,
+            walletData,
             walletEntries,
             walletEntriesM: tradeWalletEntriesM,
             walletPkM,

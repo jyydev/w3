@@ -4,13 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButton } from "@/components/Shared";
+import { CycleButtonPair } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
+  getGroupedSelectionItems,
   normalizeSelectionOrder,
   parseGroupedSelectionOrder,
   parseSelectionOrder,
+  removeSelectionValue,
   rememberGroupedSelectionValue,
   rememberSelectionValue,
   sortByGroupedSelectionOrder,
@@ -48,7 +50,7 @@ import {
   getTradeEndDiffQty,
   getTradeEndInputValue,
   getTradeModeCookie,
-  getTradePickerButtonWidth,
+  getHistoryCycleValues,
   getWalletOptions,
   limitQtyInputDecimals,
   nextValue,
@@ -65,6 +67,7 @@ import {
   SwapTxLink,
   TradePickerColumn,
   TradePickerMenu,
+  TradeSelectionPicker,
   TradePickerTable,
   sortTradePickerRows,
   tradeSendChainCookie,
@@ -85,7 +88,10 @@ export default function SendPanel({
   initialCookieM = {},
   tradeType,
   tradeTypes = [],
+  tradeHistoryTypes = [],
+  allTradeTypes = [],
   onTradeTypeChange,
+  onTradeTypeHistoryRemove = () => {},
   onPrevTradeType = () => {},
   onCycleTradeType,
   onFromWalletChange = () => {},
@@ -165,12 +171,17 @@ export default function SendPanel({
   const [balanceErrorM, setBalanceErrorM] = useState({});
   const [sendPending, setSendPending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
+  const [showTradeTypeMenu, setShowTradeTypeMenu] = useState(false);
+  const [showChainMenu, setShowChainMenu] = useState(false);
   const [showCoinMenu, setShowCoinMenu] = useState(false);
   const [showToWalletMenu, setShowToWalletMenu] = useState(false);
+  const [simplePickerSortM, setSimplePickerSortM] = useState({});
   const [coinSort, setCoinSort] = useState("");
   const [loadedWalletSort, setLoadedWalletSort] = useState("");
   const [allWalletSort, setAllWalletSort] = useState("");
   const [copiedAddress, setCopiedAddress] = useState("");
+  const tradeTypePickerRef = useRef(null);
+  const chainPickerRef = useRef(null);
   const coinPickerRef = useRef(null);
   const toWalletPickerRef = useRef(null);
   const [fromWallet, setFromWallet] = useState(
@@ -186,6 +197,10 @@ export default function SendPanel({
     () => sortBySelectionOrder(chainNames, chainOrder),
     [chainNames, chainOrder],
   );
+  const chainHistoryOptions = useMemo(
+    () => chainOrder.filter((chainName) => chainNames.includes(chainName)),
+    [chainNames, chainOrder],
+  );
   const chainE =
     chainList.find((entry) => entry.chain == chain) || chainList[0] || {};
   const coins = useMemo(
@@ -197,6 +212,13 @@ export default function SendPanel({
       ),
     [chain, chainE, coinOrder],
   );
+  const coinHistoryOptions = useMemo(
+    () =>
+      getGroupedSelectionItems(coinOrder, chain).filter((coinName) =>
+        coins.includes(coinName),
+      ),
+    [chain, coinOrder, coins],
+  );
   const fromWallets = useMemo(
     () => wallets.filter((entry) => entry?.address),
     [wallets],
@@ -206,15 +228,6 @@ export default function SendPanel({
     [walletEntriesM, walletType],
   );
   const currentToWallets = fromWallets;
-  const coinButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth(coins, {
-        minLength: 4,
-        maxLength: 18,
-        offset: 0,
-      }),
-    [coins],
-  );
   const fromEntry =
     fromWallets.find((entry) => entry.value == fromWallet) ||
     selectedWalletEntry ||
@@ -405,6 +418,12 @@ export default function SendPanel({
 
   useEffect(() => {
     function closeMenus(e) {
+      if (!tradeTypePickerRef.current?.contains(e.target)) {
+        setShowTradeTypeMenu(false);
+      }
+      if (!chainPickerRef.current?.contains(e.target)) {
+        setShowChainMenu(false);
+      }
       if (!coinPickerRef.current?.contains(e.target)) {
         setShowCoinMenu(false);
       }
@@ -548,12 +567,14 @@ export default function SendPanel({
   }, [chain, coin]);
 
   function nextChain() {
-    const next = nextValue(orderedChainNames, chain);
+    const values = getHistoryCycleValues(chainHistoryOptions, orderedChainNames);
+    const next = nextValue(values, chain);
     if (next) selectChain(next, { rememberOrder: false });
   }
 
   function prevChain() {
-    const prev = prevValue(orderedChainNames, chain);
+    const values = getHistoryCycleValues(chainHistoryOptions, orderedChainNames);
+    const prev = prevValue(values, chain);
     if (prev) selectChain(prev, { rememberOrder: false });
   }
 
@@ -561,6 +582,7 @@ export default function SendPanel({
     setChain(chain);
     saveSendChainCookie(chain, options);
     emitTradeChainSelect(chain);
+    setShowChainMenu(false);
   }
 
   function focusSelectedChain() {
@@ -582,13 +604,25 @@ export default function SendPanel({
     );
   }
 
+  function removeChainHistory(value) {
+    const nextOrder = removeSelectionValue(chainOrder, value);
+    setChainOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSendChainOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
   function nextCoin() {
-    const next = nextValue(coins, coin);
+    const values = getHistoryCycleValues(coinHistoryOptions, coins);
+    const next = nextValue(values, coin);
     if (next) selectCoin(next, { rememberOrder: false });
   }
 
   function prevCoin() {
-    const prev = prevValue(coins, coin);
+    const values = getHistoryCycleValues(coinHistoryOptions, coins);
+    const prev = prevValue(values, coin);
     if (prev) selectCoin(prev, { rememberOrder: false });
   }
 
@@ -995,55 +1029,55 @@ export default function SendPanel({
   return (
     <div className="tradePane tradeWidePane sendPane">
       <div className="flex tradePaneTop">
-        <label htmlFor="tradeTypeSend">
-          <CycleButton size="nx" direction="prev" onClick={onPrevTradeType} />
-          <select
-            id="tradeTypeSend"
-            value={tradeType}
-            onChange={(e) => onTradeTypeChange(e.target.value)}
-          >
-            {tradeTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-          <CycleButton size="nx" onClick={onCycleTradeType} />
-        </label>
-        <span className="selectCycle">
-          <CycleButton
-            direction="prev"
-            onClick={prevChain}
-            disabled={orderedChainNames.length < 2}
-          />
-          <select
-            value={chain}
-            onChange={(e) => selectChain(e.target.value)}
-            onClick={focusSelectedChain}
-            onFocus={focusSelectedChain}
-          >
-            {orderedChainNames.map((chainName) => (
-              <option key={chainName} value={chainName}>
-                {chainName}
-              </option>
-            ))}
-          </select>
-          <CycleButton
-            onClick={nextChain}
-            disabled={orderedChainNames.length < 2}
-          />
-        </span>
+        <TradeSelectionPicker
+          selectedValue={tradeType}
+          historyOptions={tradeHistoryTypes}
+          allOptions={allTradeTypes.length ? allTradeTypes : tradeTypes}
+          showMenu={showTradeTypeMenu}
+          setShowMenu={setShowTradeTypeMenu}
+          pickerRef={tradeTypePickerRef}
+          pickerSortM={simplePickerSortM}
+          setPickerSortM={setSimplePickerSortM}
+          sortKeyPrefix="tradePane"
+          header="pane"
+          className="tradeTypeCycle"
+          menuClassName="tradeTypeMenu"
+          cycleSize="nx"
+          onSelect={onTradeTypeChange}
+          onRemoveHistory={onTradeTypeHistoryRemove}
+          onPrev={onPrevTradeType}
+          onNext={onCycleTradeType}
+        />
+        <TradeSelectionPicker
+          selectedValue={chain}
+          historyOptions={chainHistoryOptions}
+          allOptions={chainNames}
+          showMenu={showChainMenu}
+          setShowMenu={setShowChainMenu}
+          pickerRef={chainPickerRef}
+          pickerSortM={simplePickerSortM}
+          setPickerSortM={setSimplePickerSortM}
+          sortKeyPrefix="sendChain"
+          header="chain"
+          className="tradeChainCycle"
+          menuClassName="tradeChainMenu"
+          onSelect={selectChain}
+          onRemoveHistory={removeChainHistory}
+          onPrev={prevChain}
+          onNext={nextChain}
+          onOpen={focusSelectedChain}
+          onFocus={focusSelectedChain}
+        />
         <span className="selectCycle sendCoinCycle">
-          <CycleButton
-            direction="prev"
-            onClick={prevCoin}
-            disabled={coins.length < 2}
+          <CycleButtonPair
+            onPrev={prevCoin}
+            onNext={nextCoin}
+            disabled={getHistoryCycleValues(coinHistoryOptions, coins).length < 2}
           />
           <div className="customPicker" ref={coinPickerRef}>
             <button
               type="button"
               className="customPickerButton"
-              style={{ width: coinButtonWidth }}
               disabled={!coins.length}
               onClick={() => setShowCoinMenu((show) => !show)}
             >
@@ -1102,10 +1136,6 @@ export default function SendPanel({
               </TradePickerMenu>
             )}
           </div>
-          <CycleButton
-            onClick={nextCoin}
-            disabled={coins.length < 2}
-          />
         </span>
         <span className="tradeCoinPrice">
           <span className="gray">{fmtPrice(price)}</span>
@@ -1118,9 +1148,9 @@ export default function SendPanel({
           <div className="tradeAssetLine">
             <span className="gray">from:</span>
             <span className="selectCycle walletCycle">
-              <CycleButton
-                direction="prev"
-                onClick={() => cycleFromWallet("prev")}
+              <CycleButtonPair
+                onPrev={() => cycleFromWallet("prev")}
+                onNext={() => cycleFromWallet("next")}
                 disabled={fromWallets.length < 2}
               />
               <select
@@ -1136,10 +1166,6 @@ export default function SendPanel({
                   </option>
                 ))}
               </select>
-              <CycleButton
-                onClick={() => cycleFromWallet("next")}
-                disabled={fromWallets.length < 2}
-              />
               {renderSendWalletTail(fromEntry?.address, "from")}
             </span>
           </div>
@@ -1254,9 +1280,9 @@ export default function SendPanel({
           <div className="tradeAssetLine">
             <span className="gray">to:</span>
             <div className="selectCycle walletCycle selectedCompact">
-              <CycleButton
-                direction="prev"
-                onClick={() => cycleToWallet("prev")}
+              <CycleButtonPair
+                onPrev={() => cycleToWallet("prev")}
+                onNext={() => cycleToWallet("next")}
                 disabled={currentToWallets.length < 2}
               />
               <div className="customPicker" ref={toWalletPickerRef}>
@@ -1360,10 +1386,6 @@ export default function SendPanel({
                   </TradePickerMenu>
                 )}
               </div>
-              <CycleButton
-                onClick={() => cycleToWallet("next")}
-                disabled={currentToWallets.length < 2}
-              />
               {renderSendWalletTail(toEntry?.address, "to")}
             </div>
           </div>

@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
-import { CycleButton } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
+  getGroupedSelectionItems,
   normalizeSelectionOrder,
   parseGroupedSelectionOrder,
   parseSelectionOrder,
+  removeGroupedSelectionValue,
+  removeSelectionValue,
   rememberGroupedSelectionValue,
   rememberSelectionValue,
   sortByGroupedSelectionOrder,
@@ -96,6 +98,7 @@ import {
   getCoinByAddress,
   getCoinBalanceByAddress,
   getCoinTypeOptions,
+  getHistoryCycleValues,
   getInitialCookie,
   getInitialAutoApproval,
   getSelectedBalance as getWalletSelectedBalance,
@@ -103,7 +106,6 @@ import {
   getTradeEndDiffQty,
   getTradeEndInputValue,
   getTradeModeCookie,
-  getTradePickerButtonWidth,
   getWalletOptions,
   hasLoadedBalance,
   inputQty,
@@ -133,6 +135,7 @@ import {
   tradeSwapToChainOrderCookie,
   tradeSwapToCoinCookie,
   tradeSwapToCoinOrderCookie,
+  TradeSelectionPicker,
   toNum,
   useCustomCoinConfirm,
   useTradeFallbackPrice,
@@ -148,6 +151,15 @@ function getSwapSupport(defi = "") {
   return Promise.resolve(emptySwapSupportE);
 }
 
+function getDexUrl(defi = "") {
+  if (defi == "relay") return "https://relay.link/";
+  if (defi == "jumper") return "https://jumper.exchange/";
+  if (defi == "jupiter") return "https://jup.ag/swap";
+  if (defi == "across") return "https://app.across.to/";
+  if (defi == "uniswap") return "https://app.uniswap.org/";
+  return "";
+}
+
 export default function SwapPanel({
   data = [],
   walletEntriesM = {},
@@ -156,7 +168,10 @@ export default function SwapPanel({
   initialCookieM = {},
   tradeType,
   tradeTypes = [],
+  tradeHistoryTypes = [],
+  allTradeTypes = [],
   onTradeTypeChange,
+  onTradeTypeHistoryRemove = () => {},
   onPrevTradeType = () => {},
   onCycleTradeType,
   showGasAutoLabel = false,
@@ -337,11 +352,15 @@ export default function SwapPanel({
     loading: false,
     error: "",
   });
+  const [showDexMenu, setShowDexMenu] = useState(false);
+  const [showTradeTypeMenu, setShowTradeTypeMenu] = useState(false);
   const [showFromChainMenu, setShowFromChainMenu] = useState(false);
   const [showToChainMenu, setShowToChainMenu] = useState(false);
   const [showFromCoinMenu, setShowFromCoinMenu] = useState(false);
   const [showToCoinMenu, setShowToCoinMenu] = useState(false);
   const [pickerSortM, setPickerSortM] = useState({});
+  const tradeTypePickerRef = useRef(null);
+  const dexPickerRef = useRef(null);
   const fromChainPickerRef = useRef(null);
   const toChainPickerRef = useRef(null);
   const fromCoinPickerRef = useRef(null);
@@ -378,19 +397,43 @@ export default function SwapPanel({
     () => sortBySelectionOrder(sellChainNames, fromChainOrder),
     [fromChainOrder, sellChainNames],
   );
+  const fromChainHistoryOptions = useMemo(
+    () => fromChainOrder.filter((chainName) => sellChainNames.includes(chainName)),
+    [fromChainOrder, sellChainNames],
+  );
   const orderedChainNames = useMemo(
     () => sortBySelectionOrder(chainNames, toChainOrder),
     [chainNames, toChainOrder],
   );
-  const availableDexOptions = useMemo(
+  const toChainHistoryOptions = useMemo(
+    () => toChainOrder.filter((chainName) => chainNames.includes(chainName)),
+    [chainNames, toChainOrder],
+  );
+  const supportedDexOptions = useMemo(
     () => {
-      const options = dexOptions.filter((option) =>
+      return dexOptions.filter((option) =>
         isDexSupportedForChain(option, fromChain),
       );
-
-      return sortBySelectionOrder(options, dexOrder, (option) => option.value);
     },
-    [dexOrder, fromChain],
+    [fromChain],
+  );
+  const availableDexOptions = useMemo(
+    () =>
+      sortBySelectionOrder(
+        supportedDexOptions,
+        dexOrder,
+        (option) => option.value,
+      ),
+    [dexOrder, supportedDexOptions],
+  );
+  const dexHistoryOptions = useMemo(
+    () =>
+      dexOrder
+        .map((value) =>
+          supportedDexOptions.find((option) => option.value == value),
+        )
+        .filter(Boolean),
+    [dexOrder, supportedDexOptions],
   );
   const defiE =
     availableDexOptions.find((entry) => entry.value == defi) || noDex;
@@ -424,6 +467,13 @@ export default function SwapPanel({
       ? [discoveryCoin, ...coins]
       : coins;
   }, [fromChain, fromChainE, fromCoinOrder, fromDiscoveryCoinE?.coin]);
+  const fromCoinHistoryOptions = useMemo(
+    () =>
+      getGroupedSelectionItems(fromCoinOrder, fromChain).filter((coinName) =>
+        fromCoins.includes(coinName),
+      ),
+    [fromChain, fromCoinOrder, fromCoins],
+  );
   const toCoins = useMemo(() => {
     const coins = sortByGroupedSelectionOrder(
       getChainCoins(toChainE),
@@ -436,6 +486,13 @@ export default function SwapPanel({
       ? [discoveryCoin, ...coins]
       : coins;
   }, [toChain, toChainE, toCoinOrder, toDiscoveryCoinE?.coin]);
+  const toCoinHistoryOptions = useMemo(
+    () =>
+      getGroupedSelectionItems(toCoinOrder, toChain).filter((coinName) =>
+        toCoins.includes(coinName),
+      ),
+    [toChain, toCoinOrder, toCoins],
+  );
   const fromCoinInfo =
     fromChainE?.coinInfoM?.[fromCoin] ||
     (fromDiscoveryCoinE?.coin == fromCoin ? fromDiscoveryCoinE : {});
@@ -671,42 +728,6 @@ export default function SwapPanel({
       toChain,
       (entry) => entry.symbol || entry.name || entry.address,
     );
-  const fromChainButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth([fromChain, ...orderedSellChainNames], {
-        minLength: 5,
-        maxLength: Infinity,
-        offset: 2,
-      }),
-    [fromChain, orderedSellChainNames],
-  );
-  const toChainButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth([toChain, ...orderedChainNames], {
-        minLength: 5,
-        maxLength: Infinity,
-        offset: 2,
-      }),
-    [orderedChainNames, toChain],
-  );
-  const fromCoinButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth([fromCoin, ...fromCoins], {
-        minLength: 5,
-        maxLength: 18,
-        offset: 2,
-      }),
-    [fromCoin, fromCoins],
-  );
-  const toCoinButtonWidth = useMemo(
-    () =>
-      getTradePickerButtonWidth([toCoin, ...toCoins], {
-        minLength: 5,
-        maxLength: 18,
-        offset: 2,
-      }),
-    [toCoin, toCoins],
-  );
   const coinTypeOptions = useMemo(
     () =>
       getCoinTypeOptions(
@@ -826,6 +847,8 @@ export default function SwapPanel({
     function handlePointerDown(e) {
       const target = e.target;
       if (
+        tradeTypePickerRef.current?.contains(target) ||
+        dexPickerRef.current?.contains(target) ||
         fromChainPickerRef.current?.contains(target) ||
         toChainPickerRef.current?.contains(target) ||
         fromCoinPickerRef.current?.contains(target) ||
@@ -834,6 +857,8 @@ export default function SwapPanel({
         return;
       }
 
+      setShowTradeTypeMenu(false);
+      setShowDexMenu(false);
       setShowFromChainMenu(false);
       setShowToChainMenu(false);
       setShowFromCoinMenu(false);
@@ -1702,22 +1727,26 @@ export default function SwapPanel({
   }
 
   function nextFromChain() {
-    const next = nextValue(orderedSellChainNames, fromChain);
+    const values = getHistoryCycleValues(fromChainHistoryOptions, orderedSellChainNames);
+    const next = nextValue(values, fromChain);
     if (next) selectFromChain(next, { rememberOrder: false });
   }
 
   function prevFromChain() {
-    const prev = prevValue(orderedSellChainNames, fromChain);
+    const values = getHistoryCycleValues(fromChainHistoryOptions, orderedSellChainNames);
+    const prev = prevValue(values, fromChain);
     if (prev) selectFromChain(prev, { rememberOrder: false });
   }
 
   function nextToChain() {
-    const next = nextValue(orderedChainNames, toChain);
+    const values = getHistoryCycleValues(toChainHistoryOptions, orderedChainNames);
+    const next = nextValue(values, toChain);
     if (next) selectToChain(next, { rememberOrder: false });
   }
 
   function prevToChain() {
-    const prev = prevValue(orderedChainNames, toChain);
+    const values = getHistoryCycleValues(toChainHistoryOptions, orderedChainNames);
+    const prev = prevValue(values, toChain);
     if (prev) selectToChain(prev, { rememberOrder: false });
   }
 
@@ -2010,22 +2039,26 @@ export default function SwapPanel({
   }
 
   function nextFromCoin() {
-    const next = nextValue(fromCoins, fromCoin);
+    const values = getHistoryCycleValues(fromCoinHistoryOptions, fromCoins);
+    const next = nextValue(values, fromCoin);
     if (next) selectFromCoin(next, { rememberOrder: false });
   }
 
   function prevFromCoin() {
-    const prev = prevValue(fromCoins, fromCoin);
+    const values = getHistoryCycleValues(fromCoinHistoryOptions, fromCoins);
+    const prev = prevValue(values, fromCoin);
     if (prev) selectFromCoin(prev, { rememberOrder: false });
   }
 
   function nextToCoin() {
-    const next = nextValue(toCoins, toCoin);
+    const values = getHistoryCycleValues(toCoinHistoryOptions, toCoins);
+    const next = nextValue(values, toCoin);
     if (next) selectToCoin(next, { rememberOrder: false });
   }
 
   function prevToCoin() {
-    const prev = prevValue(toCoins, toCoin);
+    const values = getHistoryCycleValues(toCoinHistoryOptions, toCoins);
+    const prev = prevValue(values, toCoin);
     if (prev) selectToCoin(prev, { rememberOrder: false });
   }
 
@@ -2089,18 +2122,14 @@ export default function SwapPanel({
   }
 
   function nextDex() {
-    const next = nextValue(
-      availableDexOptions.map((option) => option.value),
-      defi,
-    );
+    const values = getHistoryCycleValues(dexHistoryOptions, availableDexOptions);
+    const next = nextValue(values, defi);
     if (next) selectDex(next, { rememberOrder: false });
   }
 
   function prevDex() {
-    const prev = prevValue(
-      availableDexOptions.map((option) => option.value),
-      defi,
-    );
+    const values = getHistoryCycleValues(dexHistoryOptions, availableDexOptions);
+    const prev = prevValue(values, defi);
     if (prev) selectDex(prev, { rememberOrder: false });
   }
 
@@ -2122,6 +2151,63 @@ export default function SwapPanel({
       encodeSelectionOrder(nextOrder),
       { maxAge: cookieMaxAge },
     );
+  }
+
+  function removeDexHistory(value) {
+    const nextOrder = removeSelectionValue(dexOrder, value);
+    setDexOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSwapDexOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeSwapChainHistory(base, value) {
+    const isFrom = base == "from";
+    const nextOrder = removeSelectionValue(
+      isFrom ? fromChainOrder : toChainOrder,
+      value,
+    );
+    if (isFrom) {
+      setFromChainOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapFromChainOrderCookie, walletType, defi),
+        encodeSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    } else {
+      setToChainOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapToChainOrderCookie, walletType, defi),
+        encodeSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    }
+  }
+
+  function removeSwapCoinHistory(base, chain, value) {
+    const isFrom = base == "from";
+    const nextOrder = removeGroupedSelectionValue(
+      isFrom ? fromCoinOrder : toCoinOrder,
+      chain,
+      value,
+    );
+    if (isFrom) {
+      setFromCoinOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapFromCoinOrderCookie, walletType, defi),
+        encodeGroupedSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    } else {
+      setToCoinOrder(nextOrder);
+      setCookie(
+        getSwapRouteCookie(tradeSwapToCoinOrderCookie, walletType, defi),
+        encodeGroupedSelectionOrder(nextOrder),
+        { maxAge: cookieMaxAge },
+      );
+    }
   }
 
   function reverseRoute() {
@@ -2180,48 +2266,51 @@ export default function SwapPanel({
         onConfirm={confirmCustomCoin}
       />
       <div className="flex tradePaneTop">
-        <label htmlFor="tradeTypeSwap">
-          <CycleButton size="nx" direction="prev" onClick={onPrevTradeType} />
-          <select
-            id="tradeTypeSwap"
-            value={tradeType}
-            onChange={(e) => onTradeTypeChange(e.target.value)}
-          >
-            {tradeTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-          <CycleButton size="nx" onClick={onCycleTradeType} />
-        </label>
-        <label htmlFor="swapDefi">
+        <TradeSelectionPicker
+          selectedValue={tradeType}
+          historyOptions={tradeHistoryTypes}
+          allOptions={allTradeTypes.length ? allTradeTypes : tradeTypes}
+          showMenu={showTradeTypeMenu}
+          setShowMenu={setShowTradeTypeMenu}
+          pickerRef={tradeTypePickerRef}
+          pickerSortM={pickerSortM}
+          setPickerSortM={setPickerSortM}
+          sortKeyPrefix="tradePane"
+          header="pane"
+          className="tradeTypeCycle"
+          menuClassName="tradeTypeMenu"
+          cycleSize="nx"
+          onSelect={onTradeTypeChange}
+          onRemoveHistory={onTradeTypeHistoryRemove}
+          onPrev={onPrevTradeType}
+          onNext={onCycleTradeType}
+        />
+        <span>
           <span className="gray">DEX:</span>
-          <CycleButton
-            size="nx"
-            direction="prev"
-            onClick={prevDex}
-            disabled={availableDexOptions.length < 2}
+          <TradeSelectionPicker
+            selectedValue={defi}
+            selectedLabel={defiE.label}
+            historyOptions={dexHistoryOptions}
+            allOptions={supportedDexOptions}
+            showMenu={showDexMenu}
+            setShowMenu={setShowDexMenu}
+            pickerRef={dexPickerRef}
+            pickerSortM={pickerSortM}
+            setPickerSortM={setPickerSortM}
+            sortKeyPrefix="swapDex"
+            header="DEX"
+            className="tradeDexCycle"
+            menuClassName="tradeDexMenu"
+            cycleSize="nx"
+            getOptionLink={(option) => option?.url || getDexUrl(option?.value)}
+            onSelect={(value) => {
+              selectDex(value);
+            }}
+            onRemoveHistory={removeDexHistory}
+            onPrev={prevDex}
+            onNext={nextDex}
           />
-          <select
-            id="swapDefi"
-            value={availableDexOptions.length ? defi : ""}
-            onChange={(e) => selectDex(e.target.value)}
-            disabled={!availableDexOptions.length}
-          >
-            {!availableDexOptions.length && <option value="">no DEX</option>}
-            {availableDexOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <CycleButton
-            size="nx"
-            onClick={nextDex}
-            disabled={availableDexOptions.length < 2}
-          />
-        </label>
+        </span>
         <span className="gray">
           {defiE.bridge ? "bridge swap" : "same-chain swap"}
         </span>
@@ -2234,11 +2323,13 @@ export default function SwapPanel({
               side="from"
               selectedChain={fromChain}
               addedChains={orderedSellChainNames}
+              historyChains={fromChainHistoryOptions}
+              allChainOptions={sellChainNames}
               allChains={fromDiscoveryChainEntries}
-              buttonWidth={fromChainButtonWidth}
               onSelect={selectFromChain}
               onPrev={prevFromChain}
               onNext={nextFromChain}
+              onRemoveHistory={(value) => removeSwapChainHistory("from", value)}
               onFocusChain={() => fromChain && emitTradeChainSelect(fromChain)}
               showMenu={showFromChainMenu}
               setShowMenu={setShowFromChainMenu}
@@ -2259,6 +2350,8 @@ export default function SwapPanel({
               chain={fromChain}
               selectedCoin={fromCoin}
               addedCoins={fromCoins}
+              historyCoins={fromCoinHistoryOptions}
+              allCoinOptions={getChainCoins(fromChainE)}
               allTokens={fromSwapTokenEntries}
               tokenDiscoveryE={fromTokenDiscoveryE}
               strictSupport={!usesLazyTokenDiscovery}
@@ -2268,10 +2361,12 @@ export default function SwapPanel({
               onRetryTokens={(e) => retryTokenDiscovery(e, "from", fromChain)}
               onOpen={() => openTokenDiscoveryMenu("from", fromChain)}
               showSearch={usesLazyTokenDiscovery}
-              buttonWidth={fromCoinButtonWidth}
               onSelect={selectFromCoin}
               onPrev={prevFromCoin}
               onNext={nextFromCoin}
+              onRemoveHistory={(value) =>
+                removeSwapCoinHistory("from", fromChain, value)
+              }
               showMenu={showFromCoinMenu}
               setShowMenu={setShowFromCoinMenu}
               pickerRef={fromCoinPickerRef}
@@ -2433,13 +2528,15 @@ export default function SwapPanel({
               side="to"
               selectedChain={toChain}
               addedChains={orderedChainNames}
+              historyChains={toChainHistoryOptions}
+              allChainOptions={chainNames}
               allChains={toDiscoveryChainEntries}
               disabled={!defiE.bridge}
-              buttonWidth={toChainButtonWidth}
               title={defiE.bridge ? "" : "DEX swap uses the same chain"}
               onSelect={selectToChain}
               onPrev={prevToChain}
               onNext={nextToChain}
+              onRemoveHistory={(value) => removeSwapChainHistory("to", value)}
               onFocusChain={() => toChain && emitTradeChainSelect(toChain)}
               showMenu={showToChainMenu}
               setShowMenu={setShowToChainMenu}
@@ -2460,6 +2557,8 @@ export default function SwapPanel({
               chain={toChain}
               selectedCoin={toCoin}
               addedCoins={toCoins}
+              historyCoins={toCoinHistoryOptions}
+              allCoinOptions={getChainCoins(toChainE)}
               allTokens={toSwapTokenEntries}
               tokenDiscoveryE={toTokenDiscoveryE}
               strictSupport={!usesLazyTokenDiscovery}
@@ -2469,10 +2568,12 @@ export default function SwapPanel({
               onRetryTokens={(e) => retryTokenDiscovery(e, "to", toChain)}
               onOpen={() => openTokenDiscoveryMenu("to", toChain)}
               showSearch={usesLazyTokenDiscovery}
-              buttonWidth={toCoinButtonWidth}
               onSelect={selectToCoin}
               onPrev={prevToCoin}
               onNext={nextToCoin}
+              onRemoveHistory={(value) =>
+                removeSwapCoinHistory("to", toChain, value)
+              }
               showMenu={showToCoinMenu}
               setShowMenu={setShowToCoinMenu}
               pickerRef={toCoinPickerRef}

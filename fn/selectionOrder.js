@@ -72,6 +72,13 @@ export function rememberSelectionValue(
   );
 }
 
+export function removeSelectionValue(values = [], value = "") {
+  const clean = cleanValue(value);
+  if (!clean) return uniqueValues(values);
+
+  return uniqueValues(values).filter((entry) => entry != clean);
+}
+
 export function sortBySelectionOrder(
   values = [],
   order = [],
@@ -187,6 +194,24 @@ export function rememberGroupedSelectionValue(
   }
 
   return next.slice(0, groupCap);
+}
+
+export function removeGroupedSelectionValue(groups = [], group = "", value = "") {
+  const cleanGroup = cleanValue(group);
+  const clean = cleanValue(value);
+  if (!cleanGroup || !clean) return groups || [];
+
+  return (groups || [])
+    .map((entry) => {
+      const entryGroup = cleanValue(entry?.group);
+      if (entryGroup != cleanGroup) return entry;
+
+      return {
+        group: entryGroup,
+        items: uniqueValues(entry?.items).filter((item) => item != clean),
+      };
+    })
+    .filter((entry) => cleanValue(entry?.group) && entry?.items?.length);
 }
 
 export function sortByGroupedSelectionOrder(

@@ -18,14 +18,8 @@ import {
 } from "@/fn/selectionOrder";
 import { ckPrefix, scanners } from "@/sets";
 import {
-  CustomPicker,
-  CustomPickerButton,
-  CustomPickerColumn,
-  CustomPickerMenu,
-  CustomPickerRow,
-  CustomPickerSortHeader,
-  CustomPickerTable,
-  CycleButton,
+  CustomHistoryPicker,
+  CycleButtonPair,
   TableSortHeader,
   TrashIcon,
 } from "@/components/Shared";
@@ -72,6 +66,14 @@ import {
   encodeDisabledWallets,
   getWalletDisableKey,
 } from "./walletSettingData";
+import {
+  buildAaveStakingClaimTxs,
+  executeAaveStakingClaim,
+} from "../t/_yield/aaveStaking/sv";
+import {
+  getWalletPrivateKeyFlag,
+  sendBrowserTradeTx,
+} from "../t/clientShared";
 
 function shortAddr(address) {
   return address ? `..${address.slice(-3)}` : "";
@@ -92,6 +94,17 @@ function sameWalletAddress(a = "", b = "") {
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
   return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+}
+
+function getClaimRewardKey({
+  address = "",
+  sourceChain = "",
+  stakingAddress = "",
+  coin = "",
+} = {}) {
+  return `${String(address || "").toLowerCase()}:${sourceChain}:${String(
+    stakingAddress || "",
+  ).toLowerCase()}:${coin}`;
 }
 
 function getTokenAddressKey(chain = "", address = "") {
@@ -264,6 +277,7 @@ const chainIconM = {
 const chainTextIconM = {
   Avalanche: "Av",
   Base: "Ba",
+  Claim: "Cl",
   Kaia: "Ka",
   Optimism: "Op",
   Hyperliquid: "Hy",
@@ -395,6 +409,7 @@ const assetSortCookie = `${ckPrefix ?? ""}assetSort`;
 const rowSortCookie = `${ckPrefix ?? ""}rowSort`;
 const activeChainCookie = `${ckPrefix ?? ""}activeChain`;
 const chainSortCookie = `${ckPrefix ?? ""}chainSort`;
+const allChainSortValue = "__all__";
 const chainSortCap = 10;
 const lastWalletCookiePrefix = `${ckPrefix ?? ""}lastWallet_`;
 const walletHistoryCookiePrefix = `${ckPrefix ?? ""}walletHistory_`;
@@ -480,170 +495,117 @@ function WalletSelectPicker({
   onRemoveHistory,
   disabled = false,
 }) {
-  const [open, setOpen] = useState(false);
-  const [sortM, setSortM] = useState({});
-  const pickerRef = useRef(null);
   const optionM = new Map(options.map((option) => [option.value, option]));
   const selected = optionM.get(value);
   const historyOptions = historyValues
     .map((entry) => optionM.get(entry) || getStoredWalletHistoryOption(entry))
     .filter(Boolean);
 
-  useEffect(() => {
-    if (!open) return;
+  return (
+    <CustomHistoryPicker
+      selectedValue={value}
+      selectedLabel={selected?.label || ""}
+      historyOptions={historyOptions}
+      allOptions={options}
+      header="wallets"
+      pickerClassName="walletSelectPicker"
+      buttonClassName="walletSelectPickerButton"
+      menuClassName="walletSelectPickerMenu"
+      tableClassName="walletSelectPickerTable"
+      allTableClassName="customPickerAllTable"
+      showCycle={false}
+      disabled={disabled}
+      onSelect={onSelect}
+      onRemoveHistory={onRemoveHistory}
+      getOptionTitle={(option) => option.title || option.label}
+      isOptionDisabled={(option) => !!option?.disabled}
+    />
+  );
+}
 
-    function closeOnOutsideClick(e) {
-      if (!pickerRef.current?.contains(e.target)) setOpen(false);
-    }
-
-    function closeOnEscape(e) {
-      if (e.key == "Escape") setOpen(false);
-    }
-
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  function toggleSort(section = "") {
-    setSortM((prev) => ({
-      ...prev,
-      [section]: prev[section] == "wallet" ? "" : "wallet",
-    }));
-  }
-
-  function sortRows(rows = [], section = "") {
-    if (sortM[section] != "wallet") return rows;
-
-    return [...rows].sort((a, b) =>
-      String(a?.label || "").localeCompare(String(b?.label || ""), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-  }
-
-  function getHeader(section = "") {
-    return (
-      <CustomPickerSortHeader
-        activeSort={sortM[section]}
-        sortKey="wallet"
-        onSort={() => toggleSort(section)}
-      >
-        wallets
-      </CustomPickerSortHeader>
-    );
-  }
-
-  function selectOption(option) {
-    if (!option || option.disabled) return;
-    setOpen(false);
-    onSelect?.(option.value);
-  }
-
-  function removeHistoryOption(e, option) {
-    e.stopPropagation();
-    if (!option) return;
-    onRemoveHistory?.(option.value);
-  }
-
-  function renderRows(rows = [], { history = false } = {}) {
-    if (!rows.length) {
-      return (
-        <tr>
-          <td className="gray">
-            -
-          </td>
-        </tr>
-      );
-    }
-
-    return rows.map((option) => (
-      <CustomPickerRow
-        key={option.value || favWalletHistoryValue}
-        active={option.value == value}
-        unsupported={option.disabled}
-        onClick={() => selectOption(option)}
-        title={option.title || option.label}
-      >
-        <td>
-          {option.label}
-          {history && (
-            <>
-              {" "}
-              <button
-                type="button"
-                className="walletDeleteButton walletHistoryRemoveButton"
-                title={`remove ${option.label} from history`}
-                aria-label={`remove ${option.label} from history`}
-                onClick={(e) => removeHistoryOption(e, option)}
-              >
-                <TrashIcon />
-              </button>
-            </>
-          )}
-        </td>
-      </CustomPickerRow>
-    ));
-  }
+function ChainSelectPicker({
+  value = "",
+  options = [],
+  historyValues = [],
+  onSelect,
+  onRemoveHistory,
+  disabled = false,
+}) {
+  const optionM = new Map(options.map((option) => [option.value, option]));
+  const selected = optionM.get(value);
+  const historyOptions = historyValues
+    .map((entry) => optionM.get(entry))
+    .filter(Boolean);
 
   return (
-    <CustomPicker className="walletSelectPicker" ref={pickerRef}>
-      <CustomPickerButton
-        className="walletSelectPickerButton"
-        onClick={() => setOpen((value) => !value)}
-        disabled={disabled}
-        aria-expanded={open}
-      >
-        {selected?.label || "select"}
-      </CustomPickerButton>
-      {open && (
-        <CustomPickerMenu className="walletSelectPickerMenu">
-          <CustomPickerColumn title="history">
-            <CustomPickerTable
-              className="walletSelectPickerTable"
-              headers={[getHeader("history")]}
-            >
-              <tbody>
-                {renderRows(sortRows(historyOptions, "history"), {
-                  history: true,
-                })}
-              </tbody>
-            </CustomPickerTable>
-          </CustomPickerColumn>
-          <CustomPickerColumn title="all">
-            <CustomPickerTable
-              className="customPickerAllTable walletSelectPickerTable"
-              headers={[getHeader("all")]}
-            >
-              <tbody>{renderRows(sortRows(options, "all"))}</tbody>
-            </CustomPickerTable>
-          </CustomPickerColumn>
-        </CustomPickerMenu>
-      )}
-    </CustomPicker>
+    <CustomHistoryPicker
+      selectedValue={value}
+      selectedLabel={selected?.label || ""}
+      historyOptions={historyOptions}
+      allOptions={options}
+      header="chain"
+      pickerClassName="walletSelectPicker"
+      buttonClassName="walletSelectPickerButton"
+      menuClassName="walletSelectPickerMenu"
+      tableClassName="walletSelectPickerTable"
+      allTableClassName="customPickerAllTable"
+      showCycle={false}
+      disabled={disabled}
+      onSelect={onSelect}
+      onRemoveHistory={onRemoveHistory}
+      getOptionTitle={(option) => option.title || option.label}
+      isOptionDisabled={(option) => !!option?.disabled}
+    />
   );
 }
 
 function parseChainSortOrder(value = "") {
-  return String(value || "")
-    .split("|")
-    .map((entry) => {
-      try {
-        return decodeURIComponent(entry);
-      } catch {
-        return entry;
-      }
-    })
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  const order = [];
+
+  for (const rawEntry of String(value || "").split("|")) {
+    let entry = rawEntry;
+    try {
+      entry = decodeURIComponent(rawEntry);
+    } catch {}
+
+    if (entry == allChainSortValue) {
+      order.push("");
+      continue;
+    }
+
+    entry = entry.trim();
+    if (entry) order.push(entry);
+  }
+
+  return order;
 }
 
 function encodeChainSortOrder(order = []) {
-  return order.map((entry) => encodeURIComponent(entry)).join("|");
+  return order
+    .map((entry) =>
+      entry === "" ? allChainSortValue : encodeURIComponent(entry),
+    )
+    .join("|");
+}
+
+function normalizeChainSortOrder(
+  order = [],
+  validValues = [],
+  cap = chainSortCap,
+) {
+  const validSet = validValues?.length ? new Set(validValues) : null;
+  const seen = new Set();
+  const next = [];
+
+  for (const value of order || []) {
+    const entry = String(value ?? "").trim();
+    if ((validSet && !validSet.has(entry)) || seen.has(entry)) continue;
+    seen.add(entry);
+    next.push(entry);
+    if (next.length >= cap) break;
+  }
+
+  return next;
 }
 
 function Wallet({
@@ -660,6 +622,7 @@ function Wallet({
   requestedWallet = "",
   selectedWalletName = "",
   walletEntries = [],
+  walletPkM = {},
   disabledWallets = [],
   offAddrs = [],
   disabledCoinM = {},
@@ -728,6 +691,7 @@ function Wallet({
   let [addingCoin, setAddingCoin] = useState(false);
   let [copiedAddress, setCopiedAddress] = useState("");
   let [copiedAddressSource, setCopiedAddressSource] = useState("");
+  let [claimingRewardKey, setClaimingRewardKey] = useState("");
   let [deletingWalletKey, setDeletingWalletKey] = useState("");
   let [savingWalletRefKey, setSavingWalletRefKey] = useState("");
   let [walletRefDraftM, setWalletRefDraftM] = useState({});
@@ -745,6 +709,7 @@ function Wallet({
     parseFavAddrs(getInitialCookie(initialCookieM, favAddrCookie)),
   );
   let [connectedWallet, setConnectedWallet] = useState(null);
+  let [connectedWalletChecked, setConnectedWalletChecked] = useState(false);
   let [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
   let [localEditorStoreChecked, setLocalEditorStoreChecked] = useState(false);
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
@@ -916,6 +881,15 @@ function Wallet({
     [],
     walletHistoryCap,
   ).map(getWalletValueFromHistory);
+  const chainSelectOptions = getChainSelectOptions();
+  const chainSelectOptionValues = chainSelectOptions.map(
+    (option) => option.value,
+  );
+  const chainHistoryValues = normalizeChainSortOrder(
+    chainSortOrder,
+    chainSelectOptionValues,
+    chainSortCap,
+  );
 
   function getAllCoins(chainE) {
     return chainE?.allCoins?.length ? chainE.allCoins : chainE?.coins || [];
@@ -1019,6 +993,16 @@ function Wallet({
     );
   }
 
+  function getChainSelectOptions() {
+    return [
+      { value: "", label: "all" },
+      ...chainList.map((chainE) => ({
+        value: chainE.chain,
+        label: chainE.chain,
+      })),
+    ];
+  }
+
   function toggleChain(chain) {
     setActiveChain((prev) => {
       const next = prev == chain ? "" : chain;
@@ -1028,20 +1012,29 @@ function Wallet({
     });
   }
 
-  function selectActiveChain(e) {
-    const chain = e.target.value;
+  function selectActiveChainValue(chain = "") {
     setActiveChain(chain);
     saveActiveChainCookie(chain);
     rememberChainSort(chain);
   }
 
+  function cycleActiveChainValue(chain = "") {
+    setActiveChain(chain);
+    saveActiveChainCookie(chain);
+  }
+
+  function getChainCycleValues() {
+    return chainHistoryValues.length
+      ? chainHistoryValues
+      : chainSelectOptions.map((option) => option.value);
+  }
+
   function cycleActiveChain(direction = 1) {
-    const chains = ["", ...chainList.map((chainE) => chainE.chain)];
+    const chains = getChainCycleValues();
+    if (!chains.length) return;
     const index = Math.max(0, chains.indexOf(activeChain));
     const next = chains[(index + direction + chains.length) % chains.length];
-    setActiveChain(next);
-    saveActiveChainCookie(next);
-    rememberChainSort(next);
+    cycleActiveChainValue(next);
   }
 
   function saveActiveChainCookie(chain = "") {
@@ -1063,16 +1056,26 @@ function Wallet({
   }
 
   function rememberChainSort(chain = "") {
-    if (!chain) return;
-
     setChainSortOrder((prev) => {
-      const chainNames = new Set(chainList.map((chainE) => chainE.chain));
+      const chainNames = new Set([
+        "",
+        ...chainList.map((chainE) => chainE.chain),
+      ]);
       const next = [
         chain,
-        ...prev.filter((entry) => entry && entry != chain),
+        ...prev.filter((entry) => entry != chain),
       ]
         .filter((entry) => chainNames.has(entry))
         .slice(0, chainSortCap);
+      saveChainSortCookie(next);
+      return next;
+    });
+  }
+
+  function removeChainHistory(chain = "") {
+    setChainSortOrder((prev) => {
+      const next = prev.filter((entry) => entry != chain);
+      if (encodeChainSortOrder(next) == encodeChainSortOrder(prev)) return prev;
       saveChainSortCookie(next);
       return next;
     });
@@ -1161,9 +1164,16 @@ function Wallet({
   }, [walletType]);
 
   useEffect(() => {
+    if (selectedAddress && !connectedWalletChecked) return;
     if (consumeWalletHistorySkip(walletSelectValue)) return;
     rememberWalletHistory(walletSelectValue);
-  }, [walletSelectValue, walletSelectOptionKey, walletType]);
+  }, [
+    connectedWalletChecked,
+    selectedAddress,
+    walletSelectValue,
+    walletSelectOptionKey,
+    walletType,
+  ]);
 
   useEffect(() => {
     function handleBalancePatch(e) {
@@ -1351,7 +1361,7 @@ function Wallet({
   useEffect(() => {
     const chainNames = chainNameKey ? chainNameKey.split("|") : [];
     setChainSortOrder((prev) => {
-      const available = new Set(chainNames);
+      const available = new Set(["", ...chainNames]);
       const next = prev
         .filter((chain) => available.has(chain))
         .slice(0, chainSortCap);
@@ -1454,8 +1464,11 @@ function Wallet({
   }, []);
 
   useEffect(() => {
+    setConnectedWalletChecked(false);
+
     function loadConnectedWallet() {
       setConnectedWallet(readStoredWallet(walletType));
+      setConnectedWalletChecked(true);
     }
 
     loadConnectedWallet();
@@ -2177,6 +2190,43 @@ function Wallet({
     goWallet(value);
   }
 
+  function getWalletHistoryAddress(value = "") {
+    const text = String(value || "");
+    if (!text.startsWith("__address__:")) return "";
+
+    return text.slice("__address__:".length);
+  }
+
+  function getCanonicalWalletHistoryValue(value = "") {
+    const historyValue = getWalletHistoryValue(value);
+    const historyAddress = getWalletHistoryAddress(historyValue);
+
+    if (
+      connectedWallet?.type == walletType &&
+      historyAddress &&
+      sameWalletAddress(historyAddress, connectedWallet.address)
+    ) {
+      return connectedWalletValue;
+    }
+
+    return historyValue;
+  }
+
+  function isSameCanonicalWalletHistoryValue(entry = "", canonicalValue = "") {
+    if (entry == canonicalValue) return true;
+    if (
+      canonicalValue == connectedWalletValue &&
+      connectedWallet?.type == walletType
+    ) {
+      return sameWalletAddress(
+        getWalletHistoryAddress(entry),
+        connectedWallet.address,
+      );
+    }
+
+    return false;
+  }
+
   function rememberWalletHistory(value) {
     const option =
       walletSelectOptions.find((entry) => entry.value == value) ||
@@ -2187,11 +2237,15 @@ function Wallet({
       ...walletHistoryOptionValues,
       ...walletHistoryOrder,
       getWalletHistoryValue(value),
+      connectedWalletValue,
     ];
-    const historyValue = getWalletHistoryValue(value);
+    const historyValue = getCanonicalWalletHistoryValue(value);
     setWalletHistoryOrder((prev) => {
+      const nextPrev = prev.filter(
+        (entry) => !isSameCanonicalWalletHistoryValue(entry, historyValue),
+      );
       const next = rememberSelectionValue(
-        prev,
+        nextPrev,
         historyValue,
         validValues,
         walletHistoryCap,
@@ -2460,6 +2514,113 @@ function Wallet({
       (addressKey ? walletEntryByAddress.get(addressKey) : null) ||
       null
     );
+  }
+
+  function getClaimWalletEntry(row) {
+    const knownEntry = getKnownWalletEntry(row) || {};
+    const name = String(knownEntry.name || row?.name || "").trim();
+    const address = String(knownEntry.address || row?.address || "").trim();
+    const connected =
+      connectedWallet?.type == "evm" &&
+      sameWalletAddress(connectedWallet.address, address);
+
+    return {
+      ...knownEntry,
+      name,
+      label: knownEntry.label || name || shortAddr(address),
+      address,
+      type: "evm",
+      isBrowserWallet: !!connected,
+      browserWallet: connected ? connectedWallet.wallet : "",
+      hasPrivateKey: getWalletPrivateKeyFlag(walletPkM, "evm", name),
+    };
+  }
+
+  async function claimAaveStakingReward(event, { row, chainE, coin, bal }) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
+    const coinE = chainE?.coinInfoM?.[coin] || {};
+    const walletEntry = getClaimWalletEntry(row);
+    const walletLabel = walletEntry.label || walletEntry.name || "wallet";
+    const sourceChain = String(coinE.sourceChain || bal?.sourceChain || "").trim();
+    const stakingAddress = String(
+      coinE.sourceAddress || bal?.sourceAddress || "",
+    ).trim();
+    const rewardCoin = String(coinE.rewardCoin || bal?.rewardCoin || coin).trim();
+    const claimKey = getClaimRewardKey({
+      address: walletEntry.address,
+      sourceChain,
+      stakingAddress,
+      coin,
+    });
+
+    if (!walletEntry.address) {
+      toast.error("wallet address missing");
+      return;
+    }
+    if (!sourceChain || !stakingAddress) {
+      toast.error("claim route missing");
+      return;
+    }
+    if (!walletEntry.isBrowserWallet && !walletEntry.hasPrivateKey) {
+      toast.error(`${walletLabel}: private key missing`);
+      return;
+    }
+    if (
+      !walletEntry.isBrowserWallet &&
+      typeof window != "undefined" &&
+      !window.confirm(`Claim ${rewardCoin} reward for ${walletLabel}?`)
+    ) {
+      return;
+    }
+
+    const toastId = toast.loading(`${walletLabel}: claiming ${rewardCoin}...`);
+    setClaimingRewardKey(claimKey);
+
+    try {
+      let result;
+
+      if (walletEntry.isBrowserWallet) {
+        const built = await buildAaveStakingClaimTxs({
+          walletAddress: walletEntry.address,
+          chain: sourceChain,
+          stakingAddress,
+        });
+        const txs = [];
+
+        for (const tx of built.txs || []) {
+          txs.push(
+            await sendBrowserTradeTx({
+              tx,
+              walletEntry,
+              tradeToast: toast,
+              toastId,
+              message: `${walletLabel}: claiming ${rewardCoin}...`,
+            }),
+          );
+        }
+
+        result = { ...built, txs };
+      } else {
+        result = await executeAaveStakingClaim({
+          walletName: walletEntry.name,
+          walletAddress: walletEntry.address,
+          chain: sourceChain,
+          stakingAddress,
+        });
+      }
+
+      const hash = result?.txs?.find((tx) => tx?.hash)?.hash;
+      toast.success(hash ? `${walletLabel}: claimed ${hash}` : `${walletLabel}: claimed`, {
+        id: toastId,
+      });
+      router.refresh();
+    } catch (error) {
+      toast.error(`${walletLabel}: ${error.message || error}`, { id: toastId });
+    } finally {
+      setClaimingRewardKey("");
+    }
   }
 
   function getKnownWalletEntries(row) {
@@ -3085,17 +3246,42 @@ function Wallet({
 
   function BalanceCell({ chainE, row, coin }) {
     const bal = row?.balances?.[coin];
+    const coinE = chainE?.coinInfoM?.[coin] || {};
+    const isClaimBalance =
+      chainE?.chain == "Claim" &&
+      String(coinE.source || bal?.source || "").toLowerCase() ==
+        "aave staking" &&
+      (coinE.sourceAddress || bal?.sourceAddress) &&
+      (coinE.sourceChain || bal?.sourceChain);
+    const claimKey = getClaimRewardKey({
+      address: row?.address,
+      sourceChain: coinE.sourceChain || bal?.sourceChain,
+      stakingAddress: coinE.sourceAddress || bal?.sourceAddress,
+      coin,
+    });
 
     return (
       <td>
         {bal ? (
           <>
-            <div>
+            <div className={isClaimBalance ? "walletClaimCellLine" : ""}>
               {pc(bal.balance, { pc: show ? 5 : 3 })}{" "}
               {bal.usd > 0 && (
                 <span className="gray">
                   ${pc(bal.usd, { pc: show ? 5 : 3 })}
                 </span>
+              )}
+              {isClaimBalance && toNum(bal.balance) > 0 && (
+                <button
+                  type="button"
+                  className="btn small walletClaimButton"
+                  disabled={claimingRewardKey == claimKey}
+                  onClick={(event) =>
+                    claimAaveStakingReward(event, { row, chainE, coin, bal })
+                  }
+                >
+                  claim
+                </button>
               )}
             </div>
 
@@ -3191,6 +3377,29 @@ function Wallet({
     }
 
     return 0;
+  }
+
+  function getInfoChainE(chain = "") {
+    return (
+      chainList.find((entry) => entry.chain == chain) || {
+        chain,
+        scanner: scanners?.[chain] || "",
+        coinInfoM: {},
+        discoveredCoins: [],
+      }
+    );
+  }
+
+  function getCoinEntryByAddress(chainE, address = "") {
+    const cleanAddress = String(address || "").toLowerCase();
+    if (!cleanAddress) return null;
+
+    return (
+      Object.entries(chainE?.coinInfoM || {}).find(
+        ([, entry]) =>
+          String(entry?.address || "").toLowerCase() == cleanAddress,
+      ) || null
+    );
   }
 
   function getChainCoinStats(chainE) {
@@ -3383,25 +3592,187 @@ function Wallet({
     );
   }
 
+  function getCanAddCoin({ chainE, coin = "", coinE = {}, force = false } = {}) {
+    const discoveredCoins = Array.isArray(chainE?.discoveredCoins)
+      ? chainE.discoveredCoins
+      : [];
+    const address = coinE.address;
+
+    return (
+      !!address &&
+      (force || coinE.source == "alchemy" || discoveredCoins.includes(coin))
+    );
+  }
+
+  function CoinInfoCardBody({
+    chainE,
+    coin,
+    coinE = {},
+    price = 0,
+    canAddCoin = false,
+  }) {
+    const address = coinE.address;
+    const addressUrl = getScannerTokenUrl(chainE, address);
+
+    return (
+      <>
+        <span className="infoCardTitle">{coinE.name || coin}</span>
+        {price > 0 && (
+          <span>
+            price: <span className="white">${pc(price)}</span>
+          </span>
+        )}
+        <span>
+          type: <span className="white">{coinE.type || "-"}</span>
+        </span>
+        {coinE.ref && (
+          <span>
+            ref: <span className="white">{coinE.ref}</span>
+          </span>
+        )}
+        <span>
+          decimals: <span className="white">{coinE.decimals ?? "-"}</span>
+        </span>
+        <span>
+          address:{" "}
+          {address && addressUrl ? (
+            <a
+              href={addressUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={address}
+            >
+              {shortContract(address)}
+            </a>
+          ) : (
+            <span className="white">{coinE.native ? "native" : "-"}</span>
+          )}
+        </span>
+        {canAddCoin && (
+          <button
+            type="button"
+            className="btn small bgCyan"
+            onClick={(e) => openAlchemyCoinConfirm(e, chainE, coinE)}
+            disabled={addingCoin}
+          >
+            add
+          </button>
+        )}
+      </>
+    );
+  }
+
+  function CoinInfoCard({
+    chainE,
+    coin,
+    coinE,
+    price,
+    canAddCoin = false,
+  }) {
+    return (
+      <span className="infoCard">
+        <CoinInfoCardBody
+          chainE={chainE}
+          coin={coin}
+          coinE={coinE}
+          price={price}
+          canAddCoin={canAddCoin}
+        />
+      </span>
+    );
+  }
+
+  function ClaimCoinInfoCard({ coin, coinE = {}, price = 0 }) {
+    const sourceChain = String(coinE.sourceChain || "").trim();
+    const sourceChainE = getInfoChainE(sourceChain);
+    const rewardAddress = coinE.rewardAddress || coinE.address;
+    const rewardEntry = getCoinEntryByAddress(sourceChainE, rewardAddress);
+    const [rewardCoin, rewardCoinE] = rewardEntry || [
+      coinE.rewardCoin || String(coin).split("<-")[0] || coin,
+      {
+        address: rewardAddress,
+        decimals: coinE.decimals,
+        name: coinE.rewardCoin || coinE.name || coin,
+        type: "token",
+      },
+    ];
+    const sourceCoin = coinE.sourceCoin || String(coin).split("<-")[1] || "";
+    const sourceEntry = getCoinEntryByAddress(sourceChainE, coinE.sourceAddress);
+    const [stakingCoin, stakingCoinE] = sourceEntry || [
+      sourceCoin,
+      {
+        address: coinE.sourceAddress,
+        decimals: coinE.sourceDecimals,
+        name: coinE.sourceName || sourceCoin,
+        type: coinE.sourceType || "yield",
+      },
+    ];
+    const rewardPrice = price || getCoinPrice(sourceChain, rewardCoin);
+    const stakingPrice = getCoinPrice(sourceChain, stakingCoin);
+
+    return (
+      <span className="infoCard claimCoinInfoCard">
+        <span className="claimCoinInfoSummary">
+          <CoinInfoCardBody
+            chainE={sourceChainE}
+            coin={coin}
+            coinE={coinE}
+            price={rewardPrice}
+            canAddCoin={false}
+          />
+        </span>
+        <span className="claimCoinInfoColumns">
+          <span className="claimCoinInfoColumn">
+            <CoinInfoCardBody
+              chainE={sourceChainE}
+              coin={rewardCoin}
+              coinE={rewardCoinE}
+              price={rewardPrice}
+              canAddCoin={getCanAddCoin({
+                chainE: sourceChainE,
+                coin: rewardCoin,
+                coinE: rewardCoinE,
+                force: !rewardEntry && !!rewardAddress,
+              })}
+            />
+          </span>
+          <span className="claimCoinInfoColumn">
+            <CoinInfoCardBody
+              chainE={sourceChainE}
+              coin={stakingCoin}
+              coinE={stakingCoinE}
+              price={stakingPrice}
+              canAddCoin={getCanAddCoin({
+                chainE: sourceChainE,
+                coin: stakingCoin,
+                coinE: stakingCoinE,
+                force: !sourceEntry && !!coinE.sourceAddress,
+              })}
+            />
+          </span>
+        </span>
+      </span>
+    );
+  }
+
   function CoinHeader({ chainE, coin }) {
     const coinE = chainE.coinInfoM?.[coin] ?? {};
     const displayCoin = getCoinDisplayLabel(chainE.chain, coin, coinE);
-    const address = coinE.address;
-    const addressUrl = getScannerTokenUrl(chainE, address);
+    const claimSourceChain =
+      chainE.chain == "Claim" ? String(coinE.sourceChain || "").trim() : "";
     const price = getCoinPrice(chainE.chain, coin);
     const sortKey = `coin:${chainE.chain}:${coin}`;
-    const discoveredCoins = Array.isArray(chainE.discoveredCoins)
-      ? chainE.discoveredCoins
-      : [];
-    const canAddCoin =
-      (coinE.source == "alchemy" || discoveredCoins.includes(coin)) &&
-      !!address;
+    const canAddCoin = getCanAddCoin({ chainE, coin, coinE });
 
     return (
       <span className="infoHover">
         <SortHeader sortKey={sortKey} className="coinSortHeader">
           <span className="coinHeaderLabel">
-            <CoinIcon coin={coin} coinE={coinE} />
+            {claimSourceChain ? (
+              <span className="claimCoinHeaderChain">{claimSourceChain}</span>
+            ) : (
+              <CoinIcon coin={coin} coinE={coinE} />
+            )}
             <span
               className="coinSymbol"
               title={displayCoin == coin ? undefined : coin}
@@ -3410,50 +3781,21 @@ function Wallet({
             </span>
           </span>
         </SortHeader>
-        <span className="infoCard">
-          <span className="infoCardTitle">{coinE.name || coin}</span>
-          {price > 0 && (
-            <span>
-              price: <span className="white">${pc(price)}</span>
-            </span>
-          )}
-          <span>
-            type: <span className="white">{coinE.type || "-"}</span>
-          </span>
-          {coinE.ref && (
-            <span>
-              ref: <span className="white">{coinE.ref}</span>
-            </span>
-          )}
-          <span>
-            decimals: <span className="white">{coinE.decimals ?? "-"}</span>
-          </span>
-          <span>
-            address:{" "}
-            {address && addressUrl ? (
-              <a
-                href={addressUrl}
-                target="_blank"
-                rel="noreferrer"
-                title={address}
-              >
-                {shortContract(address)}
-              </a>
-            ) : (
-              <span className="white">{coinE.native ? "native" : "-"}</span>
-            )}
-          </span>
-          {canAddCoin && (
-            <button
-              type="button"
-              className="btn small bgCyan"
-              onClick={(e) => openAlchemyCoinConfirm(e, chainE, coinE)}
-              disabled={addingCoin}
-            >
-              add
-            </button>
-          )}
-        </span>
+        {chainE.chain == "Claim" ? (
+          <ClaimCoinInfoCard
+            coin={coin}
+            coinE={coinE}
+            price={price}
+          />
+        ) : (
+          <CoinInfoCard
+            chainE={chainE}
+            coin={coin}
+            coinE={coinE}
+            price={price}
+            canAddCoin={canAddCoin}
+          />
+        )}
       </span>
     );
   }
@@ -3669,9 +4011,9 @@ function Wallet({
         <caption>
           <div className="tableCaptionRow">
             <span>chains:</span>
-            <CycleButton
-              direction="prev"
-              onClick={prevWalletType}
+            <CycleButtonPair
+              onPrev={prevWalletType}
+              onNext={nextWalletType}
               disabled={loadingWallet || !canCycleWalletType}
             />
             <select
@@ -3685,20 +4027,16 @@ function Wallet({
                 </option>
               ))}
             </select>
-            <CycleButton
-              onClick={nextWalletType}
-              disabled={loadingWallet || !canCycleWalletType}
-            />
             <span className="infoHover">
               <span>wallets:</span>
               <span className="infoCard">
                 <span>option 'all' excludes watch</span>
               </span>
             </span>
-            <CycleButton
-              direction="prev"
-              onClick={prevWallet}
-              disabled={loadingWallet}
+            <CycleButtonPair
+              onPrev={prevWallet}
+              onNext={nextWallet}
+              disabled={loadingWallet || getWalletCycleValues().length < 2}
             />
             <WalletSelectPicker
               value={walletSelectValue}
@@ -3708,27 +4046,18 @@ function Wallet({
               onRemoveHistory={removeWalletHistory}
               disabled={loadingWallet}
             />
-            <CycleButton onClick={nextWallet} disabled={loadingWallet} />
             <span>chain:</span>
-            <CycleButton
-              direction="prev"
-              onClick={() => cycleActiveChain(-1)}
-              disabled={loadingWallet || !chainList.length}
+            <CycleButtonPair
+              onPrev={() => cycleActiveChain(-1)}
+              onNext={() => cycleActiveChain(1)}
+              disabled={loadingWallet || getChainCycleValues().length < 2}
             />
-            <select
+            <ChainSelectPicker
               value={activeChain}
-              onChange={selectActiveChain}
-              disabled={loadingWallet || !chainList.length}
-            >
-              <option value="">all</option>
-              {chainList.map((chainE) => (
-                <option key={chainE.chain} value={chainE.chain}>
-                  {chainE.chain}
-                </option>
-              ))}
-            </select>
-            <CycleButton
-              onClick={() => cycleActiveChain(1)}
+              options={chainSelectOptions}
+              historyValues={chainHistoryValues}
+              onSelect={selectActiveChainValue}
+              onRemoveHistory={removeChainHistory}
               disabled={loadingWallet || !chainList.length}
             />
             <span>coins:</span>

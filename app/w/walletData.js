@@ -110,9 +110,16 @@ const hyperliquidApiBase =
 const hyperliquidFetchTimeoutMs = 5000;
 const solanaTokenProgramIds = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
 const reservedWalletNames = new Set(["watch"]);
+const claimChain = "Claim";
+const aaveStakingRewardTimeoutMs = 8000;
 const erc20Interface = new ethers.Interface([
   "function balanceOf(address account) view returns (uint256)",
 ]);
+const erc20MetaAbi = [
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+];
 const exchangeRateInterface = new ethers.Interface([
   "function exchangeRateStored() view returns (uint256)",
   "function underlying() view returns (address)",
@@ -125,6 +132,12 @@ const multicallAbi = [
   "function getEthBalance(address addr) view returns (uint256)",
 ];
 const multicallInterface = new ethers.Interface(multicallAbi);
+const aaveStakingVaultInterface = new ethers.Interface([
+  "function REWARDS_CONTROLLER() view returns (address)",
+]);
+const aaveRewardsControllerInterface = new ethers.Interface([
+  "function calculateCurrentUserRewards(address asset,address user) view returns (address[] rewards,uint256[] rewardsAccrued)",
+]);
 
 function withTimeout(promise, ms, message) {
   let timer;
@@ -989,6 +1002,147 @@ function dedupeCoinEntriesByAddress(chain, coinEntries = []) {
   }
 
   return result;
+}
+
+function getCoinEntryByAddress(chain = "", address = "") {
+  if (!ethers.isAddress(address)) return null;
+  const addressKey = normalizeAlchemyTokenAddress(chain, address);
+  if (!addressKey) return null;
+
+  return (
+    Object.entries(getCoinM(chain) || {}).find(([, coinE]) => {
+      const coinAddress = normalizeAlchemyTokenAddress(chain, coinE?.address);
+      return coinAddress && coinAddress == addressKey;
+    }) || null
+  );
+}
+
+function isAaveUmbrellaStakingCoin(coin = "", coinE = {}) {
+  const text = `${coin} ${coinE?.name || ""}`.toLowerCase();
+
+  return (
+    ethers.isAddress(coinE?.address || "") &&
+    /^stk/i.test(coin) &&
+    (text.includes("umbrella") ||
+      text.includes("stake wrapped aave") ||
+      text.includes("aave"))
+  );
+}
+
+function getAaveStakingSourceCoin(coin = "") {
+  return String(coin || "").replace(/\.v\d+$/i, "");
+}
+
+function cleanClaimRewardCoin(symbol = "", address = "") {
+  const clean = String(symbol || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^\w.$-]/g, "")
+    .slice(0, 24);
+  const cleanAddress = String(address || "").replace(/^0x/i, "");
+
+  return (
+    clean ||
+    (cleanAddress ? `REWARD_${cleanAddress.slice(-4)}` : "REWARD")
+  );
+}
+
+function sameEvmAddress(a = "", b = "") {
+  return (
+    ethers.isAddress(a) &&
+    ethers.isAddress(b) &&
+    ethers.getAddress(a) == ethers.getAddress(b)
+  );
+}
+
+function getClaimCoinKey({
+  coinInfoM = {},
+  rewardCoin = "",
+  rewardAddress = "",
+  sourceChain = "",
+  sourceCoin = "",
+} = {}) {
+  const base = `${rewardCoin}<-${getAaveStakingSourceCoin(sourceCoin)}`;
+  const existing = coinInfoM[base];
+  if (
+    !existing ||
+    (existing.sourceChain == sourceChain &&
+      sameEvmAddress(existing.rewardAddress, rewardAddress))
+  ) {
+    return base;
+  }
+
+  return `${base}@${sourceChain}`;
+}
+
+function getPositiveRaw(value) {
+  try {
+    const raw = BigInt(value || 0);
+    return raw > 0n ? raw : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+function ensureClaimRow(rowM, row = {}) {
+  const key = `${row.name || ""}:${String(row.address || "").toLowerCase()}`;
+  if (!rowM.has(key)) {
+    rowM.set(key, {
+      name: row.name,
+      address: row.address,
+      balances: {},
+    });
+  }
+
+  return rowM.get(key);
+}
+
+async function getAaveRewardTokenMeta({
+  provider,
+  chain = "",
+  address = "",
+} = {}) {
+  const rewardAddress = ethers.getAddress(address);
+  const localEntry = getCoinEntryByAddress(chain, rewardAddress);
+  if (localEntry) {
+    const [coin, coinE] = localEntry;
+
+    return {
+      address: rewardAddress,
+      localCoin: coin,
+      symbol: coin,
+      name: coinE.name || coin,
+      decimals: coinE.decimals ?? 18,
+    };
+  }
+
+  const token = new ethers.Contract(rewardAddress, erc20MetaAbi, provider);
+  const [name, symbol, decimals] = await Promise.all([
+    withTimeout(
+      token.name(),
+      aaveStakingRewardTimeoutMs,
+      "reward name timeout",
+    ).catch(() => ""),
+    withTimeout(
+      token.symbol(),
+      aaveStakingRewardTimeoutMs,
+      "reward symbol timeout",
+    ).catch(() => ""),
+    withTimeout(
+      token.decimals(),
+      aaveStakingRewardTimeoutMs,
+      "reward decimals timeout",
+    ).catch(() => 18),
+  ]);
+  const rewardCoin = cleanClaimRewardCoin(symbol, rewardAddress);
+
+  return {
+    address: rewardAddress,
+    localCoin: "",
+    symbol: rewardCoin,
+    name: String(name || "").trim() || rewardCoin,
+    decimals: Number(decimals),
+  };
 }
 
 function getAlchemyNativeCoinEntry({ token, lookup }) {
@@ -1994,6 +2148,283 @@ async function getMulticallBalances({
   }
 
   return { balancesM, errorsM };
+}
+
+function getAaveStakingRewardRequests(data = []) {
+  const requestsByChain = new Map();
+  const claimRowM = new Map();
+
+  for (const chainE of Array.isArray(data) ? data : []) {
+    const chain = chainE?.chain;
+    if (
+      !chain ||
+      chain == "Solana" ||
+      chain == "Hyperliquid" ||
+      chain == claimChain
+    ) {
+      continue;
+    }
+
+    const stakingEntries = Object.entries(chainE.coinInfoM || {}).filter(
+      ([coin, coinE]) => isAaveUmbrellaStakingCoin(coin, coinE),
+    );
+    if (!stakingEntries.length) continue;
+
+    for (const row of chainE.rows || []) {
+      ensureClaimRow(claimRowM, row);
+      if (!ethers.isAddress(row.address)) continue;
+
+      for (const [sourceCoin, sourceCoinE] of stakingEntries) {
+        const balance = row.balances?.[sourceCoin];
+        if (!getPositiveRaw(balance?.raw)) continue;
+
+        const list = requestsByChain.get(chain) || [];
+        list.push({
+          row,
+          wallet: ethers.getAddress(row.address),
+          sourceChain: chain,
+          sourceCoin,
+          sourceCoinE,
+          stakingAddress: ethers.getAddress(sourceCoinE.address),
+        });
+        requestsByChain.set(chain, list);
+      }
+    }
+  }
+
+  return { requestsByChain, claimRowM };
+}
+
+async function getAaveStakingRewardControllers({
+  provider,
+  multicallAddress = "",
+  requests = [],
+} = {}) {
+  const stakingAddresses = [
+    ...new Set(requests.map((request) => request.stakingAddress.toLowerCase())),
+  ];
+  if (!stakingAddresses.length) return new Map();
+
+  const calls = stakingAddresses.map((stakingAddress) => ({
+    stakingAddress,
+    call: {
+      target: ethers.getAddress(stakingAddress),
+      allowFailure: true,
+      callData: aaveStakingVaultInterface.encodeFunctionData(
+        "REWARDS_CONTROLLER",
+      ),
+    },
+  }));
+  const multicall = new ethers.Contract(multicallAddress, multicallAbi, provider);
+  const results = await runMulticallBatch({ multicall, batch: calls });
+  const controllerM = new Map();
+
+  results.forEach((result, index) => {
+    const { success, returnData } = getMulticallResultE(result);
+    if (!success || !returnData || returnData == "0x") return;
+
+    try {
+      const controller = aaveStakingVaultInterface.decodeFunctionResult(
+        "REWARDS_CONTROLLER",
+        returnData,
+      )[0];
+      if (ethers.isAddress(controller)) {
+        controllerM.set(
+          calls[index].stakingAddress,
+          ethers.getAddress(controller),
+        );
+      }
+    } catch {}
+  });
+
+  return controllerM;
+}
+
+async function getAaveStakingRewardResults({
+  provider,
+  multicallAddress = "",
+  requests = [],
+  controllerM = new Map(),
+} = {}) {
+  const calls = requests
+    .map((request) => {
+      const controller = controllerM.get(request.stakingAddress.toLowerCase());
+      if (!ethers.isAddress(controller)) return null;
+
+      return {
+        request,
+        call: {
+          target: ethers.getAddress(controller),
+          allowFailure: true,
+          callData: aaveRewardsControllerInterface.encodeFunctionData(
+            "calculateCurrentUserRewards",
+            [request.stakingAddress, request.wallet],
+          ),
+        },
+      };
+    })
+    .filter(Boolean);
+  if (!calls.length) return [];
+
+  const multicall = new ethers.Contract(multicallAddress, multicallAbi, provider);
+  const results = await runMulticallBatch({ multicall, batch: calls });
+
+  return results.flatMap((result, index) => {
+    const { success, returnData } = getMulticallResultE(result);
+    if (!success || !returnData || returnData == "0x") return [];
+
+    try {
+      const [rewardAddresses, rewardAmounts] =
+        aaveRewardsControllerInterface.decodeFunctionResult(
+          "calculateCurrentUserRewards",
+          returnData,
+        );
+
+      return rewardAddresses
+        .map((address, rewardIndex) => {
+          const amount = getPositiveRaw(rewardAmounts[rewardIndex]);
+          if (!amount || !ethers.isAddress(address)) return null;
+
+          return {
+            ...calls[index].request,
+            rewardAddress: ethers.getAddress(address),
+            amount,
+          };
+        })
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  });
+}
+
+export async function getAaveStakingClaimBalances({
+  data = [],
+  usdPriceQuery = false,
+} = {}) {
+  const { requestsByChain, claimRowM } = getAaveStakingRewardRequests(data);
+  if (!requestsByChain.size) return null;
+
+  const coinInfoM = {};
+  const claimCoins = [];
+  const metaM = new Map();
+  const priceM = new Map();
+
+  for (const [chain, requests] of requestsByChain) {
+    const chainE = getChainE(chain);
+    if (!chainE?.multicall) continue;
+
+    let provider;
+    try {
+      provider = await getProvider(chainE, {
+        timeoutMs: aaveStakingRewardTimeoutMs,
+      });
+      const multicallAddress = ethers.getAddress(chainE.multicall);
+      const controllerM = await getAaveStakingRewardControllers({
+        provider,
+        multicallAddress,
+        requests,
+      });
+      const rewards = await getAaveStakingRewardResults({
+        provider,
+        multicallAddress,
+        requests,
+        controllerM,
+      });
+
+      for (const reward of rewards) {
+        const metaKey = `${chain}:${reward.rewardAddress.toLowerCase()}`;
+        let meta = metaM.get(metaKey);
+        if (!meta) {
+          meta = await getAaveRewardTokenMeta({
+            provider,
+            chain,
+            address: reward.rewardAddress,
+          });
+          metaM.set(metaKey, meta);
+        }
+
+        const rewardCoin = cleanClaimRewardCoin(meta.symbol, meta.address);
+        const claimCoin = getClaimCoinKey({
+          coinInfoM,
+          rewardCoin,
+          rewardAddress: meta.address,
+          sourceChain: reward.sourceChain,
+          sourceCoin: reward.sourceCoin,
+        });
+        if (!coinInfoM[claimCoin]) {
+          coinInfoM[claimCoin] = {
+            address: meta.address,
+            decimals: meta.decimals,
+            name: `${meta.name} claim from ${reward.sourceCoin}`,
+            type: "claim",
+            source: "Aave Staking",
+            sourceChain: reward.sourceChain,
+            sourceCoin: reward.sourceCoin,
+            sourceName: reward.sourceCoinE?.name || reward.sourceCoin,
+            sourceDecimals: reward.sourceCoinE?.decimals,
+            sourceType: reward.sourceCoinE?.type,
+            sourceAddress: reward.stakingAddress,
+            rewardCoin,
+            rewardAddress: meta.address,
+          };
+          claimCoins.push(claimCoin);
+        }
+
+        const priceKey = `${chain}:${meta.address.toLowerCase()}`;
+        let price = priceM.get(priceKey);
+        if (price == null) {
+          price = await getCoinUsdPrice({
+            chain,
+            coin: meta.localCoin || rewardCoin,
+            coinE: {
+              address: meta.address,
+              decimals: meta.decimals,
+              name: meta.name,
+            },
+            usdPriceQuery,
+          }).catch(() => 0);
+          priceM.set(priceKey, price);
+        }
+
+        const balance = ethers.formatUnits(reward.amount, meta.decimals);
+        const row = ensureClaimRow(claimRowM, reward.row);
+        row.balances[claimCoin] = {
+          coin: claimCoin,
+          raw: reward.amount.toString(),
+          balance,
+          decimals: meta.decimals,
+          price,
+          usd: price ? Number(balance) * price : 0,
+          source: "Aave Staking",
+          sourceChain: reward.sourceChain,
+          sourceCoin: reward.sourceCoin,
+          rewardCoin,
+          rewardAddress: meta.address,
+        };
+      }
+    } catch {
+    } finally {
+      provider?.destroy?.();
+    }
+  }
+
+  const rows = [...claimRowM.values()];
+  const coins = getReturnedCoins({
+    rows,
+    coinEntries: claimCoins.map((coin) => [coin, coinInfoM[coin]]),
+  });
+  if (!coins.length) return null;
+
+  return {
+    chain: claimChain,
+    coins,
+    allCoins: claimCoins,
+    coinInfoM,
+    scanner: "",
+    rows,
+    source: "claim",
+  };
 }
 
 async function solanaRpc(rpc, method, params) {

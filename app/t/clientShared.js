@@ -11,11 +11,13 @@ import {
   CustomPickerButton,
   CustomPickerCell,
   CustomPickerColumn,
+  CustomHistoryPicker,
   CustomPickerMenu,
   CustomPickerRow,
   CustomPickerSortHeader,
   CustomPickerTable,
-  CycleButton,
+  CycleButtonPair,
+  getCustomPickerHistoryCycleValues,
 } from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
@@ -121,6 +123,7 @@ export const dexOptions = (Array.isArray(dexs) ? dexs : [])
     value: String(entry.value),
     label: String(entry.label),
     bridge: !!entry.bridge,
+    url: entry.url ? String(entry.url) : "",
   }));
 export const noDex = { value: "", label: "DEX", bridge: false };
 export const lendingOptions = (Array.isArray(lendings) ? lendings : [])
@@ -128,6 +131,7 @@ export const lendingOptions = (Array.isArray(lendings) ? lendings : [])
   .map((entry) => ({
     value: String(entry.value),
     label: String(entry.label),
+    url: entry.url ? String(entry.url) : "",
   }));
 export const noLending = { value: "", label: "DeFi" };
 export const yieldOptions = (Array.isArray(yields) ? yields : [])
@@ -135,6 +139,7 @@ export const yieldOptions = (Array.isArray(yields) ? yields : [])
   .map((entry) => ({
     value: String(entry.value),
     label: String(entry.label),
+    url: entry.url ? String(entry.url) : "",
   }));
 export const noYield = { value: "", label: "Yield" };
 
@@ -917,6 +922,72 @@ export function TradePickerSortHeader({
   );
 }
 
+export function getHistoryCycleValues(historyOptions = [], allOptions = []) {
+  return getCustomPickerHistoryCycleValues(historyOptions, allOptions);
+}
+
+export function TradeSelectionPicker({
+  selectedValue = "",
+  selectedLabel = "",
+  historyOptions = [],
+  allOptions = [],
+  showMenu = false,
+  setShowMenu = () => {},
+  pickerRef,
+  pickerSortM = {},
+  setPickerSortM = () => {},
+  sortKeyPrefix = "tradeSelection",
+  header = "select",
+  historyTitle = "history",
+  allTitle = "all",
+  emptyHistoryText = "-",
+  emptyAllText = "-",
+  className = "",
+  menuClassName = "",
+  cycleSize = "small",
+  disabled = false,
+  cycleDisabled,
+  getOptionLink,
+  onSelect = () => {},
+  onPrev = () => {},
+  onNext = () => {},
+  onOpen = () => {},
+  onFocus,
+  onRemoveHistory,
+}) {
+  return (
+    <CustomHistoryPicker
+      selectedValue={selectedValue}
+      selectedLabel={selectedLabel}
+      historyOptions={historyOptions}
+      allOptions={allOptions}
+      showMenu={showMenu}
+      setShowMenu={setShowMenu}
+      pickerRef={pickerRef}
+      pickerSortM={pickerSortM}
+      setPickerSortM={setPickerSortM}
+      sortKeyPrefix={sortKeyPrefix}
+      header={header}
+      historyTitle={historyTitle}
+      allTitle={allTitle}
+      emptyHistoryText={emptyHistoryText}
+      emptyAllText={emptyAllText}
+      className={className}
+      menuClassName={menuClassName}
+      cycleSize={cycleSize}
+      disabled={disabled}
+      cycleDisabled={cycleDisabled}
+      getOptionLink={getOptionLink}
+      onSelect={onSelect}
+      onPrev={onPrev}
+      onNext={onNext}
+      onOpen={onOpen}
+      onFocus={onFocus}
+      onRemoveHistory={onRemoveHistory}
+    />
+  );
+}
+
 export function formatTradeMarketApr(apr) {
   const value = toNum(apr);
   if (value <= 0) return "";
@@ -1086,7 +1157,6 @@ function defaultMarketSelectValue(entry = {}) {
 
 export function TradeMarketPicker({
   marketPickerRef,
-  marketButtonWidth,
   chainName = "",
   defi = "",
   market = "",
@@ -1096,6 +1166,7 @@ export function TradeMarketPicker({
   setShowMarketMenu = () => {},
   prevMarket = () => {},
   nextMarket = () => {},
+  cycleDisabled,
   visibleAddedMarkets = [],
   addedRows = [],
   allRows = [],
@@ -1145,14 +1216,13 @@ export function TradeMarketPicker({
 
   return (
     <div className="selectCycle walletCycle tradeMarketCycle">
-      <CycleButton
-        direction="prev"
-        onClick={prevMarket}
-        disabled={visibleAddedMarkets.length < 2}
+      <CycleButtonPair
+        onPrev={prevMarket}
+        onNext={nextMarket}
+        disabled={cycleDisabled ?? visibleAddedMarkets.length < 2}
       />
       <CustomPicker ref={marketPickerRef}>
         <CustomPickerButton
-          style={{ width: marketButtonWidth }}
           disabled={!chainName}
           onClick={() => setShowMarketMenu((show) => !show)}
         >
@@ -1391,10 +1461,6 @@ export function TradeMarketPicker({
           </TradePickerMenu>
         )}
       </CustomPicker>
-      <CycleButton
-        onClick={nextMarket}
-        disabled={visibleAddedMarkets.length < 2}
-      />
       <span className="tradeSelectedApr">
         <AprText apr={marketSupplyApr} />
       </span>
@@ -2223,18 +2289,6 @@ export function qtyInputStyle(value = "") {
     maxWidth: "none",
     width: `${qtyInputSize(value)}ch`,
   };
-}
-
-export function getTradePickerButtonWidth(
-  labels = [],
-  { minLength = 8, maxLength = 32, offset = -1 } = {},
-) {
-  const maxLabelLength = Math.max(
-    minLength,
-    ...labels.map((label) => String(label ?? "").length),
-  );
-
-  return `${Math.min(Math.max(maxLabelLength + offset, 1), maxLength)}ch`;
 }
 
 export function rangeQtyInput(value, maxValue, maxQty, decimals = 18) {
