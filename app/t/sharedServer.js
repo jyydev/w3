@@ -11,12 +11,13 @@ import getCoinM from "@/fn/getCoinM";
 import { chainById, chainIds } from "@/data/basic";
 import { onWhitelist, rpcs, whitelists } from "@/sets";
 import {
+  cleanErrorText,
   createJsonRpcProvider,
   getRpcOrigin,
   logRpcFailure,
 } from "@/app/_fn/shared";
 import { getCoinUsdPrice } from "../w/walletData";
-export { createJsonRpcProvider, getRpcOrigin, logRpcFailure };
+export { cleanErrorText, createJsonRpcProvider, getRpcOrigin, logRpcFailure };
 export const nativeEvmAddress = "0x0000000000000000000000000000000000000000";
 export const erc20Abi = [
   "function allowance(address owner,address spender) view returns (uint256)",

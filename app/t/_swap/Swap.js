@@ -160,6 +160,14 @@ function getDexUrl(defi = "") {
   return "";
 }
 
+function isSwapRecipientAddressForChain(chain = "", address = "") {
+  const clean = String(address || "").trim();
+  if (!clean) return false;
+  if (chain == "Solana") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(clean);
+
+  return /^0x[0-9a-fA-F]{40}$/.test(clean);
+}
+
 export default function SwapPanel({
   data = [],
   walletEntriesM = {},
@@ -1088,7 +1096,13 @@ export default function SwapPanel({
   }
 
   function isRecipientBalanceMode() {
-    return !!(isSolanaBridge && recipient && toChain && toCoin);
+    return !!(
+      isSolanaBridge &&
+      recipient &&
+      toChain &&
+      toCoin &&
+      isSwapRecipientAddressForChain(toChain, recipient)
+    );
   }
 
   function getRecipientBalanceKey() {

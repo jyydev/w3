@@ -26,7 +26,7 @@ exports.yields = [
   { value: "hyperliquid", label: "Hyperliquid" },
 ];
 
-exports.walletChainFilterPriority = ["Hyperliquid", "Claim"];
+exports.walletChainFilterPriority = ["Hyperliquid", "Claim", "Solana"];
 
 exports.sets = {
   useAlchemy: 1,
@@ -64,6 +64,14 @@ function alchemyRpc(network) {
 }
 
 exports.rpcs = {
+  Solana: [
+    "https://solana-rpc.publicnode.com",
+    "https://api.mainnet.solana.com",
+    "https://api.mainnet-beta.solana.com",
+    // "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY",
+    // "https://rpc.ankr.com/solana", // neeed key
+    alchemyRpc("solana-mainnet"),
+  ],
   Ethereum: [
     "https://ethereum-rpc.publicnode.com",
     "https://eth-mainnet.public.blastapi.io",
@@ -201,14 +209,6 @@ exports.rpcs = {
     "https://avalanche.drpc.org",
     "https://ava-mainnet.public.blastapi.io/ext/bc/C/rpc",
     alchemyRpc("avax-mainnet"),
-  ],
-  Solana: [
-    "https://solana-rpc.publicnode.com",
-    "https://api.mainnet-beta.solana.com",
-    "https://api.mainnet.solana.com",
-    // "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY",
-    // "https://rpc.ankr.com/solana", // neeed key
-    alchemyRpc("solana-mainnet"),
   ],
 };
 exports.scanners = {

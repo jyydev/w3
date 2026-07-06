@@ -12,12 +12,40 @@ export function getRpcOrigin(rpc = "") {
   }
 }
 
+export function cleanErrorText(value = "", maxLength = 240) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  let text = raw;
+  if (/<html[\s>]/i.test(raw) || /<!doctype\s+html/i.test(raw)) {
+    const prefix = raw
+      .split(/<!doctype\s+html|<html[\s>]/i)[0]
+      .trim()
+      .replace(/[:\s]+$/g, "");
+    const title = raw
+      .match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+      ?.replace(/<[^>]*>/g, " ")
+      ?.trim();
+
+    text = [prefix, title].filter(Boolean).join(": ");
+    if (!text) {
+      text = raw
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]*>/g, " ");
+    }
+  }
+
+  text = text.replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
 function getRpcErrorMessage(error) {
-  return (
+  return cleanErrorText(
     error?.shortMessage ||
-    error?.reason ||
-    error?.message ||
-    String(error || "rpc failed")
+      error?.reason ||
+      error?.message ||
+      String(error || "rpc failed"),
   );
 }
 
@@ -55,6 +83,13 @@ export function createJsonRpcProvider(
         return await send(...args);
       } catch (error) {
         logRpcFailure({ scope, chain, rpc, error });
+        const message = getRpcErrorMessage(error);
+        if (message && message != error?.message) {
+          const cleanError = new Error(message);
+          cleanError.code = error?.code;
+          cleanError.shortMessage = message;
+          throw cleanError;
+        }
         throw error;
       }
     };

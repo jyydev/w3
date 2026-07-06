@@ -219,7 +219,8 @@ async function WPage({
   const selectedWalletName = walletNameAddress ? "" : rawWalletName;
   const evmRpcChains = Object.keys(coinM).filter((chain) => rpcs?.[chain]);
   const hyperliquidChain = "Hyperliquid";
-  const availableChains = [...evmRpcChains, hyperliquidChain];
+  const claimChain = "Claim";
+  const availableChains = [...evmRpcChains, hyperliquidChain, claimChain];
   const customCoinM = await readCustomCoinM(availableChains);
   const availableCoinM = Object.fromEntries(
     availableChains.map((chain) => {
@@ -451,7 +452,7 @@ async function WPage({
           ],
         );
   const claimData =
-    selectedWalletType == "solana"
+    selectedWalletType == "solana" || disabledChainM.has(claimChain)
       ? null
       : await getAaveStakingClaimBalances({
           data,
@@ -473,6 +474,8 @@ async function WPage({
         loadedSource ||
         (chain == hyperliquidChain
           ? "api"
+          : chain == claimChain
+            ? "api"
           : useAlchemy && alchemyChainM[chain]
             ? "alchemy"
             : "rpc");

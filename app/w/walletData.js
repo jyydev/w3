@@ -7,7 +7,7 @@ import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import { chainIds, defaultMulticallAddress, multicalls } from "@/data/basic";
 import getCoinM from "@/fn/getCoinM";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
-import { createJsonRpcProvider, logRpcFailure } from "../_fn/shared";
+import { cleanErrorText, createJsonRpcProvider, logRpcFailure } from "../_fn/shared";
 import { getWalletDisableKey } from "./walletSettingData";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
@@ -368,7 +368,10 @@ async function getProvider(chainE, { timeoutMs = 0 } = {}) {
     }
   }
 
-  throw new Error(lastError?.shortMessage ?? lastError?.message ?? "all rpcs failed");
+  throw new Error(
+    cleanErrorText(lastError?.shortMessage ?? lastError?.message) ||
+      "all rpcs failed",
+  );
 }
 
 function getUsdPrice(coin, priceM, { usdPriceQuery = false } = {}) {
@@ -2463,7 +2466,7 @@ async function withSolanaRpc(chainE, fn) {
     }
   }
 
-  throw new Error(lastError?.message ?? "all Solana rpcs failed");
+  throw new Error(cleanErrorText(lastError?.message) || "all Solana rpcs failed");
 }
 
 async function getSolanaTokenAccountsFromRpc({ rpc, owner }) {

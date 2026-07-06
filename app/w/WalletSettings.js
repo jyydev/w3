@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { ckPrefix } from "@/sets";
+import { ckPrefix, walletChainFilterPriority } from "@/sets";
 import { TableSortHeader } from "@/components/Shared";
 import {
   clearLocalEditorData,
@@ -72,6 +72,18 @@ function sortSettingRows(rows = [], sortKey = "", directionM = {}) {
   });
 }
 
+function sortWalletChainSettings(chains = []) {
+  const priorityChains = Array.isArray(walletChainFilterPriority)
+    ? walletChainFilterPriority
+    : [];
+  const prioritySet = new Set(priorityChains);
+
+  return [
+    ...priorityChains.filter((chain) => chains.includes(chain)),
+    ...chains.filter((chain) => !prioritySet.has(chain)),
+  ];
+}
+
 function WalletSettings({
   chains = [],
   chainSourceM = {},
@@ -119,7 +131,7 @@ function WalletSettings({
   );
   const [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
   const chainRows = sortSettingRows(
-    chains.map((chain, index) => ({
+    sortWalletChainSettings(chains).map((chain, index) => ({
       index,
       chain,
       source: getChainSource(chain),

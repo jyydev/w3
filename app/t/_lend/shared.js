@@ -4,15 +4,19 @@ import coinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import {
   cleanMarketSymbol,
+  cleanErrorText,
   createJsonRpcProvider,
+  getRpcOrigin,
   logRpcFailure,
   sameEvmAddress,
   withTimeout,
 } from "../sharedServer";
 
 export {
+  cleanErrorText,
   cleanMarketSymbol,
   createJsonRpcProvider,
+  getRpcOrigin,
   logRpcFailure,
   mapWithConcurrency,
   sameEvmAddress,
@@ -55,7 +59,7 @@ export async function getSolanaMultipleAccountsInfoFast(pubkeys = [], timeoutMs 
         return withTimeout(
           connection.getMultipleAccountsInfo(pubkeys, "confirmed"),
           timeoutMs,
-          `Solana RPC timeout: ${rpc}`,
+          `Solana RPC timeout: ${getRpcOrigin(rpc)}`,
         );
       }),
     );
@@ -64,7 +68,7 @@ export async function getSolanaMultipleAccountsInfoFast(pubkeys = [], timeoutMs 
     const message =
       errors.find((err) => err?.message)?.message ||
       "Solana Jupiter markets timeout";
-    throw new Error(message);
+    throw new Error(cleanErrorText(message) || "Solana Jupiter markets timeout");
   }
 }
 

@@ -341,6 +341,92 @@ function getJupiterMarket({
   };
 }
 
+function sameJupiterText(a = "", b = "") {
+  return String(a || "").trim().toLowerCase() == String(b || "").trim().toLowerCase();
+}
+
+function sameJupiterAddress(a = "", b = "") {
+  return String(a || "").trim() == String(b || "").trim();
+}
+
+function getInteger(value) {
+  const n = Number(value);
+  return Number.isInteger(n) ? n : undefined;
+}
+
+async function resolveJupiterMarket({
+  chain = "Solana",
+  underlyingCoin = "",
+  lendCoin = "",
+  underlyingAddress = "",
+  underlyingDecimals,
+  lendAddress = "",
+  lendDecimals,
+  marketName = "",
+} = {}) {
+  if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
+
+  const cleanUnderlyingAddress = String(underlyingAddress || "").trim();
+  const cleanLendAddress = String(lendAddress || "").trim();
+  const cleanMarketName = String(marketName || "").trim();
+  const allMarkets = await getJupiterAllMarkets({ chain }).catch(() => ({}));
+  const markets = Array.isArray(allMarkets?.markets) ? allMarkets.markets : [];
+  const resolved =
+    (cleanLendAddress &&
+      markets.find((entry) =>
+        sameJupiterAddress(entry.lendAddress, cleanLendAddress),
+      )) ||
+    (underlyingCoin &&
+      lendCoin &&
+      markets.find(
+        (entry) =>
+          sameJupiterText(entry.underlyingCoin, underlyingCoin) &&
+          sameJupiterText(entry.lendCoin, lendCoin) &&
+          (!cleanMarketName || sameJupiterText(entry.market, cleanMarketName)),
+      )) ||
+    (lendCoin &&
+      markets.find(
+        (entry) =>
+          sameJupiterText(entry.lendCoin, lendCoin) &&
+          (!cleanMarketName || sameJupiterText(entry.market, cleanMarketName)),
+      )) ||
+    null;
+  const finalUnderlyingCoin = underlyingCoin || resolved?.underlyingCoin || "";
+  const finalLendCoin = lendCoin || resolved?.lendCoin || "";
+  const underlyingE = coinM?.Solana?.[finalUnderlyingCoin] || {};
+  const lendE = coinM?.Solana?.[finalLendCoin] || {};
+  const finalUnderlyingAddress =
+    cleanUnderlyingAddress || resolved?.underlyingAddress || underlyingE.address || "";
+  const finalLendAddress =
+    cleanLendAddress || resolved?.lendAddress || lendE.address || "";
+  const finalUnderlyingDecimals =
+    getInteger(underlyingDecimals) ??
+    getInteger(resolved?.underlyingDecimals) ??
+    getInteger(underlyingE.decimals);
+  const finalLendDecimals =
+    getInteger(lendDecimals) ??
+    getInteger(resolved?.lendDecimals) ??
+    getInteger(lendE.decimals);
+  const market = getJupiterMarket({
+    chain,
+    underlyingCoin: finalUnderlyingCoin,
+    lendCoin: finalLendCoin,
+    underlyingAddress: finalUnderlyingAddress,
+    lendAddress: finalLendAddress,
+    marketName: cleanMarketName || resolved?.market || "",
+  });
+
+  return {
+    ...market,
+    underlyingCoin: finalUnderlyingCoin,
+    lendCoin: finalLendCoin,
+    underlyingAddress: market.underlying.toBase58(),
+    lendAddress: market.fTokenMint.toBase58(),
+    underlyingDecimals: finalUnderlyingDecimals,
+    lendDecimals: finalLendDecimals,
+  };
+}
+
 function getSolanaCoinByAddress(address = "") {
   const cleanAddress = String(address || "").trim();
   if (!cleanAddress) return null;
@@ -809,22 +895,24 @@ export async function getJupiterLendPreview({
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
   if (!walletAddress) throw new Error("Solana wallet address required");
 
-  const amountIn = getJupiterAmount({
-    chain,
-    action,
-    underlyingCoin,
-    lendCoin,
-    amount,
-    underlyingDecimals,
-    lendDecimals,
-  });
-  const market = getJupiterMarket({
+  const market = await resolveJupiterMarket({
     chain,
     underlyingCoin,
     lendCoin,
     underlyingAddress,
+    underlyingDecimals,
     lendAddress,
+    lendDecimals,
     marketName,
+  });
+  const amountIn = getJupiterAmount({
+    chain,
+    action,
+    underlyingCoin: market.underlyingCoin,
+    lendCoin: market.lendCoin,
+    amount,
+    underlyingDecimals: market.underlyingDecimals,
+    lendDecimals: market.lendDecimals,
   });
 
   return {
@@ -857,22 +945,24 @@ export async function buildJupiterLendTxs({
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
   if (!walletAddress) throw new Error("Solana wallet address required");
 
-  const amountIn = getJupiterAmount({
-    chain,
-    action,
-    underlyingCoin,
-    lendCoin,
-    amount,
-    underlyingDecimals,
-    lendDecimals,
-  });
-  const market = getJupiterMarket({
+  const market = await resolveJupiterMarket({
     chain,
     underlyingCoin,
     lendCoin,
     underlyingAddress,
+    underlyingDecimals,
     lendAddress,
+    lendDecimals,
     marketName,
+  });
+  const amountIn = getJupiterAmount({
+    chain,
+    action,
+    underlyingCoin: market.underlyingCoin,
+    lendCoin: market.lendCoin,
+    amount,
+    underlyingDecimals: market.underlyingDecimals,
+    lendDecimals: market.lendDecimals,
   });
   const { instructions } = await getJupiterInstruction({
     walletAddress,
@@ -893,8 +983,8 @@ export async function buildJupiterLendTxs({
     defi: "Jupiter",
     chain,
     action,
-    underlyingCoin,
-    lendCoin,
+    underlyingCoin: market.underlyingCoin || underlyingCoin,
+    lendCoin: market.lendCoin || lendCoin,
     amountIn: amountIn.toString(),
     market: market.market,
     txs: [tx],

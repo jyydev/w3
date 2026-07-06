@@ -1,8 +1,10 @@
+import { cleanErrorText } from "@/app/_fn/shared";
+
 export function parseJson(text = "") {
   try {
     return text ? JSON.parse(text) : {};
   } catch {
-    return { message: text };
+    return { message: cleanErrorText(text) || "Invalid JSON response" };
   }
 }
 
