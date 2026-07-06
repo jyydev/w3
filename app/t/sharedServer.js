@@ -15,9 +15,16 @@ import {
   createJsonRpcProvider,
   getRpcOrigin,
   logRpcFailure,
+  toCleanError,
 } from "@/app/_fn/shared";
 import { getCoinUsdPrice } from "../w/walletData";
-export { cleanErrorText, createJsonRpcProvider, getRpcOrigin, logRpcFailure };
+export {
+  cleanErrorText,
+  createJsonRpcProvider,
+  getRpcOrigin,
+  logRpcFailure,
+  toCleanError,
+};
 export const nativeEvmAddress = "0x0000000000000000000000000000000000000000";
 export const erc20Abi = [
   "function allowance(address owner,address spender) view returns (uint256)",
@@ -35,7 +42,11 @@ export function withTimeout(promise, ms, message) {
     new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(message)), ms);
     }),
-  ]).finally(() => clearTimeout(timer));
+  ])
+    .catch((error) => {
+      throw toCleanError(error, message);
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 export async function fetchWithTimeout(url, options = {}, ms = 15000) {
@@ -460,7 +471,29 @@ export function getSolanaConnection() {
   const rpc = getUsableChainRpc("Solana");
   if (!rpc) throw new Error("Solana rpc not configured");
 
-  return new Connection(rpc, "confirmed");
+  const connection = new Connection(rpc, "confirmed");
+
+  return new Proxy(connection, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value != "function") return value;
+
+      return (...args) => {
+        try {
+          const result = value.apply(target, args);
+          if (result?.then) {
+            return result.catch((error) => {
+              throw toCleanError(error, `Solana RPC failed: ${getRpcOrigin(rpc)}`);
+            });
+          }
+
+          return result;
+        } catch (error) {
+          throw toCleanError(error, `Solana RPC failed: ${getRpcOrigin(rpc)}`);
+        }
+      };
+    },
+  });
 }
 
 export function getCoinDecimals(chain = "", coin = "", dynamicCoinE = null) {

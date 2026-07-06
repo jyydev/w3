@@ -7,7 +7,12 @@ import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import { chainIds, defaultMulticallAddress, multicalls } from "@/data/basic";
 import getCoinM from "@/fn/getCoinM";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
-import { cleanErrorText, createJsonRpcProvider, logRpcFailure } from "../_fn/shared";
+import {
+  cleanErrorText,
+  createJsonRpcProvider,
+  logRpcFailure,
+  toCleanError,
+} from "../_fn/shared";
 import { getWalletDisableKey } from "./walletSettingData";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
@@ -147,7 +152,11 @@ function withTimeout(promise, ms, message) {
     new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(message)), ms);
     }),
-  ]).finally(() => clearTimeout(timer));
+  ])
+    .catch((error) => {
+      throw toCleanError(error, message);
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 async function fetchWithTimeout(url, options = {}, ms = priceFetchTimeoutMs) {
@@ -2484,7 +2493,7 @@ async function getSolanaTokenAccountsFromRpc({ rpc, owner }) {
   );
 
   if (results[0]?.status == "rejected") {
-    throw new Error(results[0].reason?.message ?? "SPL balance error");
+    throw toCleanError(results[0].reason, "SPL balance error");
   }
 
   return accounts;

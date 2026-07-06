@@ -14,7 +14,11 @@ import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import baseCoinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
-import { createJsonRpcProvider, logRpcFailure } from "../_fn/shared";
+import {
+  createJsonRpcProvider,
+  logRpcFailure,
+  toCleanError,
+} from "../_fn/shared";
 
 const customCoinDir = path.join(process.cwd(), "data", "editor", "coins");
 const customDefiDir = path.join(process.cwd(), "data", "editor", "defi");
@@ -105,9 +109,7 @@ async function withProvider(chain, fn) {
     }
   }
 
-  throw new Error(
-    lastError?.shortMessage ?? lastError?.message ?? `missing rpc: ${chain}`,
-  );
+  throw toCleanError(lastError, `missing rpc: ${chain}`);
 }
 
 async function withSolanaConnection(chain, fn) {
@@ -127,9 +129,7 @@ async function withSolanaConnection(chain, fn) {
     }
   }
 
-  throw new Error(
-    lastError?.message ?? lastError?.shortMessage ?? `missing rpc: ${chain}`,
-  );
+  throw toCleanError(lastError, `missing rpc: ${chain}`);
 }
 
 async function readCustomCoins(chain) {
@@ -373,7 +373,7 @@ async function getSolanaMint(connection, mint) {
     }
   }
 
-  throw new Error(lastError?.message ?? "invalid Solana token mint");
+  throw toCleanError(lastError, "invalid Solana token mint");
 }
 
 async function getSolanaMetadata(connection, mintAddress) {

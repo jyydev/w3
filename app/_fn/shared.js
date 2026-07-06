@@ -40,13 +40,52 @@ export function cleanErrorText(value = "", maxLength = 240) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
+function getErrorTextCandidates(error, seen = new Set()) {
+  if (!error || seen.has(error)) return [];
+  if (typeof error == "string") return [error];
+  if (typeof error != "object") return [String(error)];
+  seen.add(error);
+
+  const values = [
+    error.shortMessage,
+    error.reason,
+    error.message,
+    error.body,
+    error.responseText,
+    error.responseBody,
+    error.data,
+    error.info,
+    error.error,
+    error.cause,
+  ];
+
+  return values.flatMap((value) => {
+    if (!value) return [];
+    if (typeof value == "string") return [value];
+    return getErrorTextCandidates(value, seen);
+  });
+}
+
+export function getCleanErrorMessage(error, fallback = "") {
+  for (const candidate of getErrorTextCandidates(error)) {
+    const clean = cleanErrorText(candidate);
+    if (clean) return clean;
+  }
+
+  return cleanErrorText(fallback);
+}
+
+export function toCleanError(error, fallback = "request failed") {
+  const message = getCleanErrorMessage(error, fallback);
+  const cleanError = new Error(message || fallback);
+  cleanError.code = error?.code;
+  cleanError.shortMessage = cleanError.message;
+
+  return cleanError;
+}
+
 function getRpcErrorMessage(error) {
-  return cleanErrorText(
-    error?.shortMessage ||
-      error?.reason ||
-      error?.message ||
-      String(error || "rpc failed"),
-  );
+  return getCleanErrorMessage(error, "rpc failed");
 }
 
 export function logRpcFailure({
@@ -83,14 +122,7 @@ export function createJsonRpcProvider(
         return await send(...args);
       } catch (error) {
         logRpcFailure({ scope, chain, rpc, error });
-        const message = getRpcErrorMessage(error);
-        if (message && message != error?.message) {
-          const cleanError = new Error(message);
-          cleanError.code = error?.code;
-          cleanError.shortMessage = message;
-          throw cleanError;
-        }
-        throw error;
+        throw toCleanError(error, "rpc failed");
       }
     };
   }
