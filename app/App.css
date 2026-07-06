@@ -991,6 +991,10 @@ img.assetIcon {
   height: 12px;
   fill: currentColor;
 }
+.walletHistoryRemoveButton {
+  margin-left: 4px;
+  vertical-align: -2px;
+}
 .walletSettingsRow,
 .coinSettingsRow {
   cursor: pointer;
@@ -1148,11 +1152,11 @@ img.assetIcon {
 .selectedCompact {
   grid-template-columns: auto max-content auto auto;
 }
-.selectedCompact .tradePicker {
+.selectedCompact .customPicker {
   width: max-content;
   max-width: min(58ch, 48vw);
 }
-.selectedCompact .tradePickerButton {
+.selectedCompact .customPickerButton {
   width: max-content;
   max-width: 100%;
   min-width: 0;
@@ -1233,6 +1237,19 @@ img.assetIcon {
   gap: 4px;
   align-items: center;
 }
+.tradeClaimRewardsLine {
+  display: inline-flex;
+  flex-basis: 100%;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.tradeCooldownStatus {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  white-space: nowrap;
+}
 .tradeAutoApproval,
 .swapAutoApproval {
   display: inline-flex;
@@ -1278,11 +1295,11 @@ img.assetIcon {
   width: 170px;
   min-width: 150px;
 }
-.tradePicker {
+.customPicker {
   position: relative;
   min-width: 0;
 }
-.tradePickerButton {
+.customPickerButton {
   position: relative;
   height: 24px;
   padding: 1px 7px 1px 2px;
@@ -1297,7 +1314,7 @@ img.assetIcon {
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.tradePickerButton::after {
+.customPickerButton::after {
   position: absolute;
   top: 50%;
   right: -1px;
@@ -1305,7 +1322,7 @@ img.assetIcon {
   content: "▾";
   color: rgb(250, 204, 15);
 }
-.tradePickerMenu {
+.customPickerMenu {
   position: absolute;
   z-index: 3000;
   top: calc(100% + 4px);
@@ -1323,13 +1340,13 @@ img.assetIcon {
   background: rgb(12, 12, 12);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
 }
-.tradePickerColumn {
+.customPickerColumn {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.tradePickerColumnTitle {
+.customPickerColumnTitle {
   margin-bottom: 2px;
   color: rgb(150, 150, 150);
   font-size: 12px;
@@ -1339,19 +1356,19 @@ img.assetIcon {
   min-width: 0;
   max-width: min(1180px, 96vw);
 }
-.tradePickerDataTable {
+.customPickerDataTable {
   width: max-content;
   max-width: min(560px, 46vw);
   border-collapse: collapse;
   table-layout: auto;
 }
-.tradePickerAllTable {
+.customPickerAllTable {
   max-width: min(720px, 56vw);
 }
-.tradePickerTable {
+.customPickerTable {
   max-width: min(420px, 44vw);
 }
-.tradePickerTable td:first-child {
+.customPickerTable td:first-child {
   max-width: 260px;
 }
 .tradeChainAddedTable td:nth-child(2),
@@ -1363,7 +1380,7 @@ img.assetIcon {
   padding-right: 2px;
   text-align: center;
 }
-.tradePickerTable .tradePickerSelect {
+.customPickerTable .customPickerSelect {
   grid-template-columns: max-content max-content;
   column-gap: 6px;
 }
@@ -1378,7 +1395,7 @@ img.assetIcon {
 .sendCoinTable td:nth-child(2) {
   white-space: nowrap;
 }
-.tradePickerDataTable th {
+.customPickerDataTable th {
   padding: 0 5px 2px;
   color: rgb(150, 150, 150);
   font-weight: 400;
@@ -1388,7 +1405,7 @@ img.assetIcon {
   white-space: nowrap;
 }
 .sortableHeader,
-.tradePickerSortHeader {
+.customPickerSortHeader {
   padding: 0;
   border: 0;
   background: transparent;
@@ -1397,49 +1414,55 @@ img.assetIcon {
   cursor: pointer;
 }
 .sortableHeader:hover,
-.tradePickerSortHeader:hover {
+.customPickerSortHeader:hover {
   color: white;
 }
 .sortableHeader.on,
-.tradePickerSortHeader.on {
+.customPickerSortHeader.on {
   color: rgb(210, 210, 210);
 }
 .sortableHeader.on::after,
-.tradePickerSortHeader.on::after {
+.customPickerSortHeader.on::after {
   content: "↓";
   margin-left: 2px;
 }
-.tradePickerDataTable td {
+.customPickerDataTable td {
   max-width: 220px;
   padding: 3px 5px;
   vertical-align: middle;
   white-space: nowrap;
 }
-.tradePickerAllTable td:nth-child(3),
-.tradePickerAllTable td:nth-child(6) {
+.customPickerAllTable td:nth-child(3),
+.customPickerAllTable td:nth-child(6) {
   max-width: 24px;
   padding-left: 2px;
   padding-right: 2px;
   text-align: center;
 }
-.tradePickerDataTable .btn {
+.customPickerDataTable .btn {
   min-width: 16px;
   padding-left: 3px;
   padding-right: 3px;
 }
-.tradePickerRow {
+.walletSelectPickerMenu {
+  max-width: min(560px, 94vw);
+}
+.walletSelectPickerTable td:first-child {
+  max-width: 220px;
+}
+.customPickerRow {
   cursor: pointer;
 }
-.tradePickerRow.on > td {
+.customPickerRow.on > td {
   background: rgb(66, 56, 9);
 }
-.tradePickerRow:hover > td {
+.customPickerRow:hover > td {
   background: rgb(48, 48, 48);
 }
-.tradePickerRow.on:hover > td {
+.customPickerRow.on:hover > td {
   background: rgb(80, 68, 11);
 }
-.tradePickerRow.unsupported {
+.customPickerRow.unsupported {
   opacity: 0.72;
 }
 .tradeSelectedApr {
@@ -1454,7 +1477,7 @@ img.assetIcon {
   margin-left: 2px;
   white-space: nowrap;
 }
-.tradePickerSelect {
+.customPickerSelect {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0;
@@ -1469,54 +1492,54 @@ img.assetIcon {
   text-align: left;
   cursor: pointer;
 }
-.tradePickerSecondarySelect {
+.customPickerSecondarySelect {
   margin-left: 4px;
 }
-.tradePickerCoinHover {
+.customPickerCoinHover {
   display: block;
   min-width: 0;
   overflow: hidden;
   cursor: inherit;
 }
-.tradePickerCoinHover > * {
+.customPickerCoinHover > * {
   cursor: inherit;
 }
-.tradePickerCoinHover .infoCard {
+.customPickerCoinHover .infoCard {
   top: 0;
   left: 100%;
   margin-left: 6px;
 }
-.tradePickerCoinHover .infoCard::before {
+.customPickerCoinHover .infoCard::before {
   top: 0;
   left: -6px;
   right: auto;
   width: 6px;
   height: 100%;
 }
-.tradePickerAllToken .tradePickerSelect {
+.customPickerAllToken .customPickerSelect {
   display: block;
   width: 100%;
 }
-.tradePickerSelect span {
+.customPickerSelect span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tradePickerCoinWithBalance {
+.customPickerCoinWithBalance {
   display: inline-flex;
   align-items: baseline;
   gap: 3px;
   min-width: 0;
   max-width: 100%;
 }
-.tradePickerCoinWithBalance > span:first-child {
+.customPickerCoinWithBalance > span:first-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tradePickerSelect:disabled {
+.customPickerSelect:disabled {
   cursor: default;
   opacity: 0.85;
 }
@@ -1534,16 +1557,16 @@ img.assetIcon {
   min-width: 0;
   max-width: min(620px, 94vw);
 }
-.tradeCoinMenu .tradePickerTable {
+.tradeCoinMenu .customPickerTable {
   width: max-content;
   max-width: none;
   table-layout: auto;
 }
-.tradeCoinMenu .tradePickerSelect {
+.tradeCoinMenu .customPickerSelect {
   display: block;
 }
-.tradeCoinMenu .tradePickerDataTable th,
-.tradeCoinMenu .tradePickerDataTable td {
+.tradeCoinMenu .customPickerDataTable th,
+.tradeCoinMenu .customPickerDataTable td {
   overflow: hidden;
 }
 .tradeCoinAllTable td:nth-child(2) {
@@ -1556,7 +1579,7 @@ img.assetIcon {
 .tradeCoinAddedTable td:nth-child(3) {
   max-width: 22px;
 }
-.tradeCoinMenu .tradePickerSelect span {
+.tradeCoinMenu .customPickerSelect span {
   display: block;
 }
 .tradeCoinAllSelect {

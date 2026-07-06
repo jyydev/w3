@@ -76,15 +76,16 @@ async function readWalletNavChildren(dir, walletType, relPath = "") {
       const fileText = file
         ? await fs.readFile(path.join(dir, file.name), "utf8")
         : "";
+      const walletNames = file ? parseWalletNames(fileText) : [];
       const folderChildren = folder
         ? await readWalletNavChildren(folderPath, walletType, filePath)
         : [];
       const folderEmpty = folder
         ? !(await fs.readdir(folderPath)).length
         : false;
-      const fileEmpty = file ? !fileText.trim() : false;
+      const fileEmpty = file ? !walletNames.length : false;
       const walletChildren = file
-        ? parseWalletNames(fileText).map((walletName) => ({
+        ? walletNames.map((walletName) => ({
             type: "wallet",
             label: walletName,
             walletType,

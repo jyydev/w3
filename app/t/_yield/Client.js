@@ -29,6 +29,10 @@ import {
   isHyperliquidCoin,
 } from "./hyperliquid/Client";
 import {
+  isAaveStakingChainAvailable,
+  isAaveStakingCoin,
+} from "./aaveStaking/Client";
+import {
   isSparkChainAvailable,
   isSparkCoin,
 } from "./spark/Client";
@@ -52,6 +56,7 @@ export {
 export function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return false;
   if (option.value == "spark") return true;
+  if (option.value == "aaveStaking") return true;
   if (option.value == "venusFlux") return true;
   if (option.value == "hyperliquid") return true;
 
@@ -122,7 +127,7 @@ export function getMarketSupplyApr({
   marketE,
   rawMarkets = [],
 } = {}) {
-  if (defi != "spark" && defi != "venusFlux") return 0;
+  if (!["spark", "aaveStaking", "venusFlux"].includes(defi)) return 0;
   if (marketE?.supplyApr) return toNum(marketE.supplyApr);
 
   const lendAddress =
@@ -152,6 +157,7 @@ export function isUsdLikeYieldCoin(coin = "") {
 export function isProtocolCoin(protocol, coin, coinE = {}) {
   if (protocol == "hyperliquid") return isHyperliquidCoin(coin, coinE);
   if (protocol == "spark") return isSparkCoin(coin, coinE);
+  if (protocol == "aaveStaking") return isAaveStakingCoin(coin, coinE);
   if (protocol == "venusFlux") return isVenusFluxCoin(coin, coinE);
 
   return false;
@@ -166,6 +172,9 @@ export function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = 
       }
       if (defi == "spark") {
         return isSparkChainAvailable(chainE.chain, chainMarkets);
+      }
+      if (defi == "aaveStaking") {
+        return isAaveStakingChainAvailable(chainE.chain, chainMarkets);
       }
 
       return isVenusFluxChainAvailable(chainE.chain, chainMarkets);
@@ -183,6 +192,23 @@ export function getUnderlyingCoin(chainE, lendCoin) {
     /\bsavings\s+([a-z0-9.]+)/i,
   );
   if (savingsNameMatch?.[1]) return savingsNameMatch[1].toUpperCase();
+  if (/^stk/i.test(lendCoin)) {
+    const aaveStakingMatch = String(lendCoin).match(
+      /^stkwaEth([a-z0-9.]+?)(?:\.v\d+)?$/i,
+    );
+    if (aaveStakingMatch?.[1]) {
+      const baseCoin = aaveStakingMatch[1].toUpperCase();
+      if (coinInfoM[baseCoin]) return baseCoin;
+
+      const aTokenCoin = `aEth${baseCoin}`;
+      if (coinInfoM[aTokenCoin]) return aTokenCoin;
+
+      return baseCoin;
+    }
+
+    const wrapped = lendCoin.replace(/^stk/i, "").replace(/\.v\d+$/i, "");
+    if (wrapped) return wrapped;
+  }
   if (/^sp[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(2);
   if (/^f[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);
   if (/^s[A-Z0-9.]{2,}$/.test(lendCoin)) return lendCoin.slice(1);

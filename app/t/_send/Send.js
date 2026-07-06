@@ -1039,10 +1039,10 @@ export default function SendPanel({
             onClick={prevCoin}
             disabled={coins.length < 2}
           />
-          <div className="tradePicker" ref={coinPickerRef}>
+          <div className="customPicker" ref={coinPickerRef}>
             <button
               type="button"
-              className="tradePickerButton"
+              className="customPickerButton"
               style={{ width: coinButtonWidth }}
               disabled={!coins.length}
               onClick={() => setShowCoinMenu((show) => !show)}
@@ -1078,8 +1078,8 @@ export default function SendPanel({
                             key={coinName}
                             className={
                               coinName == coin
-                                ? "tradePickerRow on"
-                                : "tradePickerRow"
+                                ? "customPickerRow on"
+                                : "customPickerRow"
                             }
                             onClick={() => selectCoin(coinName)}
                           >
@@ -1259,10 +1259,10 @@ export default function SendPanel({
                 onClick={() => cycleToWallet("prev")}
                 disabled={currentToWallets.length < 2}
               />
-              <div className="tradePicker" ref={toWalletPickerRef}>
+              <div className="customPicker" ref={toWalletPickerRef}>
                 <button
                   type="button"
-                  className="tradePickerButton"
+                  className="customPickerButton"
                   onClick={() => setShowToWalletMenu((show) => !show)}
                 >
                   {toEntry?.label || "wallet"}
@@ -1296,8 +1296,8 @@ export default function SendPanel({
                                 key={`loaded_${entry.value}_${entry.address}`}
                                 className={
                                   entry.value == toWallet
-                                    ? "tradePickerRow on"
-                                    : "tradePickerRow"
+                                    ? "customPickerRow on"
+                                    : "customPickerRow"
                                 }
                                 onClick={() => selectToWallet(entry.value)}
                               >
@@ -1343,8 +1343,8 @@ export default function SendPanel({
                               key={`all_${entry.value}_${entry.address}`}
                               className={
                                 entry.value == toWallet
-                                  ? "tradePickerRow on"
-                                  : "tradePickerRow"
+                                  ? "customPickerRow on"
+                                  : "customPickerRow"
                               }
                               onClick={() => selectToWallet(entry.value)}
                             >

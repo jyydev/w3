@@ -52,6 +52,14 @@ import {
   submitHyperliquidLendSignature,
   submitHyperliquidSpotWithdrawSignature,
 } from "./hyperliquid/sv";
+import {
+  buildAaveStakingLendTxs,
+  executeAaveStakingLend,
+  getAaveStakingAllMarkets,
+  getAaveStakingLendPreview,
+  getAaveStakingMarketBalance,
+} from "./aaveStaking/sv";
+import AaveStakingClient from "./aaveStaking/Client";
 import HyperliquidClient, {
   HyperliquidChainSelect,
   HyperliquidCoinSelect,
@@ -149,6 +157,64 @@ import {
   useCustomCoinConfirm,
   useTradeFallbackPrice,
 } from "../clientShared";
+
+function formatCooldownDuration(seconds = 0) {
+  const value = Number(seconds || 0);
+  if (!(value > 0)) return "";
+
+  const daySeconds = 86400;
+  const hourSeconds = 3600;
+  if (value % daySeconds == 0) {
+    const days = value / daySeconds;
+    return `${days} day${days == 1 ? "" : "s"}`;
+  }
+  if (value % hourSeconds == 0) {
+    const hours = value / hourSeconds;
+    return `${hours} hour${hours == 1 ? "" : "s"}`;
+  }
+
+  return `${value} seconds`;
+}
+
+function formatRemainingTime(targetMs = 0, nowMs = Date.now()) {
+  const diffMs = Number(targetMs || 0) - Number(nowMs || Date.now());
+  if (!(diffMs > 0)) return "";
+
+  const totalMinutes = Math.max(1, Math.ceil(diffMs / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d${hours ? ` ${hours}h` : ""}`;
+  if (hours > 0) return `${hours}h${minutes ? ` ${minutes}m` : ""}`;
+
+  return `${minutes}m`;
+}
+
+function formatShortDateTime(value = 0) {
+  const timestamp = Number(value || 0);
+  if (!(timestamp > 0)) return "";
+
+  const date = new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp);
+  const pad = (n) => String(n).padStart(2, "0");
+  const hours = date.getHours();
+  const hour12 = hours % 12 || 12;
+  const suffix = hours >= 12 ? "PM" : "AM";
+
+  return [
+    `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${String(
+      date.getFullYear(),
+    ).slice(-2)}`,
+    `${hour12}:${pad(date.getMinutes())} ${suffix}`,
+  ].join(" ");
+}
+
+function hasPositiveRawAmount(value = "0") {
+  try {
+    return BigInt(String(value || "0")) > 0n;
+  } catch {
+    return toNum(value) > 0;
+  }
+}
 
 export default function YieldPanel({
   data = [],
@@ -435,12 +501,16 @@ export default function YieldPanel({
     );
   }, [chainList, defi]);
   const isHyperliquid = defi == "hyperliquid";
+  const isAaveStaking = defi == "aaveStaking";
   const isVenusFlux = defi == "venusFlux";
+  const isErc4626Yield = defi == "spark" || isAaveStaking || isVenusFlux;
   const ProtocolClient = isHyperliquid
     ? HyperliquidClient
-    : isVenusFlux
-      ? VenusFluxClient
-      : SparkClient;
+    : isAaveStaking
+      ? AaveStakingClient
+      : isVenusFlux
+        ? VenusFluxClient
+        : SparkClient;
   const marketChains = useMemo(
     () => getYieldMarketChains(chainList, chainMarketsM, defi),
     [chainList, chainMarketsM, defi],
@@ -651,18 +721,23 @@ export default function YieldPanel({
   const allMarketCacheKey = `${defi}:${allMarketChain}`;
   const allProtocolLabel = isHyperliquid
     ? "Hyperliquid"
+    : isAaveStaking
+      ? "Aave Staking"
     : isVenusFlux
       ? "Venus Flux"
       : "Spark";
-  const getAllYieldMarkets =
-    defi == "venusFlux" ? getVenusFluxAllMarkets : getSparkAllMarkets;
+  const getAllYieldMarkets = isAaveStaking
+    ? getAaveStakingAllMarkets
+    : isVenusFlux
+      ? getVenusFluxAllMarkets
+      : getSparkAllMarkets;
   const {
     markets: rawProtocolAllMarkets,
     loading: allMarketsLoading,
     error: allMarketsError,
     retry: retryAllMarkets,
   } = useYieldAllMarkets({
-    enabled: defi == "spark" || defi == "venusFlux",
+    enabled: isErc4626Yield,
     cacheKey: allMarketCacheKey,
     chain: allMarketChain,
     protocolLabel: allProtocolLabel,
@@ -675,9 +750,9 @@ export default function YieldPanel({
       ),
     [chainE, rawProtocolAllMarkets],
   );
-  const protocolAllMarkets = sortByGroupedSelectionOrder(
-    canonicalAllMarkets
-      .map((entry) => {
+  const protocolMarketRows = useMemo(
+    () =>
+      canonicalAllMarkets.map((entry) => {
         const addressKey = getTokenAddressKey(chainE?.chain, entry.lendAddress);
         const underlyingAddressKey = getTokenAddressKey(
           chainE?.chain,
@@ -699,13 +774,36 @@ export default function YieldPanel({
           addedLend,
           addedValue,
         };
-      })
-      .filter((entry) => !entry.addedUnderlying || !entry.addedLend),
+      }),
+    [
+      addedCoinAddressM,
+      addedMarketAddressM,
+      allMarketChain,
+      canonicalAllMarkets,
+      chainE?.chain,
+      locallyAddedAddressM,
+    ],
+  );
+  const protocolAllMarkets = sortByGroupedSelectionOrder(
+    protocolMarketRows.filter(
+      (entry) => !entry.addedUnderlying || !entry.addedLend,
+    ),
     activeMarketOrder,
     activeMarketOrderGroup,
-    (entry) => entry.addedValue || entry.value,
+    (entry) => entry.value,
   );
   const visibleAddedMarkets = useMemo(() => {
+    if (protocolMarketRows.length) {
+      return sortByGroupedSelectionOrder(
+        protocolMarketRows.filter(
+          (entry) => entry.addedUnderlying && entry.addedLend,
+        ),
+        activeMarketOrder,
+        activeMarketOrderGroup,
+        (entry) => entry.value,
+      );
+    }
+
     if (!canonicalAllMarkets.length) {
       return sortByGroupedSelectionOrder(
         addedMarkets,
@@ -715,47 +813,11 @@ export default function YieldPanel({
       );
     }
 
-    const rawMarketByLendAddress = Object.fromEntries(
-      canonicalAllMarkets
-        .filter((entry) => entry.lendAddress)
-        .map((entry) => [
-          getTokenAddressKey(chainE?.chain, entry.lendAddress),
-          entry,
-        ]),
-    );
-
-    return sortByGroupedSelectionOrder(addedMarkets.map((entry) => {
-      const lendAddress =
-        entry.lendAddress || chainE?.coinInfoM?.[entry.lendCoin]?.address || "";
-      const raw = rawMarketByLendAddress[
-        getTokenAddressKey(chainE?.chain, lendAddress)
-      ];
-      if (!raw) return entry;
-
-      return {
-        ...entry,
-        ...raw,
-        value: entry.value,
-        underlyingCoin: entry.underlyingCoin,
-        lendCoin: entry.lendCoin,
-        lendName: entry.lendName || raw.lendName,
-        underlyingAddress: entry.underlyingAddress || raw.underlyingAddress,
-        underlyingDecimals: Number.isInteger(entry.underlyingDecimals)
-          ? entry.underlyingDecimals
-          : raw.underlyingDecimals,
-        lendAddress: entry.lendAddress || raw.lendAddress,
-        lendDecimals: Number.isInteger(entry.lendDecimals)
-          ? entry.lendDecimals
-          : raw.lendDecimals,
-        addedValue: entry.value,
-        addedLend: true,
-      };
-    }), activeMarketOrder, activeMarketOrderGroup, (entry) => entry.value);
+    return [];
   }, [
     addedMarkets,
     canonicalAllMarkets,
-    chainE?.chain,
-    chainE?.coinInfoM,
+    protocolMarketRows,
     activeMarketOrder,
     activeMarketOrderGroup,
   ]);
@@ -821,8 +883,11 @@ export default function YieldPanel({
   const hasLocalReceiptBalance = hasLoadedBalance(localReceiptBalance);
   const needsDirectBalance =
     usesDirectMarket && (!hasLocalUnderlyingBalance || !hasLocalReceiptBalance);
-  const getYieldMarketBalance =
-    defi == "venusFlux" ? getVenusFluxMarketBalance : getSparkMarketBalance;
+  const getYieldMarketBalance = isAaveStaking
+    ? getAaveStakingMarketBalance
+    : isVenusFlux
+      ? getVenusFluxMarketBalance
+      : getSparkMarketBalance;
   const { balance: directBalance, loading: directBalanceLoading } =
     useYieldDirectMarketBalance({
       enabled:
@@ -913,12 +978,18 @@ export default function YieldPanel({
   const receiptPriceKey = isHyperliquidDepositMode
     ? baseUnderlyingPriceKey
     : baseReceiptPriceKey;
-  const marketPreviewKey = `${defi}:${chainE?.chain || ""}:${underlyingCoin}:${lendCoin}`;
+  const marketPreviewKey = [
+    defi,
+    chainE?.chain || "",
+    marketE?.routeMode || "",
+    underlyingCoin,
+    lendCoin,
+  ].join(":");
   const marketPreview = marketPreviewM[marketPreviewKey];
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    defi == "spark" || defi == "venusFlux"
+    isErc4626Yield
       ? toNum(marketPreview?.receiptPerUnderlying)
       : 0;
   const underlyingListPrice = toNum(displayUnderlyingBalance.price);
@@ -956,9 +1027,7 @@ export default function YieldPanel({
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
     (isHyperliquid && displayReceiptCoin ? 1 : 0) ||
-    ((defi == "spark" || defi == "venusFlux") &&
-    underlyingPrice &&
-    marketReceiptRate
+    (isErc4626Yield && underlyingPrice && marketReceiptRate
       ? underlyingPrice / marketReceiptRate
       : 0);
   const vaultLockedUntil =
@@ -972,8 +1041,91 @@ export default function YieldPanel({
     nowMs > 0 &&
     vaultLockedUntilMs > nowMs;
   const vaultLockText = vaultLocked ? formatLockUntil(vaultLockedUntilMs) : "";
+  const aaveStakingCooldown = isAaveStaking
+    ? marketPreview?.cooldown || {}
+    : {};
+  const aaveStakingCooldownStatus = aaveStakingCooldown.status || "";
+  const aaveStakingCooldownEndMs = getLockUntilMs(
+    aaveStakingCooldown.cooldownEnd,
+  );
+  const aaveStakingWindowEndMs = getLockUntilMs(aaveStakingCooldown.windowEnd);
+  const aaveStakingNeedsCooldown =
+    isAaveStaking &&
+    (aaveStakingCooldownStatus == "none" ||
+      aaveStakingCooldownStatus == "expired");
+  const aaveStakingCooldownPending =
+    isAaveStaking && aaveStakingCooldownStatus == "cooldown";
+  const aaveStakingCanUnstake =
+    isAaveStaking && aaveStakingCooldownStatus == "ready";
+  const aaveStakingCooldownDurationText =
+    formatCooldownDuration(aaveStakingCooldown.cooldownSeconds) || "20 days";
+  const aaveStakingUnstakeWindowText =
+    formatCooldownDuration(aaveStakingCooldown.unstakeWindow) || "2 days";
+  const aaveStakingCooldownRemainingText = aaveStakingCooldownPending
+    ? formatRemainingTime(aaveStakingCooldownEndMs, nowMs)
+    : "";
+  const aaveStakingWindowRemainingText = aaveStakingCanUnstake
+    ? formatRemainingTime(aaveStakingWindowEndMs, nowMs)
+    : "";
+  const aaveStakingCooldownText = aaveStakingCooldownPending
+    ? `cooldown ends ${formatShortDateTime(aaveStakingCooldownEndMs)}${
+        aaveStakingCooldownRemainingText
+          ? ` (in ${aaveStakingCooldownRemainingText})`
+          : ""
+      }`
+    : aaveStakingCanUnstake
+      ? `unstake by ${formatShortDateTime(aaveStakingWindowEndMs)}${
+          aaveStakingWindowRemainingText
+            ? ` (${aaveStakingWindowRemainingText} left)`
+            : ""
+        }`
+      : aaveStakingCooldownStatus == "expired"
+        ? "unstake window expired"
+        : "";
+  const aaveStakingCooldownStatusText =
+    !isAaveStaking
+      ? ""
+      : !marketPreviewLoaded || marketLoading
+        ? "checking cooldown status..."
+        : aaveStakingCooldownPending
+          ? `current: cooldown ends ${formatShortDateTime(
+              aaveStakingCooldownEndMs,
+            )}${
+              aaveStakingCooldownRemainingText
+                ? `, in ${aaveStakingCooldownRemainingText}`
+              : ""
+            }`
+          : aaveStakingCanUnstake
+            ? `current: unstake available until ${formatShortDateTime(
+                aaveStakingWindowEndMs,
+              )}${
+                aaveStakingWindowRemainingText
+                  ? `, ${aaveStakingWindowRemainingText} left`
+                  : ""
+              }`
+            : aaveStakingCooldownStatus == "expired"
+              ? "current: unstake window expired"
+              : "current: cooldown not active";
+  const aaveStakingRewards = isAaveStaking
+    ? marketPreview?.rewards?.rewards || []
+    : [];
+  const aaveStakingClaimableRewards = aaveStakingRewards.filter((entry) =>
+    hasPositiveRawAmount(entry.amount),
+  );
+  const aaveStakingRewardsLoading =
+    isAaveStaking && (!marketPreviewLoaded || marketLoading);
+  const aaveStakingRewardText = aaveStakingRewardsLoading
+    ? "..."
+    : aaveStakingClaimableRewards.length
+      ? aaveStakingClaimableRewards
+          .map(
+            (entry) =>
+              `${formatTradeQty(entry.amountFormatted, entry.decimals)} ${entry.coin}`,
+          )
+          .join(", ")
+      : "0";
   const receiptRate =
-    (defi == "spark" || defi == "venusFlux") && marketReceiptRate
+    isErc4626Yield && marketReceiptRate
       ? marketReceiptRate
       : underlyingPrice && receiptPrice
         ? underlyingPrice / receiptPrice
@@ -1038,7 +1190,6 @@ export default function YieldPanel({
     if (!walletEntry?.address || !chainE?.chain) return {};
 
     if (usesDirectMarket && marketE?.underlyingAddress && marketE?.lendAddress) {
-      const protocolLabel = defi == "venusFlux" ? "Venus Flux" : "Spark";
       const res = await withClientTimeout(
         getYieldMarketBalance({
           walletAddress: walletEntry.address,
@@ -1049,7 +1200,7 @@ export default function YieldPanel({
           lendDecimals: marketE.lendDecimals,
         }),
         12000,
-        `${walletEntry.name || walletEntry.label || "wallet"} ${protocolLabel} balance timeout`,
+        `${walletEntry.name || walletEntry.label || "wallet"} ${allProtocolLabel} balance timeout`,
       );
 
       return side == "lend" ? res?.lend || {} : res?.underlying || {};
@@ -1154,10 +1305,28 @@ export default function YieldPanel({
     underlyingLabel: displayUnderlyingCoin,
     receiptLabel: displayReceiptCoin,
   });
-  const depositLabel = isHyperliquid ? "deposit" : "lend";
-  const withdrawLabel = isHyperliquid ? "withdraw" : "redeem";
-  const depositButtonLabel = isHyperliquid ? "DEPOSIT" : "LEND";
-  const withdrawButtonLabel = isHyperliquid ? "WITHDRAW" : "REDEEM";
+  const depositLabel = isHyperliquid
+    ? "deposit"
+    : isAaveStaking
+      ? "stake"
+      : "lend";
+  const withdrawLabel = isHyperliquid
+    ? "withdraw"
+    : isAaveStaking
+      ? "unstake"
+      : "redeem";
+  const depositButtonLabel = isHyperliquid
+    ? "DEPOSIT"
+    : isAaveStaking
+      ? "STAKE"
+      : "LEND";
+  const withdrawButtonLabel = isHyperliquid
+    ? "WITHDRAW"
+    : isAaveStaking
+      ? aaveStakingNeedsCooldown
+        ? "ACTIVATE COOLDOWN"
+        : "UNSTAKE"
+      : "REDEEM";
   const marketCookieValues = useMemo(() => {
     const values = hasProtocolAllMarkets
       ? [
@@ -1427,7 +1596,7 @@ export default function YieldPanel({
 
   useEffect(() => {
     if (
-      (defi != "spark" && defi != "venusFlux") ||
+      !isErc4626Yield ||
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
@@ -1438,8 +1607,11 @@ export default function YieldPanel({
     if (marketPreviewLoaded) return;
 
     let cancelled = false;
-    const getPreview =
-      defi == "venusFlux" ? getVenusFluxLendPreview : getSparkLendPreview;
+    const getPreview = isAaveStaking
+      ? getAaveStakingLendPreview
+      : isVenusFlux
+        ? getVenusFluxLendPreview
+        : getSparkLendPreview;
     setMarketLoadingM((loadingM) => ({
       ...loadingM,
       [marketPreviewKey]: true,
@@ -1457,6 +1629,8 @@ export default function YieldPanel({
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
             psm3Address: marketE.psm3Address,
+            wrapperAddress: marketE.wrapperAddress,
+            routeMode: marketE.routeMode,
           }
         : {}),
       amount: "1",
@@ -1489,6 +1663,9 @@ export default function YieldPanel({
   }, [
     chainE?.chain,
     defi,
+    isAaveStaking,
+    isErc4626Yield,
+    isVenusFlux,
     lendCoin,
     marketPreviewLoaded,
     marketPreviewKey,
@@ -2460,18 +2637,26 @@ export default function YieldPanel({
       return;
     }
     const isSpark = defi == "spark";
+    const isAaveStakingAction = defi == "aaveStaking";
     const isVenusFluxAction = defi == "venusFlux";
     const isHyperliquidAction = defi == "hyperliquid";
 
-    if (!isSpark && !isVenusFluxAction && !isHyperliquidAction) {
+    if (
+      !isSpark &&
+      !isAaveStakingAction &&
+      !isVenusFluxAction &&
+      !isHyperliquidAction
+    ) {
       tradeToast.show(`${yieldE.label}: yield market not wired yet`);
       return;
     }
     const protocol = isHyperliquidAction
       ? "Hyperliquid"
-      : isVenusFluxAction
-        ? "Venus Flux"
-        : "Spark";
+      : isAaveStakingAction
+        ? "Aave Staking"
+        : isVenusFluxAction
+          ? "Venus Flux"
+          : "Spark";
     if (!walletEntry?.address) {
       tradeToast.error("wallet missing");
       return;
@@ -2491,10 +2676,55 @@ export default function YieldPanel({
       return;
     }
 
+    const directMarketArgs = isHyperliquidAction
+      ? {
+          lendAddress: chainE?.coinInfoM?.[lendCoin]?.address,
+        }
+      : usesDirectMarket
+        ? {
+            underlyingAddress: marketE.underlyingAddress,
+            underlyingDecimals: marketE.underlyingDecimals,
+            lendAddress: marketE.lendAddress,
+            lendDecimals: marketE.lendDecimals,
+            psm3Address: marketE.psm3Address,
+            wrapperAddress: marketE.wrapperAddress,
+            routeMode: marketE.routeMode,
+          }
+        : {};
+    let cooldownSubmitAction = "";
+    if (isAaveStakingAction && action == "redeem") {
+      const cooldownPreview = await getAaveStakingLendPreview({
+        walletAddress: walletEntry.address,
+        chain: chainE.chain,
+        action: "cooldown",
+        underlyingCoin,
+        lendCoin,
+        amount: "0",
+        ...directMarketArgs,
+      });
+      const cooldown = cooldownPreview?.cooldown || {};
+
+      if (cooldown.status == "cooldown") {
+        const text = formatShortDateTime(getLockUntilMs(cooldown.cooldownEnd));
+        const errorResult = {
+          ok: false,
+          error: `cooldown ends ${text}`,
+          defi: protocol,
+          action: "cooldown",
+        };
+        setLendResult(errorResult);
+        tradeToast.error(errorResult.error);
+        return errorResult;
+      }
+      if (cooldown.needsCooldown) cooldownSubmitAction = "cooldown";
+    }
+
     const redeem = action == "redeem";
-    const signedQty = redeem
-      ? await getRedeemQtyForWallet(walletEntry)
-      : await getLendQtyForWallet(walletEntry);
+    const signedQty = cooldownSubmitAction
+      ? "0"
+      : redeem
+        ? await getRedeemQtyForWallet(walletEntry)
+        : await getLendQtyForWallet(walletEntry);
     if (signedQty === null) {
       const errorResult = {
         ok: false,
@@ -2507,21 +2737,44 @@ export default function YieldPanel({
       return errorResult;
     }
     const signedQtyNum = toNum(signedQty);
-    const submitRedeem = redeem ? signedQtyNum >= 0 : signedQtyNum < 0;
-    const submitAction = submitRedeem ? "redeem" : "lend";
+    const submitAction =
+      cooldownSubmitAction ||
+      (redeem
+        ? signedQtyNum >= 0
+          ? "redeem"
+          : "lend"
+        : signedQtyNum < 0
+          ? "redeem"
+          : "lend");
+    const submitRedeem = submitAction == "redeem" || submitAction == "cooldown";
     const actionLabel = isHyperliquidAction
       ? submitRedeem
         ? "withdraw"
         : "deposit"
-      : submitAction;
+      : isAaveStakingAction
+        ? submitAction == "cooldown"
+          ? "activate cooldown"
+          : submitRedeem
+            ? "unstake"
+            : "stake"
+        : submitAction;
     const signedQtyAbs = Math.abs(signedQtyNum);
-    const qty = redeem
-      ? submitRedeem
-        ? formatComputedTradeQty(signedQty, receiptQtyDecimals).replace(/^-/, "")
-        : getUnderlyingQty(signedQtyAbs)
-      : submitRedeem
-        ? getReceiptQty(signedQtyAbs)
-        : formatComputedTradeQty(signedQty, underlyingQtyDecimals).replace(/^-/, "");
+    const qty =
+      submitAction == "cooldown"
+        ? "0"
+        : redeem
+          ? submitRedeem
+            ? formatComputedTradeQty(signedQty, receiptQtyDecimals).replace(
+                /^-/,
+                "",
+              )
+            : getUnderlyingQty(signedQtyAbs)
+          : submitRedeem
+            ? getReceiptQty(signedQtyAbs)
+            : formatComputedTradeQty(signedQty, underlyingQtyDecimals).replace(
+                /^-/,
+                "",
+              );
     const autoApprovalAmount =
       !submitRedeem && !isHyperliquidAction && autoApproval ? qty : "";
     const getApprovalAmount = (approvalNeeded) => {
@@ -2529,12 +2782,12 @@ export default function YieldPanel({
       return (
         autoApprovalAmount ||
         window.prompt(
-          `Approval needed for ${underlyingCoin}.\n\nEnter approval qty.\nLend qty: ${qty}`,
+          `Approval needed for ${underlyingCoin}.\n\nEnter approval qty.\n${actionLabel} qty: ${qty}`,
           qty,
         )
       );
     };
-    if (!toNum(qty)) {
+    if (submitAction != "cooldown" && !toNum(qty)) {
       tradeToast.error(`${actionLabel} qty is 0`);
       return;
     }
@@ -2550,32 +2803,25 @@ export default function YieldPanel({
     const useBrowserWallet = !!walletEntry?.isBrowserWallet;
     const buildTxs = isHyperliquidAction
       ? buildHyperliquidLendTxs
-      : isVenusFluxAction
-        ? buildVenusFluxLendTxs
-        : buildSparkLendTxs;
+      : isAaveStakingAction
+        ? buildAaveStakingLendTxs
+        : isVenusFluxAction
+          ? buildVenusFluxLendTxs
+          : buildSparkLendTxs;
     const executeLend = isHyperliquidAction
       ? executeHyperliquidLend
-      : isVenusFluxAction
-        ? executeVenusFluxLend
-        : executeSparkLend;
+      : isAaveStakingAction
+        ? executeAaveStakingLend
+        : isVenusFluxAction
+          ? executeVenusFluxLend
+          : executeSparkLend;
     const previewLend = isHyperliquidAction
       ? getHyperliquidLendPreview
-      : isVenusFluxAction
-        ? getVenusFluxLendPreview
-        : getSparkLendPreview;
-    const directMarketArgs = isHyperliquidAction
-      ? {
-          lendAddress: chainE?.coinInfoM?.[lendCoin]?.address,
-        }
-      : usesDirectMarket
-        ? {
-            underlyingAddress: marketE.underlyingAddress,
-            underlyingDecimals: marketE.underlyingDecimals,
-            lendAddress: marketE.lendAddress,
-            lendDecimals: marketE.lendDecimals,
-            psm3Address: marketE.psm3Address,
-          }
-        : {};
+      : isAaveStakingAction
+        ? getAaveStakingLendPreview
+        : isVenusFluxAction
+          ? getVenusFluxLendPreview
+          : getSparkLendPreview;
     const toastId = tradeToast.loading(`${protocol}: preparing ${actionLabel}...`);
     setLendPending(true);
     setLendPendingAction(submitAction);
@@ -2724,8 +2970,10 @@ export default function YieldPanel({
           const ok = window.confirm(
             `Execute ${protocol} ${actionLabel}?\n\nwallet: ${
               walletEntry.name || walletEntry.label
-            }\nchain: ${chainE.chain}\namount: ${qty} ${
-              submitRedeem ? lendCoin : underlyingCoin
+            }\nchain: ${chainE.chain}${
+              submitAction == "cooldown"
+                ? ""
+                : `\namount: ${qty} ${submitRedeem ? lendCoin : underlyingCoin}`
             }`,
           );
           if (!ok) {
@@ -2749,8 +2997,8 @@ export default function YieldPanel({
             ...directMarketArgs,
           });
 
-          if (preview.approvalNeeded) {
-            approvalAmount = getApprovalAmount(preview.approvalNeeded);
+          if (preview.approvalAmountNeeded ?? preview.approvalNeeded) {
+            approvalAmount = getApprovalAmount(true);
             if (!approvalAmount) {
               toast.dismiss(toastId);
               return;
@@ -2774,22 +3022,27 @@ export default function YieldPanel({
         });
       }
 
-      setLendResult(res);
+      const displayRes = isAaveStakingAction
+        ? { ...res, action: actionLabel }
+        : res;
+      setLendResult(displayRes);
       tradeToast.success(`${protocol} ${actionLabel} submitted`, {
         id: toastId,
       });
       onTxComplete({
-        ...res,
+        ...displayRes,
         refreshTargets: [
           {
             chain: chainE.chain,
             coin: underlyingCoin,
             address: walletEntry.address,
+            coinE: getMarketCoinE("underlying"),
           },
           {
             chain: chainE.chain,
             coin: lendCoin,
             address: walletEntry.address,
+            coinE: getMarketCoinE("lend"),
           },
         ],
       });
@@ -2811,13 +3064,211 @@ export default function YieldPanel({
     }
   }
 
+  async function runAaveStakingClaimForWallet(
+    walletEntry = selectedWalletEntry,
+    { skipConfirm = false, loopRun = false } = {},
+  ) {
+    const protocol = "Aave Staking";
+    const actionLabel = "claim rewards";
+    const tradeToast = createTradeToast(walletEntry, loopRun);
+
+    if (!walletEntry?.address) {
+      tradeToast.error("wallet missing");
+      return;
+    }
+    if (walletEntry?.isBrowserWallet && walletEntry.type != "evm") {
+      tradeToast.error(`${protocol} needs an EVM browser wallet`);
+      return;
+    }
+    if (!walletEntry?.isBrowserWallet && !walletEntry?.hasPrivateKey) {
+      tradeToast.error("no private key");
+      return;
+    }
+    if (!isAaveStaking || !lendCoin || !underlyingCoin) {
+      tradeToast.error(`${protocol}: no staking market selected`);
+      return;
+    }
+
+    const directMarketArgs = usesDirectMarket
+      ? {
+          underlyingAddress: marketE.underlyingAddress,
+          underlyingDecimals: marketE.underlyingDecimals,
+          lendAddress: marketE.lendAddress,
+          lendDecimals: marketE.lendDecimals,
+          wrapperAddress: marketE.wrapperAddress,
+          routeMode: marketE.routeMode,
+        }
+      : {};
+    const toastId = tradeToast.loading(`${protocol}: checking rewards...`);
+    setLendPending(true);
+    setLendPendingAction("claim");
+    setLendResult(null);
+
+    try {
+      const preview = await getAaveStakingLendPreview({
+        walletAddress: walletEntry.address,
+        chain: chainE.chain,
+        action: "claim",
+        underlyingCoin,
+        lendCoin,
+        amount: "0",
+        ...directMarketArgs,
+      });
+      const claimableRewards = (preview.rewards?.rewards || []).filter((entry) =>
+        hasPositiveRawAmount(entry.amount),
+      );
+      const rewardText = claimableRewards.length
+        ? claimableRewards
+            .map(
+              (entry) =>
+                `${formatTradeQty(entry.amountFormatted, entry.decimals)} ${entry.coin}`,
+            )
+            .join(", ")
+        : "";
+
+      if (!claimableRewards.length) {
+        const errorResult = {
+          ok: false,
+          error: "no rewards to claim",
+          defi: protocol,
+          action: actionLabel,
+        };
+        setLendResult(errorResult);
+        tradeToast.error(errorResult.error, { id: toastId });
+        return errorResult;
+      }
+
+      if (!skipConfirm && !walletEntry?.isBrowserWallet) {
+        const ok = window.confirm(
+          `Execute ${protocol} ${actionLabel}?\n\nwallet: ${
+            walletEntry.name || walletEntry.label
+          }\nchain: ${chainE.chain}\nrewards: ${rewardText}`,
+        );
+        if (!ok) {
+          toast.dismiss(toastId);
+          return;
+        }
+      }
+
+      let res;
+      if (walletEntry?.isBrowserWallet) {
+        tradeToast.loading(`${protocol}: building claim wallet prompt...`, {
+          id: toastId,
+        });
+        const built = await buildAaveStakingLendTxs({
+          walletAddress: walletEntry.address,
+          chain: chainE.chain,
+          action: "claim",
+          underlyingCoin,
+          lendCoin,
+          amount: "0",
+          ...directMarketArgs,
+        });
+        const txs = [];
+
+        for (const tx of built.txs || []) {
+          tradeToast.loading(`${protocol}: confirm ${tx.type}...`, {
+            id: toastId,
+          });
+          txs.push(
+            await sendBrowserTradeTx({
+              tx,
+              walletEntry,
+              tradeToast,
+              toastId,
+            }),
+          );
+        }
+        res = { ...built, txs };
+      } else {
+        tradeToast.loading(`${protocol}: submitting claim...`, {
+          id: toastId,
+        });
+        res = await executeAaveStakingLend({
+          walletName: walletEntry.name,
+          walletAddress: walletEntry.address,
+          chain: chainE.chain,
+          action: "claim",
+          underlyingCoin,
+          lendCoin,
+          amount: "0",
+          ...directMarketArgs,
+        });
+      }
+
+      const displayRes = { ...res, action: actionLabel };
+      setLendResult(displayRes);
+      setMarketPreviewM((previewM) => {
+        const next = { ...previewM };
+        delete next[marketPreviewKey];
+        return next;
+      });
+      tradeToast.success(`${protocol} ${actionLabel} submitted`, {
+        id: toastId,
+      });
+      onTxComplete({
+        ...displayRes,
+        refreshTargets: [
+          ...(res.rewards?.rewards || preview.rewards?.rewards || []).map(
+            (entry) => ({
+              chain: chainE.chain,
+              coin: entry.coin,
+              address: walletEntry.address,
+              coinE: {
+                address: entry.address,
+                decimals: entry.decimals,
+                name: entry.name,
+                type: "yield",
+              },
+            }),
+          ),
+        ],
+      });
+      return res;
+    } catch (e) {
+      const message = e?.message || `${protocol} ${actionLabel} failed`;
+      const errorResult = {
+        ok: false,
+        error: message,
+        defi: protocol,
+        action: actionLabel,
+      };
+      setLendResult(errorResult);
+      tradeToast.error(message, { id: toastId });
+      return errorResult;
+    } finally {
+      setLendPending(false);
+      setLendPendingAction("");
+    }
+  }
+
+  async function runAaveStakingClaim() {
+    const result = await runTradeWalletLoop({
+      loopWallets,
+      getLoopWalletEntries,
+      selectedWalletEntry,
+      actionLabel: "Aave Staking claim rewards",
+      runOne: (walletEntry, options) =>
+        runAaveStakingClaimForWallet(walletEntry, options),
+    });
+    if (Array.isArray(result)) {
+      const loopResult = createTradeLoopResult(result, {
+        defi: "Aave Staking",
+        action: "claim rewards",
+      });
+      if (loopResult) setLendResult(loopResult);
+    }
+
+    return result;
+  }
+
   async function runLend(action) {
     const result = await runTradeWalletLoop({
       loopWallets,
       getLoopWalletEntries,
       selectedWalletEntry,
       actionLabel: `${yieldE.label} ${
-        action == "redeem" ? "redeem" : "lend"
+        action == "redeem" ? withdrawLabel : depositLabel
       } ${
         action == "redeem"
           ? redeemEndWith
@@ -2833,7 +3284,7 @@ export default function YieldPanel({
     if (Array.isArray(result)) {
       const loopResult = createTradeLoopResult(result, {
         defi: yieldE.label,
-        action: action == "redeem" ? "redeem" : "lend",
+        action: action == "redeem" ? withdrawLabel : depositLabel,
       });
       if (loopResult) setLendResult(loopResult);
     }
@@ -3190,6 +3641,24 @@ export default function YieldPanel({
         </div>
 
         <div className="tradeMiddle">
+          {isAaveStaking && (
+            <div className="tradeClaimRewardsLine">
+              <span className="gray">claim:</span>
+              <span>{aaveStakingRewardText}</span>
+              <button
+                type="button"
+                className="btn small bgCyan"
+                onClick={runAaveStakingClaim}
+                disabled={
+                  lendPending ||
+                  aaveStakingRewardsLoading ||
+                  !aaveStakingClaimableRewards.length
+                }
+              >
+                {lendPendingAction == "claim" ? "CLAIMING" : "CLAIM"}
+              </button>
+            </div>
+          )}
           {showGasAutoLabel && (
             <label className="tradeGasSelect">
               <span className="gray">gas:</span>
@@ -3365,13 +3834,17 @@ export default function YieldPanel({
                   ),
                 )
               }
-              disabled={!withdrawMaxReceipt || vaultLocked}
+              disabled={
+                !withdrawMaxReceipt || vaultLocked || aaveStakingCooldownPending
+              }
             />
             <button
               type="button"
               className="btn small bgGray"
               onClick={setMaxRedeem}
-              disabled={!withdrawMaxReceipt || vaultLocked}
+              disabled={
+                !withdrawMaxReceipt || vaultLocked || aaveStakingCooldownPending
+              }
             >
               max
             </button>
@@ -3386,17 +3859,66 @@ export default function YieldPanel({
               disabled={
                 lendPending ||
                 vaultLocked ||
+                aaveStakingCooldownPending ||
+                (aaveStakingNeedsCooldown && !maxReceipt) ||
                 (isHyperliquidDepositMode &&
                   (!activeHyperliquidWithdrawCoin ||
                     hyperliquidWithdrawRouteToken?.actionSupported === false))
               }
             >
-              {lendPendingAction == "redeem"
-                ? isHyperliquid
-                  ? "WITHDRAWING"
-                  : "REDEEMING"
+              {lendPendingAction == "cooldown"
+                ? "ACTIVATING"
+                : lendPendingAction == "redeem"
+                  ? isHyperliquid
+                    ? "WITHDRAWING"
+                    : isAaveStaking
+                      ? "UNSTAKING"
+                      : "REDEEMING"
                 : withdrawButtonLabel}
             </button>
+            {isAaveStaking && (
+              <span className="tradeCooldownStatus">
+                <span className="infoHover hoverOnlyInfo">
+                  <span className="infoIcon">i</span>
+                  <span className="infoCard">
+                    <span className="infoCardTitle">
+                      Aave Staking unstake
+                    </span>
+                    <span>{aaveStakingCooldownStatusText}</span>
+                    <span>
+                      1. Click <span className="gray">ACTIVATE COOLDOWN</span>{" "}
+                      to request unstake.
+                    </span>
+                    <span>
+                      2. Wait{" "}
+                      <span className="gray">
+                        {aaveStakingCooldownDurationText}
+                      </span>
+                      .
+                    </span>
+                    <span>
+                      3. Unstake during the{" "}
+                      <span className="gray">
+                        {aaveStakingUnstakeWindowText}
+                      </span>{" "}
+                      unstake window.
+                    </span>
+                    <span>
+                      4. If the window expires, activate cooldown again.
+                    </span>
+                  </span>
+                </span>
+                {aaveStakingCooldownText && (
+                  <span
+                    className={
+                      aaveStakingCooldownStatus == "expired" ? "red" : "gray"
+                    }
+                  >
+                    {aaveStakingCooldownText}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
           {isHyperliquidDepositMode && hyperliquidWithdrawFeeEtaText && (
             <div className="hyperliquidFeeEtaLine gray">

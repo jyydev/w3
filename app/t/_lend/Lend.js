@@ -1568,7 +1568,7 @@ export default function LendPanel({
                   <tr
                     key={`${defi}_added_${entry.chain}`}
                     className={[
-                      "tradePickerRow",
+                      "customPickerRow",
                       entry.chain == activeChain ? "on" : "",
                       entry.supported ? "" : "unsupported",
                     ]
@@ -1578,7 +1578,7 @@ export default function LendPanel({
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeChainAllSelect"
+                        className="customPickerSelect tradeChainAllSelect"
                         style={{ display: "inline" }}
                         onClick={() =>
                           entry.supported
@@ -1667,14 +1667,14 @@ export default function LendPanel({
                     key={`${defi}_discovery_${entry.chain}`}
                     className={
                       entry.chain == activeChain
-                        ? "tradePickerRow on"
-                        : "tradePickerRow"
+                        ? "customPickerRow on"
+                        : "customPickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeChainAllSelect"
+                        className="customPickerSelect tradeChainAllSelect"
                         style={{ display: "inline" }}
                         onClick={() => selectProtocolDiscoveryChain(entry)}
                       >
@@ -1751,10 +1751,10 @@ export default function LendPanel({
           onClick={prevChain}
           disabled={selectableProtocolChains.length < 2}
         />
-        <div className="tradePicker" ref={chainPickerRef}>
+        <div className="customPicker" ref={chainPickerRef}>
           <button
             type="button"
-            className="tradePickerButton"
+            className="customPickerButton"
             style={{ width: chainButtonWidth }}
             disabled={!chainList.length && !chainDiscovery.chains.length}
             onClick={() => {

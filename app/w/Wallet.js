@@ -7,12 +7,30 @@ import bscIcon from "@/data/img/bsc.png";
 import debankIcon from "@/data/img/debank.png";
 import ethereumIcon from "@/data/img/ethereum.svg";
 import solanaIcon from "@/data/img/solana.svg";
+import cgb from "@/app/context";
 import { pc } from "@/fn/basic";
 import permanentCoinM from "@/fn/coinM";
+import {
+  encodeSelectionOrder,
+  normalizeSelectionOrder,
+  parseSelectionOrder,
+  rememberSelectionValue,
+} from "@/fn/selectionOrder";
 import { ckPrefix, scanners } from "@/sets";
-import { CycleButton, TableSortHeader } from "@/components/Shared";
+import {
+  CustomPicker,
+  CustomPickerButton,
+  CustomPickerColumn,
+  CustomPickerMenu,
+  CustomPickerRow,
+  CustomPickerSortHeader,
+  CustomPickerTable,
+  CycleButton,
+  TableSortHeader,
+  TrashIcon,
+} from "@/components/Shared";
 import { useRouter } from "next/navigation";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   addLocalCustomCoin,
   addLocalWalletEntry,
@@ -317,14 +335,6 @@ function CoinIcon({ coin, coinE = {} }) {
   );
 }
 
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-1 6h2v10H8V9Zm6 0h2v10h-2V9Zm-4 0h2v10h-2V9Z" />
-    </svg>
-  );
-}
-
 function toNum(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -387,9 +397,13 @@ const activeChainCookie = `${ckPrefix ?? ""}activeChain`;
 const chainSortCookie = `${ckPrefix ?? ""}chainSort`;
 const chainSortCap = 10;
 const lastWalletCookiePrefix = `${ckPrefix ?? ""}lastWallet_`;
+const walletHistoryCookiePrefix = `${ckPrefix ?? ""}walletHistory_`;
+const walletHistorySkipStorageKey = `${ckPrefix ?? ""}walletHistorySkip`;
+const walletHistoryCap = 10;
 const cookieMaxAge = 365 * 24 * 60 * 60;
 const connectedWalletValue = "__connected__";
 const walletNotFoundValue = "__not_found__";
+const favWalletHistoryValue = "__favs__";
 
 function getInitialCookie(initialCookieM = {}, name = "") {
   const value = initialCookieM?.[name];
@@ -403,6 +417,215 @@ function getInitialActiveChain({ data, initialCookieM = {} } = {}) {
 
   const savedActiveChain = getInitialCookie(initialCookieM, activeChainCookie);
   return chainNames.includes(savedActiveChain) ? savedActiveChain : "";
+}
+
+function getWalletHistoryCookie(type = "evm") {
+  return `${walletHistoryCookiePrefix}${type}`;
+}
+
+function getWalletHistoryValue(value = "") {
+  return value === "" ? favWalletHistoryValue : value;
+}
+
+function getWalletValueFromHistory(value = "") {
+  return value == favWalletHistoryValue ? "" : value;
+}
+
+function getWalletHistoryValues(options = []) {
+  return options.map((option) => getWalletHistoryValue(option.value));
+}
+
+function getWalletNotFoundValue(wallet = "") {
+  const clean = String(wallet || "").trim();
+  return clean ? `${walletNotFoundValue}:${clean}` : walletNotFoundValue;
+}
+
+function getStoredWalletHistoryOption(value = "") {
+  const text = String(value || "");
+  if (text === "") return { value: "", label: "favs" };
+  if (text == "all") return { value: text, label: "all" };
+  if (text.startsWith(`${walletNotFoundValue}:`)) {
+    const wallet = text.slice(walletNotFoundValue.length + 1);
+    return {
+      value: text,
+      label: `not found${wallet ? `: ${wallet}` : ""}`,
+    };
+  }
+  if (text == walletNotFoundValue) {
+    return { value: text, label: "not found" };
+  }
+  if (text.startsWith("__walletName__:")) {
+    const name = text.slice("__walletName__:".length);
+    return { value: text, label: `w: ${name}` };
+  }
+  if (text.startsWith("__address__:")) {
+    const address = text.slice("__address__:".length);
+    return {
+      value: text,
+      label: `addr: ${shortAddr(address)}`,
+      detail: shortAddr(address),
+      address,
+    };
+  }
+  if (text == connectedWalletValue) return null;
+
+  return { value: text, label: text };
+}
+
+function WalletSelectPicker({
+  value = "",
+  options = [],
+  historyValues = [],
+  onSelect,
+  onRemoveHistory,
+  disabled = false,
+}) {
+  const [open, setOpen] = useState(false);
+  const [sortM, setSortM] = useState({});
+  const pickerRef = useRef(null);
+  const optionM = new Map(options.map((option) => [option.value, option]));
+  const selected = optionM.get(value);
+  const historyOptions = historyValues
+    .map((entry) => optionM.get(entry) || getStoredWalletHistoryOption(entry))
+    .filter(Boolean);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutsideClick(e) {
+      if (!pickerRef.current?.contains(e.target)) setOpen(false);
+    }
+
+    function closeOnEscape(e) {
+      if (e.key == "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  function toggleSort(section = "") {
+    setSortM((prev) => ({
+      ...prev,
+      [section]: prev[section] == "wallet" ? "" : "wallet",
+    }));
+  }
+
+  function sortRows(rows = [], section = "") {
+    if (sortM[section] != "wallet") return rows;
+
+    return [...rows].sort((a, b) =>
+      String(a?.label || "").localeCompare(String(b?.label || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  }
+
+  function getHeader(section = "") {
+    return (
+      <CustomPickerSortHeader
+        activeSort={sortM[section]}
+        sortKey="wallet"
+        onSort={() => toggleSort(section)}
+      >
+        wallets
+      </CustomPickerSortHeader>
+    );
+  }
+
+  function selectOption(option) {
+    if (!option || option.disabled) return;
+    setOpen(false);
+    onSelect?.(option.value);
+  }
+
+  function removeHistoryOption(e, option) {
+    e.stopPropagation();
+    if (!option) return;
+    onRemoveHistory?.(option.value);
+  }
+
+  function renderRows(rows = [], { history = false } = {}) {
+    if (!rows.length) {
+      return (
+        <tr>
+          <td className="gray">
+            -
+          </td>
+        </tr>
+      );
+    }
+
+    return rows.map((option) => (
+      <CustomPickerRow
+        key={option.value || favWalletHistoryValue}
+        active={option.value == value}
+        unsupported={option.disabled}
+        onClick={() => selectOption(option)}
+        title={option.title || option.label}
+      >
+        <td>
+          {option.label}
+          {history && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="walletDeleteButton walletHistoryRemoveButton"
+                title={`remove ${option.label} from history`}
+                aria-label={`remove ${option.label} from history`}
+                onClick={(e) => removeHistoryOption(e, option)}
+              >
+                <TrashIcon />
+              </button>
+            </>
+          )}
+        </td>
+      </CustomPickerRow>
+    ));
+  }
+
+  return (
+    <CustomPicker className="walletSelectPicker" ref={pickerRef}>
+      <CustomPickerButton
+        className="walletSelectPickerButton"
+        onClick={() => setOpen((value) => !value)}
+        disabled={disabled}
+        aria-expanded={open}
+      >
+        {selected?.label || "select"}
+      </CustomPickerButton>
+      {open && (
+        <CustomPickerMenu className="walletSelectPickerMenu">
+          <CustomPickerColumn title="history">
+            <CustomPickerTable
+              className="walletSelectPickerTable"
+              headers={[getHeader("history")]}
+            >
+              <tbody>
+                {renderRows(sortRows(historyOptions, "history"), {
+                  history: true,
+                })}
+              </tbody>
+            </CustomPickerTable>
+          </CustomPickerColumn>
+          <CustomPickerColumn title="all">
+            <CustomPickerTable
+              className="customPickerAllTable walletSelectPickerTable"
+              headers={[getHeader("all")]}
+            >
+              <tbody>{renderRows(sortRows(options, "all"))}</tbody>
+            </CustomPickerTable>
+          </CustomPickerColumn>
+        </CustomPickerMenu>
+      )}
+    </CustomPicker>
+  );
 }
 
 function parseChainSortOrder(value = "") {
@@ -449,6 +672,7 @@ function Wallet({
   initialCookieM = {},
 }) {
   const router = useRouter();
+  const { setWalletLoading } = cgb();
   const walletFileOptions = walletFiles.filter((file) => !file.endsWith("/"));
   const defaultAddWalletFile = walletFileOptions.includes(selectedWallet)
     ? selectedWallet
@@ -463,6 +687,12 @@ function Wallet({
       chainSortCap,
     ),
   );
+  let [walletHistoryOrder, setWalletHistoryOrder] = useState(() =>
+    parseSelectionOrder(
+      getInitialCookie(initialCookieM, getWalletHistoryCookie(walletType)),
+    ).slice(0, walletHistoryCap),
+  );
+  const walletHistorySkipRef = useRef("");
   let [loadingWallet, setLoadingWallet] = useState(false);
   let [coinLimit, setCoinLimit] = useState(() => {
     const savedCoinLimit = Number(
@@ -645,6 +875,7 @@ function Wallet({
     : selectedAddress
       ? `__address__:${selectedAddress}`
       : "";
+  const walletNotFoundSelectValue = getWalletNotFoundValue(requestedWallet);
   const connectedSelected =
     connectedWallet?.address &&
     selectedAddress &&
@@ -653,7 +884,7 @@ function Wallet({
   const walletSelectValue = connectedSelected
     ? connectedWalletValue
     : effectiveSelectedWalletNotFound
-      ? walletNotFoundValue
+      ? walletNotFoundSelectValue
       : effectiveSelectedWallet || walletFilterValue || "";
   const canCycleWalletType = walletTypeOptions.length > 1;
   const hasError = visibleChainList.some(
@@ -672,6 +903,19 @@ function Wallet({
   const normalWalletFiles = selectableWalletFiles.filter(
     (file) => !isSpecialWalletFile(file),
   );
+  const walletSelectOptions = getWalletSelectOptions();
+  const walletSelectOptionKey = walletSelectOptions
+    .map(
+      (option) =>
+        `${option.value}:${option.remember === false ? "0" : "1"}:${option.disabled ? "1" : "0"}`,
+    )
+    .join("|");
+  const walletHistoryOptionValues = getWalletHistoryValues(walletSelectOptions);
+  const walletHistoryValues = normalizeSelectionOrder(
+    walletHistoryOrder,
+    [],
+    walletHistoryCap,
+  ).map(getWalletValueFromHistory);
 
   function getAllCoins(chainE) {
     return chainE?.allCoins?.length ? chainE.allCoins : chainE?.coins || [];
@@ -908,6 +1152,20 @@ function Wallet({
   ]);
 
   useEffect(() => {
+    setWalletHistoryOrder(
+      parseSelectionOrder(getCookie(getWalletHistoryCookie(walletType))).slice(
+        0,
+        walletHistoryCap,
+      ),
+    );
+  }, [walletType]);
+
+  useEffect(() => {
+    if (consumeWalletHistorySkip(walletSelectValue)) return;
+    rememberWalletHistory(walletSelectValue);
+  }, [walletSelectValue, walletSelectOptionKey, walletType]);
+
+  useEffect(() => {
     function handleBalancePatch(e) {
       const patches = Array.isArray(e?.detail?.balances)
         ? e.detail.balances
@@ -1081,6 +1339,14 @@ function Wallet({
     const id = setTimeout(() => setLoadingWallet(false), 20000);
     return () => clearTimeout(id);
   }, [loadingWallet]);
+
+  useEffect(() => {
+    setWalletLoading?.(
+      Boolean(loadingWallet || loadingLocalWallet || checkingLocalWallet),
+    );
+  }, [loadingWallet, loadingLocalWallet, checkingLocalWallet, setWalletLoading]);
+
+  useEffect(() => () => setWalletLoading?.(false), [setWalletLoading]);
 
   useEffect(() => {
     const chainNames = chainNameKey ? chainNameKey.split("|") : [];
@@ -1906,8 +2172,101 @@ function Wallet({
     }
   }
 
-  function selectWallet(e) {
-    goWallet(e.target.value);
+  function selectWalletValue(value) {
+    rememberWalletHistory(value);
+    goWallet(value);
+  }
+
+  function rememberWalletHistory(value) {
+    const option =
+      walletSelectOptions.find((entry) => entry.value == value) ||
+      getStoredWalletHistoryOption(value);
+    if (!option) return;
+
+    const validValues = [
+      ...walletHistoryOptionValues,
+      ...walletHistoryOrder,
+      getWalletHistoryValue(value),
+    ];
+    const historyValue = getWalletHistoryValue(value);
+    setWalletHistoryOrder((prev) => {
+      const next = rememberSelectionValue(
+        prev,
+        historyValue,
+        validValues,
+        walletHistoryCap,
+      );
+      if (encodeSelectionOrder(next) == encodeSelectionOrder(prev)) return prev;
+      setCookie(getWalletHistoryCookie(walletType), encodeSelectionOrder(next), {
+        maxAge: cookieMaxAge,
+        path: "/",
+      });
+      return next;
+    });
+  }
+
+  function getWalletHistorySkipToken(value) {
+    return JSON.stringify({
+      routeBase,
+      walletType,
+      value: getWalletHistoryValue(value),
+      at: Date.now(),
+    });
+  }
+
+  function parseWalletHistorySkipToken(token = "") {
+    try {
+      return JSON.parse(token);
+    } catch {
+      return null;
+    }
+  }
+
+  function markWalletHistorySkip(value) {
+    const token = getWalletHistorySkipToken(value);
+    walletHistorySkipRef.current = token;
+    try {
+      sessionStorage.setItem(walletHistorySkipStorageKey, token);
+    } catch {}
+  }
+
+  function consumeWalletHistorySkip(value) {
+    let token = walletHistorySkipRef.current;
+    try {
+      token ||= sessionStorage.getItem(walletHistorySkipStorageKey) || "";
+    } catch {}
+
+    if (!token) return false;
+
+    const payload = parseWalletHistorySkipToken(token);
+    const expired = !payload?.at || Date.now() - Number(payload.at) > 30_000;
+    const sameScope =
+      !expired &&
+      payload.routeBase == routeBase &&
+      payload.walletType == walletType;
+    const matched = sameScope && payload.value == getWalletHistoryValue(value);
+
+    if (expired || (sameScope && !matched)) {
+      walletHistorySkipRef.current = "";
+      try {
+        sessionStorage.removeItem(walletHistorySkipStorageKey);
+      } catch {}
+    }
+
+    return matched;
+  }
+
+  function removeWalletHistory(value) {
+    const historyValue = getWalletHistoryValue(value);
+    setWalletHistoryOrder((prev) => {
+      const next = prev.filter((entry) => entry != historyValue);
+      if (encodeSelectionOrder(next) == encodeSelectionOrder(prev)) return prev;
+      setCookie(getWalletHistoryCookie(walletType), encodeSelectionOrder(next), {
+        maxAge: cookieMaxAge,
+        path: "/",
+      });
+      return next;
+    });
   }
 
   function selectAddWalletFile(e) {
@@ -1932,6 +2291,27 @@ function Wallet({
   function goWallet(wallet) {
     if (wallet == walletSelectValue) return;
     if (wallet == walletNotFoundValue) return;
+    if (String(wallet || "").startsWith(`${walletNotFoundValue}:`)) {
+      const missingWallet = String(wallet).slice(walletNotFoundValue.length + 1);
+      if (!missingWallet) return;
+      setLoadingWallet(true);
+      router.push(getWalletUrl(missingWallet));
+      return;
+    }
+    if (String(wallet || "").startsWith("__walletName__:")) {
+      const walletName = String(wallet).slice("__walletName__:".length);
+      if (!walletName) return;
+      setLoadingWallet(true);
+      router.push(getWalletNameUrl(walletName));
+      return;
+    }
+    if (String(wallet || "").startsWith("__address__:")) {
+      const address = String(wallet).slice("__address__:".length);
+      if (!address) return;
+      setLoadingWallet(true);
+      router.push(getAddressUrl(address));
+      return;
+    }
     if (wallet == connectedWalletValue) {
       if (!connectedWallet?.address) return;
 
@@ -1944,28 +2324,84 @@ function Wallet({
     router.push(getWalletUrl(wallet));
   }
 
+  function getWalletSelectOptions() {
+    const options = [];
+
+    if (connectedWallet?.address) {
+      options.push({
+        value: connectedWalletValue,
+        label: `connected: ${connectedWallet.label} ${shortAddr(
+          connectedWallet.address,
+        )}`,
+        detail: shortAddr(connectedWallet.address),
+        address: connectedWallet.address,
+      });
+    }
+
+    if (effectiveSelectedWalletNotFound) {
+      options.push({
+        value: walletNotFoundSelectValue,
+        label: `not found${requestedWallet ? `: ${requestedWallet}` : ""}`,
+      });
+    }
+
+    options.push({ value: "", label: "favs" });
+    options.push({ value: "all", label: "all" });
+
+    for (const file of specialWalletFiles) {
+      const value = getWalletValue(file);
+      options.push({ value, label: value });
+    }
+
+    if (!effectiveSelectedWallet && selectedWalletName) {
+      options.push({
+        value: walletFilterValue,
+        label: `w: ${selectedWalletName}`,
+      });
+    }
+
+    if (!effectiveSelectedWallet && !selectedWalletName && selectedAddress) {
+      options.push({
+        value: walletFilterValue,
+        label: `addr: ${shortAddr(selectedAddress)}`,
+        detail: shortAddr(selectedAddress),
+        address: selectedAddress,
+      });
+    }
+
+    for (const file of normalWalletFiles) {
+      const value = getWalletValue(file);
+      options.push({ value, label: value });
+    }
+
+    return options;
+  }
+
   function getWalletOptionValues() {
-    return [
-      ...(connectedWallet?.address ? [connectedWalletValue] : []),
-      ...(effectiveSelectedWalletNotFound ? [walletNotFoundValue] : []),
-      "",
-      "all",
-      ...specialWalletFiles.map(getWalletValue),
-      ...normalWalletFiles.map(getWalletValue),
-    ];
+    return walletSelectOptions.map((entry) => entry.value);
+  }
+
+  function getWalletCycleValues() {
+    return walletHistoryValues.length ? walletHistoryValues : getWalletOptionValues();
   }
 
   function nextWallet() {
-    const wallets = getWalletOptionValues();
+    const wallets = getWalletCycleValues();
+    if (!wallets.length) return;
     const index = Math.max(0, wallets.indexOf(walletSelectValue));
     const next = wallets[(index + 1) % wallets.length];
+    if (next == walletSelectValue) return;
+    markWalletHistorySkip(next);
     goWallet(next);
   }
 
   function prevWallet() {
-    const wallets = getWalletOptionValues();
+    const wallets = getWalletCycleValues();
+    if (!wallets.length) return;
     const index = Math.max(0, wallets.indexOf(walletSelectValue));
     const prev = wallets[(index - 1 + wallets.length) % wallets.length];
+    if (prev == walletSelectValue) return;
+    markWalletHistorySkip(prev);
     goWallet(prev);
   }
 
@@ -3264,53 +3700,14 @@ function Wallet({
               onClick={prevWallet}
               disabled={loadingWallet}
             />
-            <select
+            <WalletSelectPicker
               value={walletSelectValue}
-              onChange={selectWallet}
+              options={walletSelectOptions}
+              historyValues={walletHistoryValues}
+              onSelect={selectWalletValue}
+              onRemoveHistory={removeWalletHistory}
               disabled={loadingWallet}
-            >
-              {connectedWallet?.address && (
-                <option value={connectedWalletValue}>
-                  connected: {connectedWallet.label}{" "}
-                  {shortAddr(connectedWallet.address)}
-                </option>
-              )}
-              {effectiveSelectedWalletNotFound && (
-                <option value={walletNotFoundValue}>
-                  not found{requestedWallet ? `: ${requestedWallet}` : ""}
-                </option>
-              )}
-              <option value="">favs</option>
-              <option value="all">all</option>
-              {specialWalletFiles.map((file) => {
-                const value = getWalletValue(file);
-                return (
-                  <option key={file} value={value}>
-                    {value}
-                  </option>
-                );
-              })}
-              {!effectiveSelectedWallet && selectedWalletName && (
-                <option value={walletFilterValue}>
-                  w: {selectedWalletName}
-                </option>
-              )}
-              {!effectiveSelectedWallet &&
-                !selectedWalletName &&
-                selectedAddress && (
-                  <option value={walletFilterValue}>
-                    addr: {shortAddr(selectedAddress)}
-                  </option>
-                )}
-              {normalWalletFiles.map((file) => {
-                const value = getWalletValue(file);
-                return (
-                  <option key={file} value={value}>
-                    {value}
-                  </option>
-                );
-              })}
-            </select>
+            />
             <CycleButton onClick={nextWallet} disabled={loadingWallet} />
             <span>chain:</span>
             <CycleButton
@@ -3334,9 +3731,6 @@ function Wallet({
               onClick={() => cycleActiveChain(1)}
               disabled={loadingWallet || !chainList.length}
             />
-            {(loadingWallet || loadingLocalWallet) && (
-              <span className="yellow">loading...</span>
-            )}
             <span>coins:</span>
             <button
               className="btn small bgGray"

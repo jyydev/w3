@@ -584,7 +584,7 @@ export function HyperliquidCoinMenu({
                   <tr
                     key={`hl_${side}_added_coin_${coin}`}
                     className={[
-                      "tradePickerRow",
+                      "customPickerRow",
                       coin == selectedCoin ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -594,7 +594,7 @@ export function HyperliquidCoinMenu({
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeCoinAllSelect"
+                        className="customPickerSelect tradeCoinAllSelect"
                         onClick={() =>
                           supported
                             ? onSelect(coin)
@@ -678,14 +678,14 @@ export function HyperliquidCoinMenu({
                     key={`hl_${side}_all_coin_${coin}`}
                     className={
                       coin == selectedCoin
-                        ? "tradePickerRow on"
-                        : "tradePickerRow"
+                        ? "customPickerRow on"
+                        : "customPickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeCoinAllSelect"
+                        className="customPickerSelect tradeCoinAllSelect"
                         onClick={() => onSelect(coin)}
                       >
                         <span>{coin}</span>
@@ -748,7 +748,7 @@ export function HyperliquidChainMenu({
                   <tr
                     key={`hl_${side}_added_chain_${chain}`}
                     className={[
-                      "tradePickerRow",
+                      "customPickerRow",
                       chain == selectedChain ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -758,7 +758,7 @@ export function HyperliquidChainMenu({
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeChainAllSelect"
+                        className="customPickerSelect tradeChainAllSelect"
                         onClick={() =>
                           supported
                             ? onSelect(chain)
@@ -834,14 +834,14 @@ export function HyperliquidChainMenu({
                     key={`hl_${side}_all_chain_${chain}`}
                     className={
                       chain == selectedChain
-                        ? "tradePickerRow on"
-                        : "tradePickerRow"
+                        ? "customPickerRow on"
+                        : "customPickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeChainAllSelect"
+                        className="customPickerSelect tradeChainAllSelect"
                         onClick={() => onSelect(chain)}
                       >
                         <span>{chain}</span>
@@ -897,10 +897,10 @@ export function HyperliquidCoinSelect({
         onClick={onPrev}
         disabled={addedCoins.length < 2 && allCoins.length < 2}
       />
-      <div className="tradePicker" ref={pickerRef}>
+      <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
-          className="tradePickerButton"
+          className="customPickerButton"
           style={{
             width: getHyperliquidPickerWidth(
               [...addedCoins, ...allCoins],
@@ -957,10 +957,10 @@ export function HyperliquidChainSelect({
         onClick={onPrev}
         disabled={addedChains.length < 2 && allChains.length < 2}
       />
-      <div className="tradePicker" ref={pickerRef}>
+      <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
-          className="tradePickerButton"
+          className="customPickerButton"
           style={{
             width: getHyperliquidPickerWidth(
               [...addedChains, ...allChains],

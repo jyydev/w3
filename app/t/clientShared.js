@@ -6,7 +6,17 @@ import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButton, TableSortHeader } from "@/components/Shared";
+import {
+  CustomPicker,
+  CustomPickerButton,
+  CustomPickerCell,
+  CustomPickerColumn,
+  CustomPickerMenu,
+  CustomPickerRow,
+  CustomPickerSortHeader,
+  CustomPickerTable,
+  CycleButton,
+} from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
@@ -127,10 +137,6 @@ export const yieldOptions = (Array.isArray(yields) ? yields : [])
     label: String(entry.label),
   }));
 export const noYield = { value: "", label: "Yield" };
-
-function cn(...classes) {
-  return classes.filter(Boolean).join(" ");
-}
 
 function getPickerSortText(value = "") {
   return String(value ?? "").toLowerCase();
@@ -812,30 +818,18 @@ export function getCoinBalanceByAddress(
 }
 
 export function TradePickerMenu({ className = "", children }) {
-  return <div className={cn("tradePickerMenu", className)}>{children}</div>;
+  return <CustomPickerMenu className={className}>{children}</CustomPickerMenu>;
 }
 
 export function TradePickerColumn({ title = "", children }) {
-  return (
-    <div className="tradePickerColumn">
-      <span className="tradePickerColumnTitle">{title}</span>
-      {children}
-    </div>
-  );
+  return <CustomPickerColumn title={title}>{children}</CustomPickerColumn>;
 }
 
 export function TradePickerTable({ className = "", headers = [], children }) {
   return (
-    <table className={cn("tradePickerDataTable", "tradePickerTable", className)}>
-      <thead>
-        <tr>
-          {headers.map((header, index) => (
-            <th key={`${index}_${String(header?.key || header)}`}>{header}</th>
-          ))}
-        </tr>
-      </thead>
+    <CustomPickerTable className={className} headers={headers}>
       {children}
-    </table>
+    </CustomPickerTable>
   );
 }
 
@@ -846,24 +840,21 @@ export function TradePickerRow({
   children,
 }) {
   return (
-    <tr
-      className={cn(
-        "tradePickerRow",
-        active ? "on" : "",
-        unsupported ? "unsupported" : "",
-      )}
+    <CustomPickerRow
+      active={active}
+      unsupported={unsupported}
       onClick={onClick}
     >
       {children}
-    </tr>
+    </CustomPickerRow>
   );
 }
 
 export function TradePickerCell({ className = "", colSpan, children }) {
   return (
-    <td className={className} colSpan={colSpan}>
+    <CustomPickerCell className={className} colSpan={colSpan}>
       {children}
-    </td>
+    </CustomPickerCell>
   );
 }
 
@@ -916,14 +907,13 @@ export function TradePickerSortHeader({
   children,
 }) {
   return (
-    <TableSortHeader
+    <CustomPickerSortHeader
       activeSort={activeSort}
       sortKey={sortKey}
       onSort={onSort}
-      className="tradePickerSortHeader"
     >
       {children}
-    </TableSortHeader>
+    </CustomPickerSortHeader>
   );
 }
 
@@ -1160,21 +1150,19 @@ export function TradeMarketPicker({
         onClick={prevMarket}
         disabled={visibleAddedMarkets.length < 2}
       />
-      <div className="tradePicker" ref={marketPickerRef}>
-        <button
-          type="button"
-          className="tradePickerButton"
+      <CustomPicker ref={marketPickerRef}>
+        <CustomPickerButton
           style={{ width: marketButtonWidth }}
           disabled={!chainName}
           onClick={() => setShowMarketMenu((show) => !show)}
         >
           {marketE ? getMarketLabel(marketE) : "no coin"}
-        </button>
+        </CustomPickerButton>
         {showMarketMenu && (
           <TradePickerMenu className="tradeMarketMenu">
             <TradePickerColumn title="added">
               <TradePickerTable
-                className="tradePickerAddedTable"
+                className="customPickerAddedTable"
                 headers={[
                   <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
                   <SortHeader sortKey="underlyingQty">qty</SortHeader>,
@@ -1191,8 +1179,8 @@ export function TradeMarketPicker({
                           key={`wallet_${entry.value}`}
                           className={
                             entry.value == market
-                              ? "tradePickerRow on"
-                              : "tradePickerRow"
+                              ? "customPickerRow on"
+                              : "customPickerRow"
                           }
                           onClick={() => selectMarket(entry.value)}
                         >
@@ -1205,7 +1193,7 @@ export function TradeMarketPicker({
                             />
                           </td>
                           <td>
-                            <span className="infoHover hoverOnlyInfo tradePickerCoinHover">
+                            <span className="infoHover hoverOnlyInfo customPickerCoinHover">
                               <span className="gray">{entry.lendCoin}</span>
                               <LendCoinInfoCard
                                 coin={entry.lendCoin}
@@ -1238,7 +1226,7 @@ export function TradeMarketPicker({
             </TradePickerColumn>
             <TradePickerColumn title="all">
               <TradePickerTable
-                className="tradePickerAllTable"
+                className="customPickerAllTable"
                 headers={[
                   <SortHeader section="all" sortKey="underlyingCoin">
                     coin
@@ -1317,14 +1305,14 @@ export function TradeMarketPicker({
                           key={`${defi}_${entry.value}`}
                           className={
                             selectedValue == market
-                              ? "tradePickerRow on"
-                              : "tradePickerRow"
+                              ? "customPickerRow on"
+                              : "customPickerRow"
                           }
                         >
                           <td>
                             <button
                               type="button"
-                              className="tradePickerSelect"
+                              className="customPickerSelect"
                               onClick={() => selectMarket(selectedValue)}
                               title={entry.underlyingName}
                             >
@@ -1354,10 +1342,10 @@ export function TradeMarketPicker({
                             </button>
                           </td>
                           <td>
-                            <span className="infoHover hoverOnlyInfo tradePickerCoinHover">
+                            <span className="infoHover hoverOnlyInfo customPickerCoinHover">
                               <button
                                 type="button"
-                                className="tradePickerSelect tradePickerSecondarySelect"
+                                className="customPickerSelect customPickerSecondarySelect"
                                 onClick={() => selectMarket(selectedValue)}
                               >
                                 <span className="gray">{entry.lendCoin}</span>
@@ -1402,7 +1390,7 @@ export function TradeMarketPicker({
             </TradePickerColumn>
           </TradePickerMenu>
         )}
-      </div>
+      </CustomPicker>
       <CycleButton
         onClick={nextMarket}
         disabled={visibleAddedMarkets.length < 2}

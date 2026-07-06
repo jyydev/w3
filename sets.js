@@ -21,6 +21,7 @@ exports.lendings = [
 
 exports.yields = [
   { value: "spark", label: "Spark" },
+  { value: "aaveStaking", label: "Aave Staking" },
   { value: "venusFlux", label: "Venus Flux" },
   { value: "hyperliquid", label: "Hyperliquid" },
 ];

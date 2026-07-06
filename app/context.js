@@ -4,10 +4,20 @@ import { createContext, useContext, useState } from "react";
 const RootContext = createContext();
 
 export const RootProvider = ({ children }) => {
-  const [navigationLoading, setNavigationLoading] = useState(false);
+  const [routeLoading, setNavigationLoading] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const navigationLoading = routeLoading || walletLoading;
 
   return (
-    <RootContext.Provider value={{ navigationLoading, setNavigationLoading }}>
+    <RootContext.Provider
+      value={{
+        navigationLoading,
+        routeLoading,
+        setNavigationLoading,
+        walletLoading,
+        setWalletLoading,
+      }}
+    >
       {children}
     </RootContext.Provider>
   );

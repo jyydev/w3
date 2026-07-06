@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { TrashIcon } from "@/components/Shared";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
 import {
   deleteLocalEditorFile,
@@ -228,14 +229,6 @@ function FavButton({ active, onClick }) {
     >
       {active ? "★" : "☆"}
     </button>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-1 6h2v10H8V9Zm6 0h2v10h-2V9Zm-4 0h2v10h-2V9Z" />
-    </svg>
   );
 }
 

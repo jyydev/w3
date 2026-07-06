@@ -376,7 +376,7 @@ function DiscoveryChainMenu({
                   <tr
                     key={`${side}_added_${chain}`}
                     className={[
-                      "tradePickerRow",
+                      "customPickerRow",
                       chain == selectedChain ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -386,7 +386,7 @@ function DiscoveryChainMenu({
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeChainAllSelect"
+                        className="customPickerSelect tradeChainAllSelect"
                         onClick={() =>
                           supported
                             ? selectDiscoveryChain(
@@ -486,14 +486,14 @@ function DiscoveryChainMenu({
                     key={`${side}_all_${entry.chainId || label}`}
                     className={
                       entry.chain == selectedChain
-                        ? "tradePickerRow on"
-                        : "tradePickerRow"
+                        ? "customPickerRow on"
+                        : "customPickerRow"
                     }
                   >
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeChainAllSelect"
+                        className="customPickerSelect tradeChainAllSelect"
                         onClick={() => selectDiscoveryChain(entry, side)}
                         disabled={!canSelect}
                       >
@@ -589,10 +589,10 @@ export function SwapChainSelect({
         onClick={onPrev}
         disabled={disabled || addedChains.length < 2}
       />
-      <div className="tradePicker" ref={pickerRef}>
+      <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
-          className="tradePickerButton"
+          className="customPickerButton"
           style={{ width: buttonWidth }}
           disabled={disabled}
           title={title}
@@ -767,7 +767,7 @@ function DiscoveryCoinMenu({
                   <tr
                     key={`${side}_added_coin_${coin}`}
                     className={[
-                      "tradePickerRow",
+                      "customPickerRow",
                       coin == selectedCoin ? "on" : "",
                       supported ? "" : "unsupported",
                     ]
@@ -777,7 +777,7 @@ function DiscoveryCoinMenu({
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeCoinAllSelect"
+                        className="customPickerSelect tradeCoinAllSelect"
                         onClick={() =>
                           supported
                             ? selectDiscoveryCoin({ symbol: coin }, side)
@@ -919,15 +919,15 @@ function DiscoveryCoinMenu({
                     key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
                     className={
                       rowCoin == selectedCoin
-                        ? "tradePickerRow on"
-                        : "tradePickerRow"
+                        ? "customPickerRow on"
+                        : "customPickerRow"
                     }
                     onClick={() => selectDiscoveryCoin(entry, side)}
                   >
                     <td>
                       <button
                         type="button"
-                        className="tradePickerSelect tradeCoinAllSelect"
+                        className="customPickerSelect tradeCoinAllSelect"
                         onClick={(e) => {
                           e.stopPropagation();
                           selectDiscoveryCoin(entry, side);
@@ -1027,10 +1027,10 @@ export function SwapCoinSelect({
         onClick={onPrev}
         disabled={addedCoins.length < 2}
       />
-      <div className="tradePicker" ref={pickerRef}>
+      <div className="customPicker" ref={pickerRef}>
         <button
           type="button"
-          className="tradePickerButton"
+          className="customPickerButton"
           onClick={() => {
             const nextShow = !showMenu;
             setShowMenu(nextShow);
