@@ -781,7 +781,7 @@ export default function LendPanel({
   const usesDirectMarket =
     hasProtocolAllMarkets &&
     !!marketE?.lendAddress &&
-    (defi == "morpho" || !!marketE?.underlyingAddress);
+    (defi == "morpho" || defi == "venus" || !!marketE?.underlyingAddress);
   const directBalanceKey = usesDirectMarket
     ? [
         defi,

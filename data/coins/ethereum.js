@@ -93,5 +93,13 @@ const ethereum = [
     type: "stable"
   },
 
+  {
+    coin: "aEthUSDC",
+    address: "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c",
+    decimals: 6,
+    name: "Aave Ethereum USDC",
+    type: "lend"
+  },
+
 ];
 export default ethereum;

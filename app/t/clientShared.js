@@ -373,6 +373,18 @@ export function useTradeDirectMarketBalance({
 const tradeFallbackPriceCacheM = {};
 const tradeFallbackPricePromiseM = {};
 
+function getTradeCoinEKey(coinE = null) {
+  if (!coinE || typeof coinE != "object") return "";
+
+  return [
+    coinE.address || "",
+    Number.isInteger(Number(coinE.decimals)) ? Number(coinE.decimals) : "",
+    coinE.native ? "1" : "0",
+    coinE.type || "",
+    coinE.name || "",
+  ].join("|");
+}
+
 export function clearTradeClientRuntimeCache() {
   for (const key of Object.keys(tradeFallbackPriceCacheM)) {
     delete tradeFallbackPriceCacheM[key];
@@ -398,6 +410,7 @@ export function useTradeFallbackPrice({
   const [loading, setLoading] = useState(false);
   const fallbackPrice =
     fallbackPriceE.cacheKey == cacheKey ? fallbackPriceE.price : undefined;
+  const coinEKey = getTradeCoinEKey(coinE);
 
   useEffect(() => {
     if (!enabled || !cacheKey || !chain || !coin || toNum(listPrice) > 0) return;
@@ -444,7 +457,7 @@ export function useTradeFallbackPrice({
     cacheKey,
     chain,
     coin,
-    coinE,
+    coinEKey,
     enabled,
     fallbackPrice,
     getPrice,
@@ -1625,17 +1638,13 @@ export function TradeMarketPicker({
                               ? "customPickerRow on"
                               : "customPickerRow"
                           }
+                          onClick={() => selectMarket(selectedValue)}
                         >
                           <td>
                             <span className="customPickerCoinWithInfo">
-                              <button
-                                type="button"
-                                className="customPickerSelect"
-                                onClick={() => selectMarket(selectedValue)}
-                                title={entry.underlyingName}
-                              >
-                                <span>{entry.underlyingCoin}</span>
-                              </button>
+                              <span title={entry.underlyingName}>
+                                {entry.underlyingCoin}
+                              </span>
                               <MarketCoinInfoIcon
                                 coin={entry.underlyingCoin}
                                 name={entry.underlyingName}
@@ -1669,13 +1678,7 @@ export function TradeMarketPicker({
                           </td>
                           <td>
                             <span className="customPickerCoinWithInfo">
-                              <button
-                                type="button"
-                                className="customPickerSelect"
-                                onClick={() => selectMarket(selectedValue)}
-                              >
-                                <span>{entry.lendCoin}</span>
-                              </button>
+                              <span>{entry.lendCoin}</span>
                               <MarketExternalLink entry={entry} />
                               <MarketInfoIcon entry={entry} />
                             </span>

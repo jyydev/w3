@@ -397,6 +397,42 @@ function getVenusExchangeRate({
   return Number(ethers.formatUnits(rateRaw, scaleDecimals));
 }
 
+function sameVenusText(a = "", b = "") {
+  return (
+    String(a || "").trim().toLowerCase() ==
+    String(b || "").trim().toLowerCase()
+  );
+}
+
+async function resolveVenusMarket({
+  chain = "",
+  underlyingCoin = "",
+  lendCoin = "",
+  lendAddress = "",
+} = {}) {
+  const addressKey = ethers.isAddress(lendAddress)
+    ? ethers.getAddress(lendAddress).toLowerCase()
+    : "";
+  const res = await getVenusAllMarkets({ chain }).catch(() => null);
+  const markets = Array.isArray(res?.markets) ? res.markets : [];
+
+  return (
+    markets.find(
+      (entry) =>
+        addressKey &&
+        ethers.isAddress(entry.lendAddress) &&
+        ethers.getAddress(entry.lendAddress).toLowerCase() == addressKey,
+    ) ||
+    markets.find(
+      (entry) =>
+        sameVenusText(entry.lendCoin, lendCoin) &&
+        (!underlyingCoin ||
+          sameVenusText(entry.underlyingCoin, underlyingCoin)),
+    ) ||
+    null
+  );
+}
+
 async function assertVenusMarket({
   provider,
   chain = "",
@@ -407,11 +443,34 @@ async function assertVenusMarket({
   lendAddress = "",
   lendDecimals,
 } = {}) {
-  const underlying = ethers.isAddress(underlyingAddress)
-    ? ethers.getAddress(underlyingAddress)
+  const resolvedMarket =
+    (!ethers.isAddress(underlyingAddress) ||
+      !ethers.isAddress(lendAddress) ||
+      !Number.isInteger(underlyingDecimals) ||
+      !Number.isInteger(lendDecimals)) &&
+    (await resolveVenusMarket({
+      chain,
+      underlyingCoin,
+      lendCoin,
+      lendAddress,
+    }));
+  const resolvedUnderlyingAddress = ethers.isAddress(underlyingAddress)
+    ? underlyingAddress
+    : resolvedMarket?.underlyingAddress;
+  const resolvedLendAddress = ethers.isAddress(lendAddress)
+    ? lendAddress
+    : resolvedMarket?.lendAddress;
+  const finalUnderlyingDecimals = Number.isInteger(underlyingDecimals)
+    ? underlyingDecimals
+    : resolvedMarket?.underlyingDecimals;
+  const finalLendDecimals = Number.isInteger(lendDecimals)
+    ? lendDecimals
+    : resolvedMarket?.lendDecimals;
+  const underlying = ethers.isAddress(resolvedUnderlyingAddress)
+    ? ethers.getAddress(resolvedUnderlyingAddress)
     : getEvmTokenAddress(chain, underlyingCoin, "Venus underlying");
-  const vTokenAddress = ethers.isAddress(lendAddress)
-    ? ethers.getAddress(lendAddress)
+  const vTokenAddress = ethers.isAddress(resolvedLendAddress)
+    ? ethers.getAddress(resolvedLendAddress)
     : getVenusToken(chain, lendCoin);
   const vToken = new ethers.Contract(vTokenAddress, venusTokenAbi, provider);
   const [actualUnderlying, exchangeRateRaw] = await Promise.all([
@@ -425,17 +484,19 @@ async function assertVenusMarket({
 
   const underlyingPerReceipt = getVenusExchangeRate({
     rateRaw: BigInt(exchangeRateRaw),
-    underlyingDecimals: Number.isInteger(underlyingDecimals)
-      ? underlyingDecimals
+    underlyingDecimals: Number.isInteger(finalUnderlyingDecimals)
+      ? finalUnderlyingDecimals
       : getCoinDecimals(chain, underlyingCoin),
-    receiptDecimals: Number.isInteger(lendDecimals)
-      ? lendDecimals
+    receiptDecimals: Number.isInteger(finalLendDecimals)
+      ? finalLendDecimals
       : getCoinDecimals(chain, lendCoin),
   });
 
   return {
     underlying,
     vTokenAddress,
+    underlyingDecimals: finalUnderlyingDecimals,
+    lendDecimals: finalLendDecimals,
     exchangeRateRaw: BigInt(exchangeRateRaw),
     underlyingPerReceipt,
     receiptPerUnderlying: underlyingPerReceipt ? 1 / underlyingPerReceipt : 0,
@@ -460,15 +521,6 @@ export async function getVenusLendPreview({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const amountIn = getVenusAmount({
-    chain,
-    action,
-    underlyingCoin,
-    lendCoin,
-    amount,
-    underlyingDecimals,
-    lendDecimals,
-  });
   const provider = createJsonRpcProvider(rpc, {
     chain,
     scope: "Venus",
@@ -484,6 +536,15 @@ export async function getVenusLendPreview({
       underlyingDecimals,
       lendAddress,
       lendDecimals,
+    });
+    const amountIn = getVenusAmount({
+      chain,
+      action,
+      underlyingCoin,
+      lendCoin,
+      amount,
+      underlyingDecimals: market.underlyingDecimals ?? underlyingDecimals,
+      lendDecimals: market.lendDecimals ?? lendDecimals,
     });
     const allowance =
       action == "redeem"
@@ -536,15 +597,6 @@ export async function buildVenusLendTxs({
   const chainId = chainIds[chain];
   if (!chainId) throw new Error(`chain unsupported: ${chain}`);
 
-  const amountIn = getVenusAmount({
-    chain,
-    action,
-    underlyingCoin,
-    lendCoin,
-    amount,
-    underlyingDecimals,
-    lendDecimals,
-  });
   const provider = createJsonRpcProvider(rpc, {
     chain,
     scope: "Venus",
@@ -560,6 +612,15 @@ export async function buildVenusLendTxs({
       underlyingDecimals,
       lendAddress,
       lendDecimals,
+    });
+    const amountIn = getVenusAmount({
+      chain,
+      action,
+      underlyingCoin,
+      lendCoin,
+      amount,
+      underlyingDecimals: market.underlyingDecimals ?? underlyingDecimals,
+      lendDecimals: market.lendDecimals ?? lendDecimals,
     });
     const txs = [];
 
@@ -590,7 +651,7 @@ export async function buildVenusLendTxs({
         approvalAmount,
         amountIn,
         defaultAmount: amountIn,
-        decimals: underlyingDecimals,
+        decimals: market.underlyingDecimals ?? underlyingDecimals,
       });
 
       if (allowance < amountIn && approveAmount != null) {
@@ -670,15 +731,6 @@ export async function executeVenusLend({
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
 
-  const amountIn = getVenusAmount({
-    chain,
-    action,
-    underlyingCoin,
-    lendCoin,
-    amount,
-    underlyingDecimals,
-    lendDecimals,
-  });
   const provider = createJsonRpcProvider(rpc, {
     chain,
     scope: "Venus",
@@ -696,6 +748,15 @@ export async function executeVenusLend({
       underlyingDecimals,
       lendAddress,
       lendDecimals,
+    });
+    const amountIn = getVenusAmount({
+      chain,
+      action,
+      underlyingCoin,
+      lendCoin,
+      amount,
+      underlyingDecimals: market.underlyingDecimals ?? underlyingDecimals,
+      lendDecimals: market.lendDecimals ?? lendDecimals,
     });
     const vToken = new ethers.Contract(market.vTokenAddress, venusTokenAbi, wallet);
     const txs = [];
@@ -716,7 +777,7 @@ export async function executeVenusLend({
         fromCoin: underlyingCoin,
         approvalAmount,
         amountIn,
-        decimals: underlyingDecimals,
+        decimals: market.underlyingDecimals ?? underlyingDecimals,
       });
       txs.push(
         ...(await approveExactIfNeeded({
