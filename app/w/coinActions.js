@@ -3,7 +3,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { revalidatePath } from "next/cache";
-import { PublicKey, Connection } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -16,6 +16,7 @@ import { rpcs } from "@/sets";
 import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
 import {
   createJsonRpcProvider,
+  createSolanaConnection,
   logRpcFailure,
   toCleanError,
 } from "../_fn/shared";
@@ -117,7 +118,12 @@ async function withSolanaConnection(chain, fn) {
 
   for (const rpc of getRpcs(chain)) {
     try {
-      return await fn(new Connection(rpc, "confirmed"));
+      return await fn(
+        createSolanaConnection(rpc, {
+          chain,
+          scope: "coin settings",
+        }),
+      );
     } catch (e) {
       lastError = e;
       logRpcFailure({

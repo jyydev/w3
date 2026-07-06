@@ -728,6 +728,30 @@ function DiscoveryCoinMenu({
     },
     { qty: "desc", add: "desc" },
   );
+  function getCoinRowClass(active = false, supported = true) {
+    return [
+      "customPickerRow",
+      active ? "on" : "",
+      supported ? "" : "unsupported",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function SelectCoinButton({ onSelect, children }) {
+    return (
+      <button
+        type="button"
+        className="customPickerSelect tradeCoinAllSelect"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+      >
+        <span>{children}</span>
+      </button>
+    );
+  }
 
   return (
     <TradePickerMenu className="tradeCoinMenu">
@@ -768,29 +792,21 @@ function DiscoveryCoinMenu({
             {addedCoinRows.length ? (
               addedCoinRows.map((row) => {
                 const { coin, balance, supported } = row;
+                const selectRow = () =>
+                  supported
+                    ? selectDiscoveryCoin({ symbol: coin }, side)
+                    : showUnsupportedCoin(chain, coin);
+
                 return (
                   <tr
                     key={`${side}_added_coin_${coin}`}
-                    className={[
-                      "customPickerRow",
-                      coin == selectedCoin ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
+                    className={getCoinRowClass(coin == selectedCoin, supported)}
+                    onClick={selectRow}
                   >
                     <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeCoinAllSelect"
-                        onClick={() =>
-                          supported
-                            ? selectDiscoveryCoin({ symbol: coin }, side)
-                            : showUnsupportedCoin(chain, coin)
-                        }
-                      >
-                        <span>{coin}</span>
-                      </button>
+                      <SelectCoinButton onSelect={selectRow}>
+                        {coin}
+                      </SelectCoinButton>
                     </td>
                     <td>
                       <CoinBalance balance={balance} />
@@ -919,27 +935,18 @@ function DiscoveryCoinMenu({
                   name,
                 } = row;
                 const rowCoin = localCoin || symbol;
+                const selectRow = () => selectDiscoveryCoin(entry, side);
+
                 return (
                   <tr
                     key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
-                    className={
-                      rowCoin == selectedCoin
-                        ? "customPickerRow on"
-                        : "customPickerRow"
-                    }
-                    onClick={() => selectDiscoveryCoin(entry, side)}
+                    className={getCoinRowClass(rowCoin == selectedCoin)}
+                    onClick={selectRow}
                   >
                     <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeCoinAllSelect"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          selectDiscoveryCoin(entry, side);
-                        }}
-                      >
-                        <span>{symbol}</span>
-                      </button>
+                      <SelectCoinButton onSelect={selectRow}>
+                        {symbol}
+                      </SelectCoinButton>
                     </td>
                     <td className="gray">{name}</td>
                     <td>

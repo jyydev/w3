@@ -1,3 +1,4 @@
+import { Connection } from "@solana/web3.js";
 import { ethers } from "ethers";
 
 const rpcLogCooldownMs = 60_000;
@@ -128,4 +129,29 @@ export function createJsonRpcProvider(
   }
 
   return provider;
+}
+
+export function createSolanaConnection(
+  rpc = "",
+  { chain = "Solana", commitment = "confirmed", scope = "Solana" } = {},
+) {
+  return new Connection(rpc, {
+    commitment,
+    disableRetryOnRateLimit: true,
+    fetch: async (url, options) => {
+      try {
+        const res = await fetch(url, options);
+        if (res.status == 429) {
+          const error = new Error("429 Too Many Requests");
+          logRpcFailure({ scope, chain, rpc, error });
+          throw error;
+        }
+
+        return res;
+      } catch (error) {
+        logRpcFailure({ scope, chain, rpc, error });
+        throw toCleanError(error, `Solana RPC failed: ${getRpcOrigin(rpc)}`);
+      }
+    },
+  });
 }

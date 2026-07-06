@@ -1,11 +1,11 @@
 import { ethers } from "ethers";
-import { Connection } from "@solana/web3.js";
 import coinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import {
   cleanMarketSymbol,
   cleanErrorText,
   createJsonRpcProvider,
+  createSolanaConnection,
   getRpcOrigin,
   logRpcFailure,
   sameEvmAddress,
@@ -16,6 +16,7 @@ export {
   cleanErrorText,
   cleanMarketSymbol,
   createJsonRpcProvider,
+  createSolanaConnection,
   getRpcOrigin,
   logRpcFailure,
   mapWithConcurrency,
@@ -55,7 +56,10 @@ export async function getSolanaMultipleAccountsInfoFast(pubkeys = [], timeoutMs 
   try {
     return await Promise.any(
       rpcList.map((rpc) => {
-        const connection = new Connection(rpc, "confirmed");
+        const connection = createSolanaConnection(rpc, {
+          chain: "Solana",
+          scope: "Solana Jupiter markets",
+        });
         return withTimeout(
           connection.getMultipleAccountsInfo(pubkeys, "confirmed"),
           timeoutMs,

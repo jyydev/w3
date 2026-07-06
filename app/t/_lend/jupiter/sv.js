@@ -16,6 +16,7 @@ import {
 import coinM from "@/fn/coinM";
 import {
   executeSolanaTx,
+  createSolanaConnection,
   getCoinDecimals,
   getSolanaConnection,
   getSolanaInstructionTx,
@@ -24,6 +25,7 @@ import {
 } from "../../sharedServer";
 import {
   getSolanaMultipleAccountsInfoFast,
+  getUsableChainRpcs,
   withTimeout,
 } from "../shared";
 
@@ -613,6 +615,64 @@ async function getSolanaMintBalance({
   };
 }
 
+async function getJupiterMarketBalancesFast({
+  owner,
+  underlyingMint,
+  underlyingDecimals = 6,
+  fTokenMint,
+  lendDecimals = 6,
+} = {}) {
+  const rpcList = getUsableChainRpcs("Solana").slice(0, 4);
+  const loadWithConnection = async (connection) => {
+    const [underlying, lend] = await Promise.all([
+      getSolanaMintBalance({
+        connection,
+        owner,
+        mint: underlyingMint,
+        decimals: underlyingDecimals,
+      }),
+      getSolanaMintBalance({
+        connection,
+        owner,
+        mint: fTokenMint,
+        decimals: lendDecimals,
+      }),
+    ]);
+
+    return { underlying, lend };
+  };
+
+  if (!rpcList.length) return loadWithConnection(getSolanaConnection());
+
+  try {
+    return await Promise.any(
+      rpcList.map((rpc) =>
+        withTimeout(
+          loadWithConnection(
+            createSolanaConnection(rpc, {
+              chain: "Solana",
+              scope: "Solana Jupiter balance",
+            }),
+          ),
+          9000,
+          "Solana Jupiter balance timeout",
+        ),
+      ),
+    );
+  } catch {
+    return {
+      underlying: {
+        address: underlyingMint.toBase58(),
+        decimals: underlyingDecimals,
+      },
+      lend: {
+        address: fTokenMint.toBase58(),
+        decimals: lendDecimals,
+      },
+    };
+  }
+}
+
 async function getJupiterInstruction({
   walletAddress = "",
   action = "lend",
@@ -848,27 +908,19 @@ export async function getJupiterMarketBalance({
   if (chain != "Solana") throw new Error("Jupiter Lend is Solana-only here");
   if (!walletAddress) throw new Error("Solana wallet address required");
 
-  const connection = getSolanaConnection();
   const owner = getSolanaPublicKey(walletAddress, "Solana wallet address");
   const underlyingMint = getSolanaPublicKey(
     underlyingAddress,
     "Jupiter underlying",
   );
   const fTokenMint = getSolanaPublicKey(lendAddress, "Jupiter lend token");
-  const [underlying, lend] = await Promise.all([
-    getSolanaMintBalance({
-      connection,
-      owner,
-      mint: underlyingMint,
-      decimals: underlyingDecimals,
-    }),
-    getSolanaMintBalance({
-      connection,
-      owner,
-      mint: fTokenMint,
-      decimals: lendDecimals,
-    }),
-  ]);
+  const { underlying, lend } = await getJupiterMarketBalancesFast({
+    owner,
+    underlyingMint,
+    underlyingDecimals,
+    fTokenMint,
+    lendDecimals,
+  });
 
   return {
     ok: true,

@@ -1,6 +1,5 @@
 import { ethers } from "ethers";
 import {
-  Connection,
   Keypair,
   PublicKey,
   TransactionMessage,
@@ -13,6 +12,7 @@ import { onWhitelist, rpcs, whitelists } from "@/sets";
 import {
   cleanErrorText,
   createJsonRpcProvider,
+  createSolanaConnection,
   getRpcOrigin,
   logRpcFailure,
   toCleanError,
@@ -21,6 +21,7 @@ import { getCoinUsdPrice } from "../w/walletData";
 export {
   cleanErrorText,
   createJsonRpcProvider,
+  createSolanaConnection,
   getRpcOrigin,
   logRpcFailure,
   toCleanError,
@@ -471,7 +472,10 @@ export function getSolanaConnection() {
   const rpc = getUsableChainRpc("Solana");
   if (!rpc) throw new Error("Solana rpc not configured");
 
-  const connection = new Connection(rpc, "confirmed");
+  const connection = createSolanaConnection(rpc, {
+    chain: "Solana",
+    scope: "trade Solana",
+  });
 
   return new Proxy(connection, {
     get(target, prop, receiver) {
