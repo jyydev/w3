@@ -75,13 +75,17 @@ import {
   tradeSendCoinCookie,
   tradeSendCoinOrderCookie,
   tradeSendToWalletCookie,
+  tradeSendToWalletOrderCookie,
   toNum,
   useTradeFallbackPrice,
 } from "../clientShared";
 
+const sendToWalletOrderCap = 10;
+
 export default function SendPanel({
   data = [],
   walletEntriesM = {},
+  walletPkM = {},
   wallets = [],
   selectedWalletEntry,
   walletType = "evm",
@@ -157,11 +161,19 @@ export default function SendPanel({
   const initialCoin = initialOrderedCoins.includes(initialSavedCoin)
     ? initialSavedCoin
     : initialOrderedCoins[0] || "";
+  const initialToWalletOrder = parseSelectionOrder(
+    getInitialCookie(
+      initialCookieM,
+      getTradeModeCookie(tradeSendToWalletOrderCookie, walletType),
+    ),
+  );
   const [chainOrder, setChainOrder] = useState(initialChainOrder);
   const [coinOrder, setCoinOrder] = useState(initialCoinOrder);
+  const [toWalletOrder, setToWalletOrder] = useState(initialToWalletOrder);
   const [chain, setChain] = useState(initialSelectedChain);
   const [coin, setCoin] = useState(initialCoin);
-  const [qty, setQty] = useState("0");
+  const [fromQty, setFromQty] = useState("0");
+  const [toQty, setToQty] = useState("0");
   const [fromEndDraft, setFromEndDraft] = useState("");
   const [toEndDraft, setToEndDraft] = useState("");
   const [fromEndWith, setFromEndWith] = useState(false);
@@ -177,8 +189,6 @@ export default function SendPanel({
   const [showToWalletMenu, setShowToWalletMenu] = useState(false);
   const [simplePickerSortM, setSimplePickerSortM] = useState({});
   const [coinSort, setCoinSort] = useState("");
-  const [loadedWalletSort, setLoadedWalletSort] = useState("");
-  const [allWalletSort, setAllWalletSort] = useState("");
   const [copiedAddress, setCopiedAddress] = useState("");
   const tradeTypePickerRef = useRef(null);
   const chainPickerRef = useRef(null);
@@ -224,10 +234,44 @@ export default function SendPanel({
     [wallets],
   );
   const toWallets = useMemo(
-    () => getWalletOptions(walletEntriesM[walletType] || [], {}, walletType),
-    [walletEntriesM, walletType],
+    () =>
+      getWalletOptions(walletEntriesM[walletType] || [], walletPkM, walletType),
+    [walletEntriesM, walletPkM, walletType],
   );
   const currentToWallets = fromWallets;
+  const allToWalletEntries = useMemo(
+    () => [...currentToWallets, ...toWallets],
+    [currentToWallets, toWallets],
+  );
+  const allToWalletValues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allToWalletEntries
+            .map((entry) => entry?.value)
+            .filter(Boolean),
+        ),
+      ),
+    [allToWalletEntries],
+  );
+  const toWalletHistoryValues = useMemo(
+    () =>
+      normalizeSelectionOrder(
+        toWalletOrder,
+        allToWalletValues,
+        sendToWalletOrderCap,
+      ),
+    [allToWalletValues, toWalletOrder],
+  );
+  const toWalletHistoryEntries = useMemo(
+    () =>
+      toWalletHistoryValues
+        .map((value) =>
+          allToWalletEntries.find((entry) => entry?.value == value),
+        )
+        .filter(Boolean),
+    [allToWalletEntries, toWalletHistoryValues],
+  );
   const fromEntry =
     fromWallets.find((entry) => entry.value == fromWallet) ||
     selectedWalletEntry ||
@@ -240,6 +284,10 @@ export default function SendPanel({
     (entry) =>
       entry.value == toWallet || sameAddress(entry.address, toEntry?.address),
   );
+  const rightSenderEntry =
+    toEntry?.hasPrivateKey || toEntry?.isBrowserWallet || !loadedToEntry
+      ? toEntry
+      : loadedToEntry;
   const canSwitchWallets = !!loadedToEntry && !!fromEntry?.address;
   const fromBalanceKey = getBalanceKey(chain, coin, fromEntry?.address);
   const toBalanceKey = getBalanceKey(chain, coin, toEntry?.address);
@@ -268,8 +316,10 @@ export default function SendPanel({
   const currentToBal = toNum(toBalance.balance);
   const maxSendQty = formatTradeQty(fromBalance.balance, coinDecimals);
   const currentToQty = formatTradeQty(toBalance.balance, coinDecimals);
-  const sendQty = toNum(qty);
-  const sliderValue = Math.min(sendQty, maxSend);
+  const fromSendQty = toNum(fromQty);
+  const toSendQty = toNum(toQty);
+  const fromSliderValue = Math.max(0, Math.min(fromSendQty, maxSend));
+  const toSliderValue = Math.max(0, Math.min(toSendQty, currentToBal));
   const listPrice = toNum(fromBalance.price || toBalance.price);
   const { fallbackPrice, loading: priceLoading } = useTradeFallbackPrice({
     cacheKey: `${chain}:${coin}`,
@@ -283,11 +333,22 @@ export default function SendPanel({
   const toUsd = price ? currentToBal * price : 0;
   const fromEndInputValue =
     fromEndDraft ||
-    getTradeEndInputValue(maxSendQty, qty, toNum(qty) < 0, coinDecimals);
+    getTradeEndInputValue(
+      maxSendQty,
+      fromQty,
+      toNum(fromQty) < 0,
+      coinDecimals,
+    );
   const toEndInputValue =
     toEndDraft ||
-    getTradeEndInputValue(currentToQty, qty, toNum(qty) >= 0, coinDecimals);
-  const qtyUsd = price ? sendQty * price : 0;
+    getTradeEndInputValue(
+      currentToQty,
+      toQty,
+      toNum(toQty) < 0,
+      coinDecimals,
+    );
+  const fromQtyUsd = price ? fromSendQty * price : 0;
+  const toQtyUsd = price ? toSendQty * price : 0;
   const fromEndUsd = price ? toNum(fromEndInputValue) * price : 0;
   const toEndUsd = price ? toNum(toEndInputValue) * price : 0;
   const priceStatus = priceLoading
@@ -388,7 +449,7 @@ export default function SendPanel({
     const savedToWallet = getCookie(
       getTradeModeCookie(tradeSendToWalletCookie, walletType),
     );
-    const savedEntry = [...currentToWallets, ...toWallets].find(
+    const savedEntry = allToWalletEntries.find(
       (entry) =>
         entry.value == savedToWallet &&
         !sameAddress(entry.address, fromEntry?.address),
@@ -397,12 +458,26 @@ export default function SendPanel({
     setToWallet(next?.value || "");
   }, [
     currentToWallets,
+    allToWalletEntries,
     fromEntry?.address,
     toEntry?.address,
     toWallet,
     toWallets,
     walletType,
   ]);
+
+  useEffect(() => {
+    const nextOrder = normalizeSelectionOrder(
+      toWalletOrder,
+      allToWalletValues,
+      sendToWalletOrderCap,
+    );
+    if (encodeSelectionOrder(nextOrder) == encodeSelectionOrder(toWalletOrder)) {
+      return;
+    }
+
+    setToWalletOrder(nextOrder);
+  }, [allToWalletValues, toWalletOrder]);
 
   function getDefaultToWallet() {
     return (
@@ -413,8 +488,11 @@ export default function SendPanel({
   }
 
   useEffect(() => {
-    setQty("0");
-  }, [chain, coin, fromEntry?.value]);
+    setFromQty("0");
+    setToQty("0");
+    setFromEndDraft("");
+    setToEndDraft("");
+  }, [chain, coin, fromEntry?.value, toEntry?.value]);
 
   useEffect(() => {
     function closeMenus(e) {
@@ -688,7 +766,7 @@ export default function SendPanel({
 
   function cycleToWallet(direction) {
     const next = cycleWalletSelection(currentToWallets, toWallet, direction);
-    if (next) selectToWallet(next);
+    if (next) selectToWallet(next, { rememberOrder: false });
   }
 
   function selectFromWallet(value, syncParent = true) {
@@ -696,20 +774,45 @@ export default function SendPanel({
     if (syncParent) onFromWalletChange(value);
   }
 
-  function selectToWallet(value) {
+  function selectToWallet(value, options = {}) {
     setToWallet(value);
-    saveSendToWalletCookie(value);
+    saveSendToWalletCookie(value, options);
     setShowToWalletMenu(false);
   }
 
-  function saveSendToWalletCookie(value) {
-    const entry = [...currentToWallets, ...toWallets].find(
-      (entry) => entry.value == value,
-    );
+  function saveSendToWalletCookie(value, { rememberOrder = true } = {}) {
+    const entry = allToWalletEntries.find((entry) => entry.value == value);
     if (!entry?.address) return;
     setCookie(getTradeModeCookie(tradeSendToWalletCookie, walletType), value, {
       maxAge: cookieMaxAge,
     });
+    if (!rememberOrder) return;
+
+    const nextOrder = rememberSelectionValue(
+      toWalletOrder,
+      value,
+      allToWalletValues,
+      sendToWalletOrderCap,
+    );
+    setToWalletOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSendToWalletOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeToWalletHistory(value) {
+    const nextOrder = removeSelectionValue(toWalletOrder, value).slice(
+      0,
+      sendToWalletOrderCap,
+    );
+    setToWalletOrder(nextOrder);
+    setCookie(
+      getTradeModeCookie(tradeSendToWalletOrderCookie, walletType),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
   }
 
   function switchWallets() {
@@ -725,58 +828,194 @@ export default function SendPanel({
     if (nextToEntry?.value) selectToWallet(nextToEntry.value);
   }
 
-  function updateQty(value) {
+  function getOppositeSendQty(value = "0") {
+    return formatComputedTradeQty(
+      subtractTradeQtyText(
+        "0",
+        formatTradeQty(value, coinDecimals),
+        coinDecimals,
+      ),
+      coinDecimals,
+    );
+  }
+
+  function getAbsSendQty(value = "0") {
+    return formatTradeQty(String(value ?? "").replace(/^-/, ""), coinDecimals);
+  }
+
+  function updateFromQty(value, { clearEndDrafts = true } = {}) {
     const qty = normalizeSignedQtyInput(
       value,
       maxSend,
       currentToBal,
       coinDecimals,
     );
-    setQty(qty);
+    setFromQty(qty);
+    setToQty(getOppositeSendQty(qty));
+    if (clearEndDrafts) {
+      setFromEndDraft("");
+      setToEndDraft("");
+    }
   }
 
-  function setMaxSend() {
-    updateQty(maxSendQty);
+  function updateToQty(value, { clearEndDrafts = true } = {}) {
+    const qty = normalizeSignedQtyInput(
+      value,
+      currentToBal,
+      maxSend,
+      coinDecimals,
+    );
+    setToQty(qty);
+    setFromQty(getOppositeSendQty(qty));
+    if (clearEndDrafts) {
+      setFromEndDraft("");
+      setToEndDraft("");
+    }
+  }
+
+  function setMaxSend(side = "from") {
+    if (side == "to") updateToQty(currentToQty);
+    else updateFromQty(maxSendQty);
+  }
+
+  function renderSendControls({
+    showGas = false,
+    side = "from",
+    txLabel = "SEND",
+  } = {}) {
+    const config = getSendSideConfig(side);
+    const sideQty = toNum(config.qty);
+    const senderEntry = getEffectiveSendSender(config, sideQty);
+    const signerMissing =
+      !!senderEntry?.address &&
+      !senderEntry.isBrowserWallet &&
+      !senderEntry.hasPrivateKey;
+    const disabled = sendPending || signerMissing;
+    const maxValue = side == "to" ? currentToBal : maxSend;
+    const maxQty = side == "to" ? currentToQty : maxSendQty;
+    const sliderValue = side == "to" ? toSliderValue : fromSliderValue;
+    const updateSideQty = side == "to" ? updateToQty : updateFromQty;
+
+    return (
+      <div className="tradeBoxControls sendQtyControl">
+        {showGas && showGasAutoLabel && (
+          <label className="tradeGasSelect">
+            <span className="gray">gas:</span>
+            <select value="default" disabled>
+              <option value="default">auto</option>
+            </select>
+          </label>
+        )}
+        <input
+          className="tradeMiddleRange"
+          type="range"
+          min="0"
+          max={maxValue || 0}
+          step="any"
+          value={sliderValue}
+          onChange={(e) =>
+            updateSideQty(
+              rangeQtyInput(
+                e.target.value,
+                maxValue,
+                maxQty,
+                coinDecimals,
+              ),
+            )
+          }
+          disabled={!maxValue}
+        />
+        <button
+          type="button"
+          className="btn small bgGray"
+          onClick={() => setMaxSend(side)}
+          disabled={!maxValue}
+        >
+          max
+        </button>
+        <button
+          type="button"
+          className="btn bgCyan sendTransferButton"
+          onClick={() => runSend(side)}
+          disabled={disabled}
+        >
+          {sendPending ? "SENDING" : <>&nbsp;{txLabel}&nbsp;</>}
+        </button>
+        {signerMissing && <span className="red">no key</span>}
+      </div>
+    );
   }
 
   function updateFromEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
     setFromEndDraft(endQty);
-    updateQty(getTradeEndDiffQty(maxSendQty, endQty, coinDecimals));
+    setToEndDraft("");
+    updateFromQty(getTradeEndDiffQty(maxSendQty, endQty, coinDecimals), {
+      clearEndDrafts: false,
+    });
   }
 
   function updateToEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), coinDecimals);
     setToEndDraft(endQty);
-    updateQty(
-      formatComputedTradeQty(
-        subtractTradeQtyText(endQty, currentToQty, coinDecimals),
-        coinDecimals,
-      ),
-    );
+    setFromEndDraft("");
+    updateToQty(getTradeEndDiffQty(currentToQty, endQty, coinDecimals), {
+      clearEndDrafts: false,
+    });
   }
 
-  async function getSendQtyForWallet(walletEntry = fromEntry) {
-    if (!fromEndWith && !toEndWith) return formatTradeQty(qty, coinDecimals);
+  function getSendSideConfig(side = "from", sideEntryOverride) {
+    const isRightSide = side == "to";
+    const sideEntry =
+      sideEntryOverride || (isRightSide ? rightSenderEntry : fromEntry);
 
-    if (toEndWith) {
-      return formatComputedTradeQty(
-        subtractTradeQtyText(
-          toEndDraft || toEndInputValue,
-          currentToQty,
-          coinDecimals,
-        ),
-        coinDecimals,
-      );
-    }
+    return {
+      sideEntry,
+      oppositeEntry: isRightSide ? fromEntry : rightSenderEntry,
+      recipientEntry: isRightSide ? fromEntry : toEntry,
+      qty: isRightSide ? toQty : fromQty,
+      endWith: isRightSide ? toEndWith : fromEndWith,
+      endInputValue: isRightSide ? toEndInputValue : fromEndInputValue,
+      localMaxQty: isRightSide ? currentToQty : maxSendQty,
+    };
+  }
 
-    const targetEnd = formatTradeQty(
-      fromEndDraft || fromEndInputValue,
-      coinDecimals,
-    );
+  function getEffectiveSendSender(config, qty) {
+    return toNum(qty) < 0 ? config.oppositeEntry : config.sideEntry;
+  }
+
+  function getEffectiveSendRecipient(config, qty) {
+    return toNum(qty) < 0
+      ? config.sideEntry
+      : config.recipientEntry || config.oppositeEntry;
+  }
+
+  function getSendConfirmText({
+    config,
+    submitQty,
+    senderLabel,
+    senderAddress,
+    recipientLabel,
+    recipientAddress,
+  }) {
+    const actionLine = config.endWith
+      ? `End with ${formatTradeQty(config.endInputValue, coinDecimals)} ${coin} on ${chain}?`
+      : `Send ${submitQty} ${coin} on ${chain}?`;
+    const qtyLine = config.endWith ? `\nsend qty: ${submitQty} ${coin}` : "";
+
+    return `${actionLine}${qtyLine}\n\nfrom: ${senderLabel} ${shortAddress(
+      senderAddress,
+    )}\nto: ${recipientLabel} ${shortAddress(recipientAddress)}`;
+  }
+
+  async function getSendQtyForSideWallet(walletEntry = fromEntry, side = "from") {
+    const config = getSendSideConfig(side, walletEntry);
+    if (!config.endWith) return formatTradeQty(config.qty, coinDecimals);
+
+    const targetEnd = formatTradeQty(config.endInputValue, coinDecimals);
     if (!walletEntry?.address) return "0";
-    if (sameAddress(walletEntry.address, fromEntry?.address)) {
-      return getTradeEndDiffQty(maxSendQty, targetEnd, coinDecimals);
+    if (sameAddress(walletEntry.address, config.sideEntry?.address)) {
+      return getTradeEndDiffQty(config.localMaxQty, targetEnd, coinDecimals);
     }
 
     const balance = await getTradeCoinBalance({
@@ -861,53 +1100,63 @@ export default function SendPanel({
   }
 
   async function runSendForWallet(
-    walletEntry = fromEntry,
-    { skipConfirm = false, loopRun = false } = {},
+    sideEntry = fromEntry,
+    { skipConfirm = false, loopRun = false, side = "from" } = {},
   ) {
-    const tradeToast = createTradeToast(walletEntry, loopRun);
+    const config = getSendSideConfig(side, sideEntry);
+    const tradeToast = createTradeToast(sideEntry, loopRun);
 
-    if (!walletEntry?.address) {
-      tradeToast.error("sender missing");
+    if (!sideEntry?.address) {
+      tradeToast.error("wallet missing");
       return;
     }
-    if (!toEntry?.address) {
-      tradeToast.error("recipient missing");
-      return;
-    }
-    if (sameAddress(walletEntry.address, toEntry.address)) {
-      tradeToast.error("sender and recipient are the same");
-      return;
-    }
-    let submitQty = "0";
+    let signedQty = "0";
     try {
-      submitQty = await getSendQtyForWallet(walletEntry);
+      signedQty = await getSendQtyForSideWallet(sideEntry, side);
     } catch (e) {
       tradeToast.error(e?.message || "send qty query failed");
       return;
     }
 
-    if (toNum(submitQty) < 0) {
-      tradeToast.error("send qty cannot be negative; switch wallets");
-      return;
-    }
+    const submitQty = getAbsSendQty(signedQty);
+    const senderEntry = getEffectiveSendSender(config, signedQty);
+    const recipientEntry = getEffectiveSendRecipient(config, signedQty);
+
     if (!toNum(submitQty)) {
       tradeToast.error("send qty is 0");
       return;
     }
+    if (!senderEntry?.address) {
+      tradeToast.error("sender missing");
+      return;
+    }
+    if (!recipientEntry?.address) {
+      tradeToast.error("recipient missing");
+      return;
+    }
+    if (sameAddress(senderEntry.address, recipientEntry.address)) {
+      tradeToast.error("sender and recipient are the same");
+      return;
+    }
 
-    const useBrowserWallet = !!walletEntry.isBrowserWallet;
-    if (!useBrowserWallet && !walletEntry.hasPrivateKey) {
+    const senderLabel = senderEntry.label || senderEntry.name;
+    const recipientLabel = recipientEntry.label || recipientEntry.name;
+    const useBrowserWallet = !!senderEntry.isBrowserWallet;
+    if (!useBrowserWallet && !senderEntry.hasPrivateKey) {
       tradeToast.error("no private key");
       return;
     }
 
     if (!useBrowserWallet && !skipConfirm) {
       const ok = window.confirm(
-        `Send ${submitQty} ${coin} on ${chain}?\n\nfrom: ${
-          walletEntry.label || walletEntry.name
-        } ${shortAddress(walletEntry.address)}\nto: ${
-          toEntry.label || toEntry.name
-        } ${shortAddress(toEntry.address)}`,
+        getSendConfirmText({
+          config,
+          submitQty,
+          senderLabel,
+          senderAddress: senderEntry.address,
+          recipientLabel,
+          recipientAddress: recipientEntry.address,
+        }),
       );
       if (!ok) return;
     }
@@ -920,11 +1169,11 @@ export default function SendPanel({
 
       if (useBrowserWallet) {
         const built = await buildSendTx({
-          walletAddress: walletEntry.address,
+          walletAddress: senderEntry.address,
           chain,
           coin,
           amount: submitQty,
-          recipient: toEntry.address,
+          recipient: recipientEntry.address,
           coinE: getSelectedCoinE(),
         });
         const txs = [];
@@ -933,7 +1182,7 @@ export default function SendPanel({
           txs.push(
             await sendBrowserTradeTx({
               tx,
-              walletEntry,
+              walletEntry: senderEntry,
               tradeToast,
               toastId,
               message: `Send: confirm ${tx.chain} ${tx.type}...`,
@@ -944,12 +1193,12 @@ export default function SendPanel({
       } else {
         tradeToast.loading("Send: submitting tx...", { id: toastId });
         res = await executeSend({
-          walletName: walletEntry.name,
-          walletAddress: walletEntry.address,
+          walletName: senderEntry.name,
+          walletAddress: senderEntry.address,
           chain,
           coin,
           amount: submitQty,
-          recipient: toEntry.address,
+          recipient: recipientEntry.address,
           coinE: getSelectedCoinE(),
         });
       }
@@ -965,8 +1214,8 @@ export default function SendPanel({
       onTxComplete({
         ...res,
         refreshTargets: [
-          getSendRefreshTarget(walletEntry.address),
-          getSendRefreshTarget(toEntry.address),
+          getSendRefreshTarget(senderEntry.address),
+          getSendRefreshTarget(recipientEntry.address),
         ],
       });
       return res;
@@ -981,17 +1230,19 @@ export default function SendPanel({
     }
   }
 
-  async function runSend() {
+  async function runSend(side = "from") {
+    const config = getSendSideConfig(side);
     const result = await runTradeWalletLoop({
       loopWallets,
       getLoopWalletEntries,
-      selectedWalletEntry: fromEntry,
+      selectedWalletEntry: config.sideEntry,
       actionLabel: `send ${
-        fromEndWith
-          ? `end ${formatTradeQty(fromEndInputValue, coinDecimals)}`
-          : formatTradeQty(qty, coinDecimals)
-      } ${coin}`,
-      runOne: runSendForWallet,
+        config.endWith
+          ? `end ${formatTradeQty(config.endInputValue, coinDecimals)}`
+          : formatTradeQty(config.qty, coinDecimals)
+      } ${coin} ${side == "to" ? "←" : "→"}`,
+      runOne: (walletEntry, options) =>
+        runSendForWallet(walletEntry, { ...options, side }),
     });
     if (Array.isArray(result)) {
       const loopResult = createTradeLoopResult(result, { action: "send" });
@@ -1013,18 +1264,21 @@ export default function SendPanel({
     },
     { qty: "desc" },
   );
-  const sortedLoadedWallets = sortTradePickerRows(
-    currentToWallets,
-    loadedWalletSort,
+  const sendWalletPickerColumns = [
     {
-      wallet: (entry) => entry.label,
-      addr: (entry) => entry.address,
+      key: "wallet",
+      label: "wallet",
+      getValue: (entry) => entry.label,
+      getSortValue: (entry) => entry.label,
     },
-  );
-  const sortedAllWallets = sortTradePickerRows(toWallets, allWalletSort, {
-    wallet: (entry) => entry.label,
-    addr: (entry) => entry.address,
-  });
+    {
+      key: "addr",
+      label: "addr",
+      className: "gray",
+      getValue: (entry) => shortTail(entry.address),
+      getSortValue: (entry) => entry.address,
+    },
+  ];
 
   return (
     <div className="tradePane tradeWidePane sendPane">
@@ -1166,14 +1420,22 @@ export default function SendPanel({
                   </option>
                 ))}
               </select>
-              {renderSendWalletTail(fromEntry?.address, "from")}
             </span>
+            {renderSendWalletTail(fromEntry?.address, "from")}
+            <button
+              type="button"
+              className="tradeSwitchButton"
+              onClick={switchWallets}
+              disabled={!canSwitchWallets}
+            >
+              {"⇆"}
+            </button>
           </div>
           <div className="tradeBalanceLine">
             <button
               type="button"
               className="tradeTextButton tradeAssetBalance"
-              onClick={setMaxSend}
+              onClick={() => setMaxSend("from")}
             >
               <span className="gray">{coin}: </span>
               {fromBalanceLoading ? "..." : maxSendQty}
@@ -1219,61 +1481,14 @@ export default function SendPanel({
               inputMode="decimal"
               min="0"
               step="any"
-              size={qtyInputSize(qty)}
-              style={qtyInputStyle(qty)}
-              value={qty}
-              onChange={(e) => updateQty(e.target.value)}
+              size={qtyInputSize(fromQty)}
+              style={qtyInputStyle(fromQty)}
+              value={fromQty}
+              onChange={(e) => updateFromQty(e.target.value)}
             />
-            {price > 0 && <span className="gray">${fmt(qtyUsd, 2)}</span>}
+            {price > 0 && <span className="gray">${fmt(fromQtyUsd, 2)}</span>}
           </div>
-        </div>
-
-        <div className="tradeMiddle">
-          <div className="sendQtyControl">
-            {showGasAutoLabel && (
-              <label className="tradeGasSelect">
-                <span className="gray">gas:</span>
-                <select value="default" disabled>
-                  <option value="default">auto</option>
-                </select>
-              </label>
-            )}
-            <input
-              className="tradeMiddleRange"
-              type="range"
-              min="0"
-              max={maxSend || 0}
-              step="any"
-              value={sliderValue}
-              onChange={(e) =>
-                updateQty(
-                  rangeQtyInput(
-                    e.target.value,
-                    maxSend,
-                    maxSendQty,
-                    coinDecimals,
-                  ),
-                )
-              }
-              disabled={!maxSend}
-            />
-            <button
-              type="button"
-              className="btn small bgGray"
-              onClick={setMaxSend}
-              disabled={!maxSend}
-            >
-              max
-            </button>
-            <button
-              type="button"
-              className="btn tradeActionButton bgCyan"
-              onClick={runSend}
-              disabled={sendPending}
-            >
-              {sendPending ? "SENDING" : "SEND"}
-            </button>
-          </div>
+          {renderSendControls({ showGas: true, side: "from", txLabel: "→" })}
         </div>
 
         <div className="tradeBox">
@@ -1285,107 +1500,33 @@ export default function SendPanel({
                 onNext={() => cycleToWallet("next")}
                 disabled={currentToWallets.length < 2}
               />
-              <div className="customPicker" ref={toWalletPickerRef}>
-                <button
-                  type="button"
-                  className="customPickerButton"
-                  onClick={() => setShowToWalletMenu((show) => !show)}
-                >
-                  {toEntry?.label || "wallet"}
-                </button>
-                {showToWalletMenu && (
-                  <TradePickerMenu className="sendWalletTableMenu">
-                    <TradePickerColumn title="loaded">
-                      <TradePickerTable
-                        className="sendWalletTable"
-                        headers={[
-                          <PickerSortHeader
-                            activeSort={loadedWalletSort}
-                            setSort={setLoadedWalletSort}
-                            sortKey="wallet"
-                          >
-                            wallet
-                          </PickerSortHeader>,
-                          <PickerSortHeader
-                            activeSort={loadedWalletSort}
-                            setSort={setLoadedWalletSort}
-                            sortKey="addr"
-                          >
-                            addr
-                          </PickerSortHeader>,
-                        ]}
-                      >
-                        <tbody>
-                          {sortedLoadedWallets.length ? (
-                            sortedLoadedWallets.map((entry) => (
-                              <tr
-                                key={`loaded_${entry.value}_${entry.address}`}
-                                className={
-                                  entry.value == toWallet
-                                    ? "customPickerRow on"
-                                    : "customPickerRow"
-                                }
-                                onClick={() => selectToWallet(entry.value)}
-                              >
-                                <td>{entry.label}</td>
-                                <td className="gray">
-                                  {shortTail(entry.address)}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={2} className="gray">
-                                -
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </TradePickerTable>
-                    </TradePickerColumn>
-                    <TradePickerColumn title="all">
-                      <TradePickerTable
-                        className="sendWalletTable"
-                        headers={[
-                          <PickerSortHeader
-                            activeSort={allWalletSort}
-                            setSort={setAllWalletSort}
-                            sortKey="wallet"
-                          >
-                            wallet
-                          </PickerSortHeader>,
-                          <PickerSortHeader
-                            activeSort={allWalletSort}
-                            setSort={setAllWalletSort}
-                            sortKey="addr"
-                          >
-                            addr
-                          </PickerSortHeader>,
-                        ]}
-                      >
-                        <tbody>
-                          {sortedAllWallets.map((entry) => (
-                            <tr
-                              key={`all_${entry.value}_${entry.address}`}
-                              className={
-                                entry.value == toWallet
-                                  ? "customPickerRow on"
-                                  : "customPickerRow"
-                              }
-                              onClick={() => selectToWallet(entry.value)}
-                            >
-                              <td>{entry.label}</td>
-                              <td className="gray">
-                                {shortTail(entry.address)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </TradePickerTable>
-                    </TradePickerColumn>
-                  </TradePickerMenu>
-                )}
-              </div>
+              <TradeSelectionPicker
+                selectedValue={toWallet}
+                selectedLabel={toEntry?.label || ""}
+                extraSections={[
+                  {
+                    section: "loaded",
+                    title: "loaded",
+                    options: currentToWallets,
+                    emptyText: "-",
+                  },
+                ]}
+                historyOptions={toWalletHistoryEntries}
+                allOptions={toWallets}
+                showMenu={showToWalletMenu}
+                setShowMenu={setShowToWalletMenu}
+                pickerRef={toWalletPickerRef}
+                pickerSortM={simplePickerSortM}
+                setPickerSortM={setSimplePickerSortM}
+                sortKeyPrefix="sendToWallet"
+                header="wallet"
+                menuClassName="sendWalletTableMenu"
+                tableClassName="sendWalletTable"
+                optionColumns={sendWalletPickerColumns}
+                showCycle={false}
+                onSelect={selectToWallet}
+                onRemoveHistory={removeToWalletHistory}
+              />
               {renderSendWalletTail(toEntry?.address, "to")}
             </div>
           </div>
@@ -1426,15 +1567,21 @@ export default function SendPanel({
             {price > 0 && <span className="gray">${fmt(toEndUsd, 2)}</span>}
           </div>
           <div className="tradeAmountLine">
-            <button
-              type="button"
-              className="tradeSwitchButton"
-              onClick={switchWallets}
-              disabled={!canSwitchWallets}
-            >
-              {"⇆"}
-            </button>
+            <span className="gray">qty</span>
+            <input
+              className="sendQtyInput tradeQtyInput"
+              type="text"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              size={qtyInputSize(toQty)}
+              style={qtyInputStyle(toQty)}
+              value={toQty}
+              onChange={(e) => updateToQty(e.target.value)}
+            />
+            {price > 0 && <span className="gray">${fmt(toQtyUsd, 2)}</span>}
           </div>
+          {renderSendControls({ side: "to", txLabel: "←" })}
         </div>
       </div>
 

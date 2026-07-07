@@ -1164,6 +1164,9 @@ img.assetIcon {
   align-items: stretch;
   margin-top: 8px;
 }
+.sendPane .tradeRows {
+  grid-template-areas: "sell buy";
+}
 .tradeRows > .tradeBox:first-child,
 .swapRows > .swapBox:first-child {
   grid-area: sell;
@@ -1397,7 +1400,9 @@ img.assetIcon {
   top: calc(100% + 4px);
   left: 0;
   display: grid;
-  grid-template-columns: max-content max-content;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  grid-template-columns: none;
   gap: 4px;
   min-width: 0;
   max-width: min(720px, 94vw);

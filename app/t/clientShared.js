@@ -80,6 +80,8 @@ export const tradeSendCoinCookie = "w3_trade_send_coin";
 export const tradeSendToWalletCookie = "w3_trade_send_to_wallet";
 export const tradeSendChainOrderCookie = "w3_trade_send_chain_order";
 export const tradeSendCoinOrderCookie = "w3_trade_send_coin_order";
+export const tradeSendToWalletOrderCookie =
+  "w3_trade_send_to_wallet_order";
 export const tradeChainSelectEvent = "w3:tradeChainSelect";
 export const cookieMaxAge = 60 * 60 * 24 * 365;
 
@@ -987,6 +989,7 @@ export function TradeSelectionPicker({
   selectedLabel = "",
   historyOptions = [],
   allOptions = [],
+  extraSections = [],
   showMenu = false,
   setShowMenu = () => {},
   pickerRef,
@@ -999,11 +1002,20 @@ export function TradeSelectionPicker({
   emptyHistoryText = "-",
   emptyAllText = "-",
   className = "",
+  pickerClassName = "",
+  buttonClassName = "",
   menuClassName = "",
+  tableClassName = "",
+  allTableClassName = "",
   cycleSize = "small",
+  showCycle,
   disabled = false,
   cycleDisabled,
   getOptionLink,
+  getOptionLabel,
+  getOptionTitle,
+  optionColumns,
+  isOptionDisabled,
   onSelect = () => {},
   onPrev = () => {},
   onNext = () => {},
@@ -1015,6 +1027,7 @@ export function TradeSelectionPicker({
     <CustomHistoryPicker
       selectedValue={selectedValue}
       selectedLabel={selectedLabel}
+      extraSections={extraSections}
       historyOptions={historyOptions}
       allOptions={allOptions}
       showMenu={showMenu}
@@ -1029,11 +1042,20 @@ export function TradeSelectionPicker({
       emptyHistoryText={emptyHistoryText}
       emptyAllText={emptyAllText}
       className={className}
+      pickerClassName={pickerClassName}
+      buttonClassName={buttonClassName}
       menuClassName={menuClassName}
+      tableClassName={tableClassName}
+      allTableClassName={allTableClassName}
       cycleSize={cycleSize}
+      showCycle={showCycle}
       disabled={disabled}
       cycleDisabled={cycleDisabled}
       getOptionLink={getOptionLink}
+      getOptionLabel={getOptionLabel}
+      getOptionTitle={getOptionTitle}
+      optionColumns={optionColumns}
+      isOptionDisabled={isOptionDisabled}
       onSelect={onSelect}
       onPrev={onPrev}
       onNext={onNext}

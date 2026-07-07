@@ -2177,13 +2177,16 @@ function getAaveStakingRewardRequests(data = []) {
       continue;
     }
 
+    for (const row of chainE.rows || []) {
+      ensureClaimRow(claimRowM, row);
+    }
+
     const stakingEntries = Object.entries(chainE.coinInfoM || {}).filter(
       ([coin, coinE]) => isAaveUmbrellaStakingCoin(coin, coinE),
     );
     if (!stakingEntries.length) continue;
 
     for (const row of chainE.rows || []) {
-      ensureClaimRow(claimRowM, row);
       if (!ethers.isAddress(row.address)) continue;
 
       for (const [sourceCoin, sourceCoinE] of stakingEntries) {
@@ -2315,7 +2318,6 @@ export async function getAaveStakingClaimBalances({
   usdPriceQuery = false,
 } = {}) {
   const { requestsByChain, claimRowM } = getAaveStakingRewardRequests(data);
-  if (!requestsByChain.size) return null;
 
   const coinInfoM = {};
   const claimCoins = [];
@@ -2426,7 +2428,7 @@ export async function getAaveStakingClaimBalances({
     rows,
     coinEntries: claimCoins.map((coin) => [coin, coinInfoM[coin]]),
   });
-  if (!coins.length) return null;
+  if (!rows.length) return null;
 
   return {
     chain: claimChain,

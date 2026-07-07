@@ -247,6 +247,7 @@ export function getCustomPickerHistoryCycleValues(
 export function CustomHistoryPicker({
   selectedValue = "",
   selectedLabel = "",
+  extraSections = [],
   historyOptions = [],
   allOptions = [],
   showMenu,
@@ -274,6 +275,7 @@ export function CustomHistoryPicker({
   getOptionLabel = getCustomPickerOptionLabel,
   getOptionLink = () => "",
   getOptionTitle = getCustomPickerOptionLabel,
+  optionColumns,
   isOptionDisabled = (option) => !!option?.disabled,
   onSelect = () => {},
   onRemoveHistory,
@@ -293,6 +295,10 @@ export function CustomHistoryPicker({
   const setOpen = setShowMenu || setInternalOpen;
   const setSortM = setPickerSortM || setInternalSortM;
   const shouldShowCycle = showCycle ?? !!(onPrev || onNext);
+  const hasAnyOptions =
+    allOptions.length ||
+    historyOptions.length ||
+    extraSections.some((section) => section?.options?.length);
 
   useEffect(() => {
     if (!open) return;
@@ -325,7 +331,10 @@ export function CustomHistoryPicker({
     }));
   }
 
-  function SortHeader({ section = "all", sortKey = "label", children }) {
+  const columns = propsOptionColumns(optionColumns, header);
+
+  function SortHeader({ section = "all", column, children }) {
+    const sortKey = column?.key || "label";
     return (
       <CustomPickerSortHeader
         activeSort={sortM[pickerSortKey(section)] || ""}
@@ -338,10 +347,16 @@ export function CustomHistoryPicker({
   }
 
   function sortedOptions(section = "all", options = []) {
+    const getterM = Object.fromEntries(
+      columns.map((column) => [
+        column.key,
+        column.getSortValue || column.getValue || getOptionLabel,
+      ]),
+    );
     return sortCustomPickerOptions(
       options,
       sortM[pickerSortKey(section)] || "",
-      { label: getOptionLabel },
+      getterM,
     );
   }
 
@@ -362,7 +377,7 @@ export function CustomHistoryPicker({
     if (!rows.length) {
       return (
         <tr>
-          <CustomPickerCell colSpan={1}>
+          <CustomPickerCell colSpan={columns.length}>
             <span className="gray">{emptyText}</span>
           </CustomPickerCell>
         </tr>
@@ -390,42 +405,74 @@ export function CustomHistoryPicker({
           onClick={() => selectOption(option)}
           title={getOptionTitle(option)}
         >
-          <CustomPickerCell>
-            {label}
-            {linkHref && (
-              <>
-                {" "}
-                <a
-                  className="gray externalLinkIcon"
-                  href={linkHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={linkTitle}
-                  aria-label={linkTitle}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {linkLabel}
-                </a>
-              </>
-            )}
-            {history && onRemoveHistory && (
-              <>
-                {" "}
-                <button
-                  type="button"
-                  className="walletDeleteButton walletHistoryRemoveButton"
-                  title={`remove ${label} from history`}
-                  aria-label={`remove ${label} from history`}
-                  onClick={(e) => removeHistoryOption(e, option)}
-                >
-                  <TrashIcon />
-                </button>
-              </>
-            )}
-          </CustomPickerCell>
+          {columns.map((column, index) => (
+            <CustomPickerCell
+              key={`${section}_${value}_${column.key}`}
+              className={column.className || ""}
+            >
+              {column.getValue(option)}
+              {index == 0 && linkHref && (
+                <>
+                  {" "}
+                  <a
+                    className="gray externalLinkIcon"
+                    href={linkHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={linkTitle}
+                    aria-label={linkTitle}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {linkLabel}
+                  </a>
+                </>
+              )}
+              {index == 0 && history && onRemoveHistory && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="walletDeleteButton walletHistoryRemoveButton"
+                    title={`remove ${label} from history`}
+                    aria-label={`remove ${label} from history`}
+                    onClick={(e) => removeHistoryOption(e, option)}
+                  >
+                    <TrashIcon />
+                  </button>
+                </>
+              )}
+            </CustomPickerCell>
+          ))}
         </CustomPickerRow>
       );
     });
+  }
+
+  function renderSection({
+    section = "all",
+    title = "",
+    options = [],
+    emptyText = "-",
+    tableClassName: sectionTableClassName = "",
+  }) {
+    return (
+      <CustomPickerColumn key={section} title={title}>
+        <CustomPickerTable
+          className={cn(sectionTableClassName, tableClassName)}
+          headers={columns.map((column) => (
+            <SortHeader
+              key={`${section}_${column.key}`}
+              section={section}
+              column={column}
+            >
+              {column.label}
+            </SortHeader>
+          ))}
+        >
+          <tbody>{renderRows(section, options, emptyText)}</tbody>
+        </CustomPickerTable>
+      </CustomPickerColumn>
+    );
   }
 
   const cycleValues = getCustomPickerHistoryCycleValues(
@@ -433,10 +480,15 @@ export function CustomHistoryPicker({
     allOptions,
     getOptionValue,
   );
+  const buttonOptions = [
+    ...extraSections.flatMap((section) => section?.options || []),
+    ...historyOptions,
+    ...allOptions,
+  ];
   const buttonText =
     selectedLabel ||
     getOptionLabel(
-      [...historyOptions, ...allOptions].find(
+      buttonOptions.find(
         (option) => getOptionValue(option) == selectedValue,
       ),
     ) ||
@@ -446,7 +498,7 @@ export function CustomHistoryPicker({
     <CustomPicker className={pickerClassName} ref={effectiveRef}>
       <CustomPickerButton
         className={buttonClassName}
-        disabled={disabled || !allOptions.length}
+        disabled={disabled || !hasAnyOptions}
         onClick={() => {
           const nextOpen = !open;
           setOpen(nextOpen);
@@ -459,32 +511,20 @@ export function CustomHistoryPicker({
       </CustomPickerButton>
       {open && (
         <CustomPickerMenu className={menuClassName}>
-          <CustomPickerColumn title={historyTitle}>
-            <CustomPickerTable
-              className={tableClassName}
-              headers={[
-                <SortHeader key="history_label" section="history" sortKey="label">
-                  {header}
-                </SortHeader>,
-              ]}
-            >
-              <tbody>
-                {renderRows("history", historyOptions, emptyHistoryText)}
-              </tbody>
-            </CustomPickerTable>
-          </CustomPickerColumn>
-          <CustomPickerColumn title={allTitle}>
-            <CustomPickerTable
-              className={cn(allTableClassName, tableClassName)}
-              headers={[
-                <SortHeader key="all_label" section="all" sortKey="label">
-                  {header}
-                </SortHeader>,
-              ]}
-            >
-              <tbody>{renderRows("all", allOptions, emptyAllText)}</tbody>
-            </CustomPickerTable>
-          </CustomPickerColumn>
+          {extraSections.map((section) => renderSection(section))}
+          {renderSection({
+            section: "history",
+            title: historyTitle,
+            options: historyOptions,
+            emptyText: emptyHistoryText,
+          })}
+          {renderSection({
+            section: "all",
+            title: allTitle,
+            options: allOptions,
+            emptyText: emptyAllText,
+            tableClassName: allTableClassName,
+          })}
         </CustomPickerMenu>
       )}
     </CustomPicker>
@@ -503,4 +543,25 @@ export function CustomHistoryPicker({
       {picker}
     </span>
   );
+}
+
+function propsOptionColumns(columns, header) {
+  if (Array.isArray(columns) && columns.length) {
+    return columns.map((column) => ({
+      key: column.key || "label",
+      label: column.label || column.key || header,
+      className: column.className || "",
+      getValue: column.getValue || getCustomPickerOptionLabel,
+      getSortValue: column.getSortValue || column.getValue,
+    }));
+  }
+
+  return [
+    {
+      key: "label",
+      label: header,
+      getValue: getCustomPickerOptionLabel,
+      getSortValue: getCustomPickerOptionLabel,
+    },
+  ];
 }

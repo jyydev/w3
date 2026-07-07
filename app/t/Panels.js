@@ -1008,6 +1008,7 @@ function Panels({
       <SendPanel
         data={effectiveData}
         walletEntriesM={effectiveWalletEntriesM}
+        walletPkM={walletPkM}
         wallets={wallets}
         selectedWalletEntry={selectedWalletEntry}
         walletType={walletType}
