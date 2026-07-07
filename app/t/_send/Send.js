@@ -50,6 +50,7 @@ import {
   getTradeEndDiffQty,
   getTradeEndInputValue,
   getTradeModeCookie,
+  getTradeWalletLabel,
   getHistoryCycleValues,
   getWalletOptions,
   limitQtyInputDecimals,
@@ -843,13 +844,18 @@ export default function SendPanel({
     return formatTradeQty(String(value ?? "").replace(/^-/, ""), coinDecimals);
   }
 
-  function updateFromQty(value, { clearEndDrafts = true } = {}) {
-    const qty = normalizeSignedQtyInput(
+  function normalizeSendQtyInput(value, maxPositive, maxNegative) {
+    return normalizeSignedQtyInput(
       value,
-      maxSend,
-      currentToBal,
+      maxPositive,
+      maxNegative,
       coinDecimals,
+      { allowNegativeZero: true },
     );
+  }
+
+  function updateFromQty(value, { clearEndDrafts = true } = {}) {
+    const qty = normalizeSendQtyInput(value, maxSend, currentToBal);
     setFromQty(qty);
     setToQty(getOppositeSendQty(qty));
     if (clearEndDrafts) {
@@ -859,12 +865,7 @@ export default function SendPanel({
   }
 
   function updateToQty(value, { clearEndDrafts = true } = {}) {
-    const qty = normalizeSignedQtyInput(
-      value,
-      currentToBal,
-      maxSend,
-      coinDecimals,
-    );
+    const qty = normalizeSendQtyInput(value, currentToBal, maxSend);
     setToQty(qty);
     setFromQty(getOppositeSendQty(qty));
     if (clearEndDrafts) {
@@ -1008,13 +1009,30 @@ export default function SendPanel({
     )}\nto: ${recipientLabel} ${shortAddress(recipientAddress)}`;
   }
 
-  async function getSendQtyForSideWallet(walletEntry = fromEntry, side = "from") {
+  function getSendLoopCounterpartyText(side = "from") {
+    const isRightSide = side == "to";
+    const label = isRightSide ? "left selected" : "right selected";
+    const entry = isRightSide ? fromEntry : toEntry;
+    const address = entry?.address ? ` ${shortAddress(entry.address)}` : "";
+
+    return `with ${label}: ${getTradeWalletLabel(entry)}${address}`;
+  }
+
+  async function getSendQtyForSideWallet(
+    walletEntry = fromEntry,
+    side = "from",
+    { forceBalanceQuery = false } = {},
+  ) {
     const config = getSendSideConfig(side, walletEntry);
     if (!config.endWith) return formatTradeQty(config.qty, coinDecimals);
 
     const targetEnd = formatTradeQty(config.endInputValue, coinDecimals);
     if (!walletEntry?.address) return "0";
-    if (sameAddress(walletEntry.address, config.sideEntry?.address)) {
+    const defaultSideEntry = side == "to" ? rightSenderEntry : fromEntry;
+    if (
+      !forceBalanceQuery &&
+      sameAddress(walletEntry.address, defaultSideEntry?.address)
+    ) {
       return getTradeEndDiffQty(config.localMaxQty, targetEnd, coinDecimals);
     }
 
@@ -1112,7 +1130,9 @@ export default function SendPanel({
     }
     let signedQty = "0";
     try {
-      signedQty = await getSendQtyForSideWallet(sideEntry, side);
+      signedQty = await getSendQtyForSideWallet(sideEntry, side, {
+        forceBalanceQuery: loopRun,
+      });
     } catch (e) {
       tradeToast.error(e?.message || "send qty query failed");
       return;
@@ -1240,7 +1260,9 @@ export default function SendPanel({
         config.endWith
           ? `end ${formatTradeQty(config.endInputValue, coinDecimals)}`
           : formatTradeQty(config.qty, coinDecimals)
-      } ${coin} ${side == "to" ? "←" : "→"}`,
+      } ${coin} ${side == "to" ? "←" : "→"} ${getSendLoopCounterpartyText(
+        side,
+      )}`,
       runOne: (walletEntry, options) =>
         runSendForWallet(walletEntry, { ...options, side }),
     });

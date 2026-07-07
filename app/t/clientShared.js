@@ -2584,15 +2584,29 @@ export function normalizeSignedQtyInput(
   maxPositive,
   maxNegative,
   decimals = 18,
+  { allowNegativeZero = false } = {},
 ) {
   const raw = String(value ?? "").trim();
-  const negative = raw.startsWith("-");
+  if (allowNegativeZero && raw == "-") return "0";
+
+  const negative =
+    raw.startsWith("-") || (allowNegativeZero && raw.endsWith("-"));
+  const unsignedRaw =
+    allowNegativeZero && negative
+      ? raw.replace(/-/g, "")
+      : negative
+        ? raw.slice(1)
+        : raw;
   const qty = limitQtyInputDecimals(
-    cleanTradeInput(negative ? raw.slice(1) : raw),
+    cleanTradeInput(unsignedRaw),
     decimals,
   );
   const max = negative ? maxNegative : maxPositive;
   const n = toNum(qty);
+
+  if (allowNegativeZero && negative && n <= 0) {
+    return raw.includes(".") ? "-0." : "-0";
+  }
 
   if (Number.isFinite(max) && n > max) {
     const maxQty = formatTradeQty(max, decimals);
@@ -2647,6 +2661,7 @@ export function getTradeMarketQtyPair({
   maxReceipt = 0,
   underlyingDecimals = 18,
   receiptDecimals = 18,
+  allowNegativeZero = true,
 } = {}) {
   if (side == "redeem") {
     const maxLendReceipt = maxUnderlying * receiptRate;
@@ -2655,6 +2670,7 @@ export function getTradeMarketQtyPair({
       maxReceipt,
       maxLendReceipt,
       receiptDecimals,
+      { allowNegativeZero },
     );
 
     return {
@@ -2674,6 +2690,7 @@ export function getTradeMarketQtyPair({
     maxUnderlying,
     maxRedeemUnderlying,
     underlyingDecimals,
+    { allowNegativeZero },
   );
 
   return {

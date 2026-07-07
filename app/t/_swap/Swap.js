@@ -108,7 +108,6 @@ import {
   getTradeModeCookie,
   getWalletOptions,
   hasLoadedBalance,
-  inputQty,
   limitQtyInputDecimals,
   nextValue,
   noDex,
@@ -550,7 +549,8 @@ export default function SwapPanel({
   const maxBuyQty = formatTradeQty(toBalance.balance, toCoinDecimals);
   const sellQty = toNum(fromQty);
   const buyQty = toNum(toQty);
-  const sellSliderValue = Math.min(toNum(fromQty), maxSell);
+  const sellSliderValue = Math.max(0, Math.min(sellQty, maxSell));
+  const buySliderValue = Math.max(0, Math.min(buyQty, maxBuy));
   const fromPriceKey = fromCoinInfo.address
     ? priceKey(fromChain, fromCoinInfo.address)
     : priceKey(fromChain, fromCoin);
@@ -613,7 +613,7 @@ export default function SwapPanel({
     getTradeEndInputValue(
       maxBuyQty,
       toQty,
-      toNum(toQty) >= 0,
+      toNum(toQty) < 0,
       toCoinDecimals,
     );
   const sellQtyUsd = fromPrice ? sellQty * fromPrice : 0;
@@ -939,9 +939,9 @@ export default function SwapPanel({
     }
 
     if (qtyInputSide == "buy") {
-      setFromQty(getSellQty(toQty));
+      setFromQty(invertSwapQty(getSellQty(toQty), fromCoinDecimals));
     } else {
-      setToQty(inputQty(toNum(fromQty) * swapRate));
+      setToQty(invertSwapQty(getBuyQty(fromQty), toCoinDecimals));
     }
   }, [fromChain, fromCoin, fromCoinDecimals, qtyInputSide, swapRate, toChain, toCoin]);
 
@@ -1149,9 +1149,36 @@ export default function SwapPanel({
 
   async function runSwapForWallet(
     walletEntry = selectedWalletEntry,
-    { skipConfirm = false, loopRun = false } = {},
+    { skipConfirm = false, loopRun = false, side = "from" } = {},
   ) {
     const tradeToast = createTradeToast(walletEntry, loopRun);
+    let sellSide = side == "to" ? "to" : "from";
+    let buySide;
+    let sellChain;
+    let buyChain;
+    let sellCoin;
+    let buyCoin;
+    let sellCoinE;
+    let buyCoinE;
+    let routeIsSolanaBridge;
+
+    const setSwapRoute = (nextSellSide) => {
+      sellSide = nextSellSide == "to" ? "to" : "from";
+      buySide = sellSide == "to" ? "from" : "to";
+      sellChain = sellSide == "to" ? toChain : fromChain;
+      buyChain = sellSide == "to" ? fromChain : toChain;
+      sellCoin = sellSide == "to" ? toCoin : fromCoin;
+      buyCoin = sellSide == "to" ? fromCoin : toCoin;
+      sellCoinE = getSelectedSwapCoinE(sellChain, sellCoin, sellSide);
+      buyCoinE = getSelectedSwapCoinE(buyChain, buyCoin, buySide);
+      routeIsSolanaBridge =
+        !!sellChain &&
+        !!buyChain &&
+        sellChain != buyChain &&
+        (sellChain == "Solana" || buyChain == "Solana");
+    };
+
+    setSwapRoute(sellSide);
 
     if (!["jupiter", "jumper", "relay", "uniswap", "across"].includes(defi)) {
       tradeToast.show(`${defiE.label}: swap not wired yet`);
@@ -1176,32 +1203,56 @@ export default function SwapPanel({
       tradeToast.error(`private key missing: ${keyPrefix}_${walletEntry?.name || ""}`);
       return;
     }
-    if (defi == "jupiter" && (fromChain != "Solana" || toChain != "Solana")) {
-      tradeToast.error("Jupiter is for Solana swaps only");
-      return;
-    }
-    if (fromChain == "Solana" && !["jupiter", "jumper", "relay", "across"].includes(defi)) {
-      tradeToast.error(`${defiE.label} is not available for Solana-origin swaps`);
-      return;
-    }
-    if (defi == "across" && fromChain == toChain) {
-      tradeToast.error("Across is for cross-chain swaps; choose a different buy chain");
-      return;
-    }
-    if (fromChain == toChain && fromCoin == toCoin) {
-      tradeToast.error("sell coin and buy coin are the same");
-      return;
-    }
+    const getSwapRouteError = () => {
+      if (defi == "jupiter" && (sellChain != "Solana" || buyChain != "Solana")) {
+        return "Jupiter is for Solana swaps only";
+      }
+      if (
+        sellChain == "Solana" &&
+        !["jupiter", "jumper", "relay", "across"].includes(defi)
+      ) {
+        return `${defiE.label} is not available for Solana-origin swaps`;
+      }
+      if (defi == "across" && sellChain == buyChain) {
+        return "Across is for cross-chain swaps; choose a different buy chain";
+      }
+      if (sellChain == buyChain && sellCoin == buyCoin) {
+        return "sell coin and buy coin are the same";
+      }
+
+      return "";
+    };
     let amount = "0";
     try {
-      amount = await getSwapSellAmountForWallet(walletEntry);
+      amount = await getSwapSellAmountForWallet(walletEntry, {
+        forceBalanceQuery: loopRun,
+        side: sellSide,
+      });
+      if (toNum(amount) < 0) {
+        const nextSellSide = sellSide == "to" ? "from" : "to";
+        setSwapRoute(nextSellSide);
+        amount = loopRun
+          ? await getSwapSellAmountForWallet(walletEntry, {
+              forceBalanceQuery: true,
+              side: sellSide,
+            })
+          : formatTradeQty(
+              nextSellSide == "to" ? toQty : fromQty,
+              nextSellSide == "to" ? toCoinDecimals : fromCoinDecimals,
+            );
+      }
     } catch (e) {
       tradeToast.error(e?.message || "sell qty query failed");
       return;
     }
 
+    const routeError = getSwapRouteError();
+    if (routeError) {
+      tradeToast.error(routeError);
+      return;
+    }
     if (toNum(amount) < 0) {
-      tradeToast.error("sell qty cannot be negative; switch sell/buy coins");
+      tradeToast.error("sell qty cannot be negative");
       return;
     }
     if (!toNum(amount)) {
@@ -1209,23 +1260,45 @@ export default function SwapPanel({
       return;
     }
 
-    const autoApprovalAmount = autoApproval ? amount : "";
+    let sellBalanceQty = "0";
+    const sellDecimals = sellSide == "to" ? toCoinDecimals : fromCoinDecimals;
+    try {
+      sellBalanceQty = await getSwapBalanceQtyForSide(walletEntry, sellSide, {
+        forceBalanceQuery: loopRun,
+      });
+    } catch (e) {
+      tradeToast.error(e?.message || "sell balance query failed");
+      return;
+    }
+    if (isTradeQtyGreater(amount, sellBalanceQty, sellDecimals)) {
+      tradeToast.error(
+        `${sellCoin} balance ${formatTradeQty(
+          sellBalanceQty,
+          sellDecimals,
+        )} < sell qty ${formatTradeQty(amount, sellDecimals)}`,
+      );
+      return;
+    }
+
+    const autoApprovalAmount =
+      autoApproval && sellChain != "Solana" && !sellCoinE?.native ? amount : "";
     const getApprovalAmount = (approvalNeeded) => {
       if (!approvalNeeded) return "";
       return (
         autoApprovalAmount ||
         window.prompt(
-          `Approval needed for ${fromCoin}.\n\nEnter approval qty.\nSell qty: ${amount}`,
+          `Approval needed for ${sellCoin}.\n\nEnter approval qty.\nSell qty: ${amount}`,
           amount,
         )
       );
     };
-    const toAddress = isSolanaBridge ? recipient : walletEntry.address;
+    const toAddress =
+      routeIsSolanaBridge && sellSide == "from" ? recipient : walletEntry.address;
     if (!useBrowserWallet && !skipConfirm) {
       const ok = window.confirm(
         `Execute ${defiE.label} swap?\n\nwallet: ${
           walletEntry.label || walletEntry.name || swapWalletLabel
-        }\nsell: ${amount} ${fromCoin} on ${fromChain}\nbuy: ${toCoin} on ${toChain}\nrecipient: ${toAddress}`,
+        }\nsell: ${amount} ${sellCoin} on ${sellChain}\nbuy: ${buyCoin} on ${buyChain}\nrecipient: ${toAddress}`,
       );
       if (!ok) return;
     }
@@ -1243,10 +1316,10 @@ export default function SwapPanel({
           });
           const built = await buildJupiterSwapTxs({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
           });
           const txs = [];
@@ -1270,10 +1343,10 @@ export default function SwapPanel({
           });
           await getJupiterSwapPreview({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
           });
 
@@ -1283,10 +1356,10 @@ export default function SwapPanel({
           res = await executeJupiterSwap({
             walletName: walletEntry.name,
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
           });
         }
@@ -1297,10 +1370,10 @@ export default function SwapPanel({
           });
           const built = await buildJumperSwapTxs({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             recipient: toAddress,
           });
@@ -1324,10 +1397,10 @@ export default function SwapPanel({
           });
           const preview = await getJumperSwapPreview({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             recipient: toAddress,
           });
@@ -1351,10 +1424,10 @@ export default function SwapPanel({
           res = await executeJumperSwap({
             walletName: walletEntry.name,
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             recipient: toAddress,
             approvalAmount,
@@ -1370,12 +1443,12 @@ export default function SwapPanel({
           });
           const built = await buildRelaySwapSteps({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
-            fromCoinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
-            toCoinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
             amount,
             recipient: toAddress,
           });
@@ -1413,12 +1486,12 @@ export default function SwapPanel({
           });
           const preview = await getRelaySwapPreview({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
-            fromCoinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
-            toCoinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
             amount,
             recipient: toAddress,
           });
@@ -1442,12 +1515,12 @@ export default function SwapPanel({
           res = await executeRelaySwap({
             walletName: walletEntry.name,
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
-            fromCoinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
-            toCoinE: getSelectedSwapCoinE(toChain, toCoin, "to"),
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
             amount,
             recipient: toAddress,
             approvalAmount,
@@ -1460,10 +1533,10 @@ export default function SwapPanel({
           });
           const built = await buildAcrossSwapTxs({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             recipient: toAddress,
           });
@@ -1487,10 +1560,10 @@ export default function SwapPanel({
           });
           const preview = await getAcrossSwapPreview({
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             recipient: toAddress,
           });
@@ -1514,10 +1587,10 @@ export default function SwapPanel({
           res = await executeAcrossSwap({
             walletName: walletEntry.name,
             walletAddress: walletEntry.address,
-            fromChain,
-            toChain,
-            fromCoin,
-            toCoin,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             recipient: toAddress,
             approvalAmount,
@@ -1530,9 +1603,9 @@ export default function SwapPanel({
           });
           const built = await buildUniswapSwapTxs({
             walletAddress: walletEntry.address,
-            chain: fromChain,
-            fromCoin,
-            toCoin,
+            chain: sellChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
           });
           const txs = [];
@@ -1555,9 +1628,9 @@ export default function SwapPanel({
           });
           const preview = await getUniswapSwapPreview({
             walletAddress: walletEntry.address,
-            chain: fromChain,
-            fromCoin,
-            toCoin,
+            chain: sellChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
           });
           let approvalAmount = "";
@@ -1580,9 +1653,9 @@ export default function SwapPanel({
           res = await executeUniswapSwap({
             walletName: walletEntry.name,
             walletAddress: walletEntry.address,
-            chain: fromChain,
-            fromCoin,
-            toCoin,
+            chain: sellChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
             amount,
             approvalAmount,
           });
@@ -1603,8 +1676,8 @@ export default function SwapPanel({
       onTxComplete({
         ...res,
         refreshTargets: [
-          getRefreshTarget(fromChain, fromCoin, walletEntry.address),
-          getRefreshTarget(toChain, toCoin, toAddress),
+          getRefreshTarget(sellChain, sellCoin, walletEntry.address),
+          getRefreshTarget(buyChain, buyCoin, toAddress),
         ],
       });
       return res;
@@ -1623,17 +1696,25 @@ export default function SwapPanel({
     }
   }
 
-  async function runSwap() {
+  async function runSwap(side = "from") {
+    const sellSide = side == "to" ? "to" : "from";
+    const sideEndWith = sellSide == "to" ? buyEndWith : sellEndWith;
+    const sideEndInputValue =
+      sellSide == "to" ? buyEndInputValue : sellEndInputValue;
+    const sideQty = sellSide == "to" ? toQty : fromQty;
+    const sideCoin = sellSide == "to" ? toCoin : fromCoin;
+    const sideDecimals = sellSide == "to" ? toCoinDecimals : fromCoinDecimals;
     const result = await runTradeWalletLoop({
       loopWallets,
       getLoopWalletEntries,
       selectedWalletEntry,
       actionLabel: `${defiE.label} swap ${
-        sellEndWith
-          ? `end ${formatTradeQty(sellEndInputValue, fromCoinDecimals)}`
-          : formatTradeQty(fromQty, fromCoinDecimals)
-      } ${fromCoin}`,
-      runOne: runSwapForWallet,
+        sideEndWith
+          ? `end ${formatTradeQty(sideEndInputValue, sideDecimals)}`
+          : formatTradeQty(sideQty, sideDecimals)
+      } ${sideCoin}`,
+      runOne: (walletEntry, options) =>
+        runSwapForWallet(walletEntry, { ...options, side: sellSide }),
     });
     if (Array.isArray(result)) {
       const loopResult = createTradeLoopResult(result, { dex: defiE.label });
@@ -1648,6 +1729,16 @@ export default function SwapPanel({
 
   function setMaxSell() {
     updateSellQty(formatTradeQty(fromBalance.balance, fromCoinDecimals));
+  }
+
+  function setMaxBuy() {
+    updateBuyQty(formatTradeQty(toBalance.balance, toCoinDecimals));
+  }
+
+  function invertSwapQty(value, decimals) {
+    const qty = formatComputedTradeQty(value, decimals);
+    if (!toNum(qty)) return "0";
+    return String(qty).startsWith("-") ? qty.slice(1) : `-${qty}`;
   }
 
   function getBuyQty(value) {
@@ -1669,22 +1760,24 @@ export default function SwapPanel({
       maxSell,
       maxReverseSell,
       fromCoinDecimals,
+      { allowNegativeZero: true },
     );
     setQtyInputSide("sell");
     setFromQty(qty);
-    setToQty(getBuyQty(qty));
+    setToQty(invertSwapQty(getBuyQty(qty), toCoinDecimals));
   }
 
   function updateBuyQty(value) {
     const qty = normalizeSignedQtyInput(
       value,
-      maxBuyInput,
       maxBuy,
+      maxBuyInput,
       toCoinDecimals,
+      { allowNegativeZero: true },
     );
     setQtyInputSide("buy");
     setToQty(qty);
-    setFromQty(getSellQty(qty));
+    setFromQty(invertSwapQty(getSellQty(qty), fromCoinDecimals));
   }
 
   function updateSellEnd(value) {
@@ -1696,15 +1789,120 @@ export default function SwapPanel({
   function updateBuyEnd(value) {
     const endQty = limitQtyInputDecimals(cleanTradeInput(value), toCoinDecimals);
     setBuyEndDraft(endQty);
-    updateBuyQty(
-      formatComputedTradeQty(
-        subtractTradeQtyText(endQty, maxBuyQty, toCoinDecimals),
-        toCoinDecimals,
-      ),
+    updateBuyQty(getTradeEndDiffQty(maxBuyQty, endQty, toCoinDecimals));
+  }
+
+  function renderSwapControls({
+    showGas = false,
+    side = "from",
+    txLabel = "SWAP",
+  } = {}) {
+    const isBuySide = side == "to";
+    const maxValue = isBuySide ? maxBuy : maxSell;
+    const maxQty = isBuySide ? maxBuyQty : maxSellQty;
+    const decimals = isBuySide ? toCoinDecimals : fromCoinDecimals;
+    const sliderValue = isBuySide ? buySliderValue : sellSliderValue;
+    const updateSideQty = isBuySide ? updateBuyQty : updateSellQty;
+    const setMaxSide = isBuySide ? setMaxBuy : setMaxSell;
+
+    return (
+      <div className="tradeBoxControls sendQtyControl">
+        {showGas && showGasAutoLabel && (
+          <label className="tradeGasSelect">
+            <span className="gray">gas:</span>
+            <select value="default" disabled>
+              <option value="default">auto</option>
+            </select>
+          </label>
+        )}
+        <input
+          className="tradeMiddleRange"
+          type="range"
+          min="0"
+          max={maxValue || 0}
+          step="any"
+          value={sliderValue}
+          onChange={(e) =>
+            updateSideQty(
+              rangeQtyInput(e.target.value, maxValue, maxQty, decimals),
+            )
+          }
+          disabled={!maxValue}
+        />
+        <button
+          type="button"
+          className="btn small bgGray"
+          onClick={setMaxSide}
+          disabled={!maxValue}
+        >
+          max
+        </button>
+        <button
+          type="button"
+          className="btn bgCyan sendTransferButton"
+          onClick={() => runSwap(side)}
+          disabled={swapPending || !swapCanExecute}
+        >
+          {swapPending ? "SWAPPING" : <>&nbsp;{txLabel}&nbsp;</>}
+        </button>
+      </div>
     );
   }
 
-  async function getSwapSellAmountForWallet(walletEntry = selectedWalletEntry) {
+  function isTradeQtyGreater(left, right, decimals = 18) {
+    return toNum(subtractTradeQtyText(left, right, decimals)) > 0;
+  }
+
+  async function getSwapBalanceQtyForSide(
+    walletEntry = selectedWalletEntry,
+    side = "from",
+    { forceBalanceQuery = false, address = "" } = {},
+  ) {
+    const isToSide = side == "to";
+    const chain = isToSide ? toChain : fromChain;
+    const coin = isToSide ? toCoin : fromCoin;
+    const decimals = isToSide ? toCoinDecimals : fromCoinDecimals;
+    const localQty = isToSide ? maxBuyQty : maxSellQty;
+    const owner = String(address || walletEntry?.address || "").trim();
+
+    if (!owner) return "0";
+    if (
+      !forceBalanceQuery &&
+      sameAddress(owner, selectedWalletEntry?.address)
+    ) {
+      return formatTradeQty(localQty, decimals);
+    }
+
+    const balance = await getTradeCoinBalance({
+      chain,
+      coin,
+      address: owner,
+      coinE: getSelectedSwapCoinE(chain, coin, side),
+    });
+
+    return formatTradeQty(balance?.balance, decimals);
+  }
+
+  async function getSwapSellAmountForWallet(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false, side = "from" } = {},
+  ) {
+    if (side == "to") {
+      if (!buyEndWith) {
+        return formatTradeQty(toQty, toCoinDecimals);
+      }
+
+      const targetEnd = formatTradeQty(buyEndInputValue, toCoinDecimals);
+      if (!walletEntry?.address) return "0";
+      return getTradeEndDiffQty(
+        await getSwapBalanceQtyForSide(walletEntry, "to", {
+          forceBalanceQuery,
+        }),
+        targetEnd,
+        toCoinDecimals,
+      );
+    }
+
     if (!sellEndWith && !buyEndWith) {
       return formatTradeQty(fromQty, fromCoinDecimals);
     }
@@ -1712,29 +1910,27 @@ export default function SwapPanel({
     if (sellEndWith) {
       const targetEnd = formatTradeQty(sellEndInputValue, fromCoinDecimals);
       if (!walletEntry?.address) return "0";
-      if (sameAddress(walletEntry.address, selectedWalletEntry?.address)) {
-        return getTradeEndDiffQty(maxSellQty, targetEnd, fromCoinDecimals);
-      }
-
-      const balance = await getTradeCoinBalance({
-        chain: fromChain,
-        coin: fromCoin,
-        address: walletEntry.address,
-        coinE: getSelectedSwapCoinE(fromChain, fromCoin, "from"),
-      });
-
-      return formatComputedTradeQty(
-        subtractTradeQtyText(
-          formatTradeQty(balance?.balance, fromCoinDecimals),
-          targetEnd,
-          fromCoinDecimals,
-        ),
+      return getTradeEndDiffQty(
+        await getSwapBalanceQtyForSide(walletEntry, "from", {
+          forceBalanceQuery,
+        }),
+        targetEnd,
         fromCoinDecimals,
       );
     }
 
+    const targetEnd = formatTradeQty(buyEndInputValue, toCoinDecimals);
+    const buyAddress = isRecipientBalanceMode()
+      ? String(recipient || "").trim()
+      : walletEntry?.address;
+    if (!buyAddress) return "0";
+    const buyBalanceQty = await getSwapBalanceQtyForSide(walletEntry, "to", {
+      forceBalanceQuery,
+      address: buyAddress,
+    });
+
     const buyAmount = formatComputedTradeQty(
-      subtractTradeQtyText(buyEndInputValue, maxBuyQty, toCoinDecimals),
+      subtractTradeQtyText(targetEnd, buyBalanceQty, toCoinDecimals),
       toCoinDecimals,
     );
     return getSellQty(buyAmount);
@@ -2403,6 +2599,13 @@ export default function SwapPanel({
             <span className="swapCoinPrice">
               <span className="gray">{fmtPrice(fromPrice)}</span>
             </span>
+            <button
+              type="button"
+              className="tradeSwitchButton"
+              onClick={reverseRoute}
+            >
+              {"⇆"}
+            </button>
           </div>
           <div className="swapBalanceLine">
             <button
@@ -2464,59 +2667,10 @@ export default function SwapPanel({
               <span className="gray">${fmt(sellQtyUsd, 2)}</span>
             )}
           </div>
+          {renderSwapControls({ showGas: true, side: "from", txLabel: "→" })}
         </div>
 
         <div className="swapMiddle">
-          {showGasAutoLabel && (
-            <label className="swapGasSelect">
-              <span className="gray">gas:</span>
-              <select value="default" disabled>
-                <option value="default">auto</option>
-              </select>
-            </label>
-          )}
-          <input
-            className="swapMiddleRange"
-            type="range"
-            min="0"
-            max={maxSell || 0}
-            step="any"
-            value={sellSliderValue}
-            onChange={(e) =>
-              updateSellQty(
-                rangeQtyInput(
-                  e.target.value,
-                  maxSell,
-                  maxSellQty,
-                  fromCoinDecimals,
-                ),
-              )
-            }
-            disabled={!maxSell}
-          />
-          <button
-            type="button"
-            className="btn small bgGray"
-            onClick={setMaxSell}
-            disabled={!maxSell}
-          >
-            max
-          </button>
-          <button
-            type="button"
-            className="btn swapActionButton bgCyan"
-            onClick={runSwap}
-            disabled={swapPending || !swapCanExecute}
-          >
-            {swapPending ? "SWAPPING" : "SWAP"}
-          </button>
-          <button
-            type="button"
-            className="swapDownButton"
-            onClick={reverseRoute}
-          >
-            {"→"}
-          </button>
           {canAutoApprove && (
             <label className="swapAutoApproval">
               <input
@@ -2648,22 +2802,22 @@ export default function SwapPanel({
             {toPrice > 0 && <span className="gray">${fmt(buyEndUsd, 2)}</span>}
           </div>
           <div className="swapAmountLine">
-            <span className="gray">buy</span>
+            <span className="gray">sell</span>
             <input
               className="swapQtyInput"
               type="text"
               inputMode="decimal"
               min="0"
-              max={maxBuyInput || 0}
+              max={maxBuy || 0}
               step="any"
               value={toQty}
               size={qtyInputSize(toQty)}
               style={qtyInputStyle(toQty)}
-              placeholder="quote"
               onChange={(e) => updateBuyQty(e.target.value)}
             />
             {toPrice > 0 && <span className="gray">${fmt(buyQtyUsd, 2)}</span>}
           </div>
+          {renderSwapControls({ side: "to", txLabel: "←" })}
         </div>
       </div>
 

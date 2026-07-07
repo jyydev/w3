@@ -1017,9 +1017,10 @@ export default function LendPanel({
 
   async function getWalletUnderlyingBalanceForEnd(
     walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
   ) {
     const balance = getWalletUnderlyingBalance(walletEntry);
-    if (hasLoadedBalance(balance)) return balance;
+    if (!forceBalanceQuery && hasLoadedBalance(balance)) return balance;
 
     return queryWalletMarketBalance(walletEntry, "underlying").catch(
       () => ({}),
@@ -1028,9 +1029,10 @@ export default function LendPanel({
 
   async function getWalletReceiptBalanceForEnd(
     walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
   ) {
     const balance = getWalletReceiptBalance(walletEntry);
-    if (hasLoadedBalance(balance)) return balance;
+    if (!forceBalanceQuery && hasLoadedBalance(balance)) return balance;
 
     return queryWalletMarketBalance(walletEntry, "lend").catch(() => ({}));
   }
@@ -1067,23 +1069,31 @@ export default function LendPanel({
     });
   }
 
-  async function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getLendQtyForWallet(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
+  ) {
     return getTradeMarketQtyForWallet({
       endWith: lendEndWith,
       qty: lendQty,
       decimals: underlyingQtyDecimals,
-      getWalletBalance: () => getWalletUnderlyingBalanceForEnd(walletEntry),
+      getWalletBalance: () =>
+        getWalletUnderlyingBalanceForEnd(walletEntry, { forceBalanceQuery }),
       getEndTargetText: getLendEndTargetText,
       hasBalance: hasLoadedBalance,
     });
   }
 
-  async function getRedeemQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getRedeemQtyForWallet(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
+  ) {
     return getTradeMarketQtyForWallet({
       endWith: redeemEndWith,
       qty: receiptQty,
       decimals: receiptQtyDecimals,
-      getWalletBalance: () => getWalletReceiptBalanceForEnd(walletEntry),
+      getWalletBalance: () =>
+        getWalletReceiptBalanceForEnd(walletEntry, { forceBalanceQuery }),
       getEndTargetText: getRedeemEndTargetText,
       hasBalance: hasLoadedBalance,
     });
@@ -1092,10 +1102,13 @@ export default function LendPanel({
   async function shouldAaveWithdrawAll(
     walletEntry = selectedWalletEntry,
     qty = "",
+    { forceBalanceQuery = false } = {},
   ) {
     if (defi != "aave") return false;
 
-    const balance = await getWalletReceiptBalanceForEnd(walletEntry);
+    const balance = await getWalletReceiptBalanceForEnd(walletEntry, {
+      forceBalanceQuery,
+    });
     if (!hasLoadedBalance(balance)) return false;
 
     const balanceQty = toNum(balance.balance);
@@ -2186,8 +2199,12 @@ export default function LendPanel({
 
     const redeem = action == "redeem";
     const signedQty = redeem
-      ? await getRedeemQtyForWallet(walletEntry)
-      : await getLendQtyForWallet(walletEntry);
+      ? await getRedeemQtyForWallet(walletEntry, {
+          forceBalanceQuery: loopRun,
+        })
+      : await getLendQtyForWallet(walletEntry, {
+          forceBalanceQuery: loopRun,
+        });
     if (signedQty === null) {
       const errorResult = {
         ok: false,
@@ -2227,7 +2244,11 @@ export default function LendPanel({
       return;
     }
     const withdrawAll =
-      isAave && submitRedeem && (await shouldAaveWithdrawAll(walletEntry, qty));
+      isAave &&
+      submitRedeem &&
+      (await shouldAaveWithdrawAll(walletEntry, qty, {
+        forceBalanceQuery: loopRun,
+      }));
 
     const useBrowserWallet = !!walletEntry?.isBrowserWallet;
     const buildTxs = isVenus

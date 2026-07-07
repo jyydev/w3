@@ -957,10 +957,16 @@ export default function YieldPanel({
   const allLoading = isHyperliquid ? false : allMarketsLoading;
   const allError = isHyperliquid ? "" : allMarketsError;
   const hasProtocolAllMarkets = !isHyperliquid;
+  const fallbackMarketE = getFallbackTradeMarketEntry(market);
+  const fallbackMarketIsLocal =
+    !!fallbackMarketE &&
+    (!hasProtocolAllMarkets ||
+      (!!chainE?.coinInfoM?.[fallbackMarketE.underlyingCoin] &&
+        !!chainE?.coinInfoM?.[fallbackMarketE.lendCoin]));
   const marketE =
     visibleAddedMarkets.find((entry) => entry.value == market) ||
     allMarkets.find((entry) => entry.value == market) ||
-    getFallbackTradeMarketEntry(market) ||
+    (fallbackMarketIsLocal ? fallbackMarketE : null) ||
     visibleAddedMarkets[0];
   const marketSupplyApr = getMarketSupplyApr({
     chainE,
@@ -988,6 +994,14 @@ export default function YieldPanel({
     marketMatchesActiveChain &&
     !!marketE?.underlyingAddress &&
     !!marketE?.lendAddress;
+  const usesLocalMarket =
+    !hasProtocolAllMarkets ||
+    (!!underlyingCoin &&
+      !!lendCoin &&
+      !!chainE?.coinInfoM?.[underlyingCoin] &&
+      !!chainE?.coinInfoM?.[lendCoin]);
+  const marketReady =
+    isHyperliquid || (marketMatchesActiveChain && (usesDirectMarket || usesLocalMarket));
   const directBalanceKey = usesDirectMarket
     ? [
         defi,
@@ -1349,16 +1363,22 @@ export default function YieldPanel({
     });
   }
 
-  async function getWalletUnderlyingBalanceForEnd(walletEntry = selectedWalletEntry) {
+  async function getWalletUnderlyingBalanceForEnd(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
+  ) {
     const balance = getWalletUnderlyingBalance(walletEntry);
-    if (hasLoadedBalance(balance)) return balance;
+    if (!forceBalanceQuery && hasLoadedBalance(balance)) return balance;
 
     return queryWalletMarketBalance(walletEntry, "underlying").catch(() => ({}));
   }
 
-  async function getWalletReceiptBalanceForEnd(walletEntry = selectedWalletEntry) {
+  async function getWalletReceiptBalanceForEnd(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
+  ) {
     const balance = getWalletReceiptBalance(walletEntry);
-    if (hasLoadedBalance(balance)) return balance;
+    if (!forceBalanceQuery && hasLoadedBalance(balance)) return balance;
 
     return queryWalletMarketBalance(walletEntry, "lend").catch(() => ({}));
   }
@@ -1395,23 +1415,31 @@ export default function YieldPanel({
     });
   }
 
-  async function getLendQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getLendQtyForWallet(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
+  ) {
     return getTradeMarketQtyForWallet({
       endWith: lendEndWith,
       qty: lendQty,
       decimals: underlyingQtyDecimals,
-      getWalletBalance: () => getWalletUnderlyingBalanceForEnd(walletEntry),
+      getWalletBalance: () =>
+        getWalletUnderlyingBalanceForEnd(walletEntry, { forceBalanceQuery }),
       getEndTargetText: getLendEndTargetText,
       hasBalance: hasLoadedBalance,
     });
   }
 
-  async function getRedeemQtyForWallet(walletEntry = selectedWalletEntry) {
+  async function getRedeemQtyForWallet(
+    walletEntry = selectedWalletEntry,
+    { forceBalanceQuery = false } = {},
+  ) {
     return getTradeMarketQtyForWallet({
       endWith: redeemEndWith,
       qty: receiptQty,
       decimals: receiptQtyDecimals,
-      getWalletBalance: () => getWalletReceiptBalanceForEnd(walletEntry),
+      getWalletBalance: () =>
+        getWalletReceiptBalanceForEnd(walletEntry, { forceBalanceQuery }),
       getEndTargetText: getRedeemEndTargetText,
       hasBalance: hasLoadedBalance,
     });
@@ -1760,6 +1788,7 @@ export default function YieldPanel({
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
+      !marketReady ||
       !selectedWalletEntry?.address
     ) {
       return;
@@ -1827,6 +1856,7 @@ export default function YieldPanel({
     isErc4626Yield,
     isVenusFlux,
     lendCoin,
+    marketReady,
     marketPreviewLoaded,
     marketPreviewKey,
     marketE?.lendAddress,
@@ -2937,6 +2967,10 @@ export default function YieldPanel({
         : isVenusFluxAction
           ? "Venus Flux"
           : "Spark";
+    if (!isHyperliquidAction && !marketReady) {
+      tradeToast.error(`${protocol}: market not available on ${chainE?.chain || "this chain"}`);
+      return;
+    }
     if (!walletEntry?.address) {
       tradeToast.error("wallet missing");
       return;
@@ -3003,8 +3037,12 @@ export default function YieldPanel({
     const signedQty = cooldownSubmitAction
       ? "0"
       : redeem
-        ? await getRedeemQtyForWallet(walletEntry)
-        : await getLendQtyForWallet(walletEntry);
+        ? await getRedeemQtyForWallet(walletEntry, {
+            forceBalanceQuery: loopRun,
+          })
+        : await getLendQtyForWallet(walletEntry, {
+            forceBalanceQuery: loopRun,
+          });
     if (signedQty === null) {
       const errorResult = {
         ok: false,

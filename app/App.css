@@ -1294,12 +1294,10 @@ img.assetIcon {
   gap: 6px;
   align-items: center;
 }
-.tradeMiddleRange,
-.swapMiddleRange {
+.tradeMiddleRange {
   width: 120px;
 }
-.tradeGasSelect,
-.swapGasSelect {
+.tradeGasSelect {
   display: inline-flex;
   gap: 4px;
   align-items: center;
@@ -1680,8 +1678,7 @@ img.assetIcon {
   height: 22px;
   padding: 1px 4px;
 }
-.tradeSwitchButton,
-.swapDownButton {
+.tradeSwitchButton {
   width: 30px;
   height: 24px;
   border: 1px solid rgb(70, 70, 70);
@@ -1692,12 +1689,10 @@ img.assetIcon {
   line-height: 1;
   cursor: pointer;
 }
-.tradeSwitchButton:hover,
-.swapDownButton:hover {
+.tradeSwitchButton:hover {
   background: rgb(55, 55, 55);
 }
-.tradeSwitchButton:disabled,
-.swapDownButton:disabled {
+.tradeSwitchButton:disabled {
   background: rgb(70, 70, 70);
   color: rgb(145, 145, 145);
   cursor: default;
@@ -1750,8 +1745,7 @@ img.assetIcon {
   align-items: center;
   margin-top: 8px;
 }
-.tradeActionButton,
-.swapActionButton {
+.tradeActionButton {
   min-width: 120px;
   font-weight: bold;
   letter-spacing: 0.02em;
