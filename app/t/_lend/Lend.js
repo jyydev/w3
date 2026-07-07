@@ -170,6 +170,14 @@ const aaveMarketNameM = {
   XLayer: "proto_xlayer_v3",
   zkSyncEra: "proto_zksync_v3",
 };
+const venusInitialSupportedChainSet = new Set([
+  "Arbitrum",
+  "Base",
+  "BSC",
+  "Ethereum",
+  "Optimism",
+  "zkSyncEra",
+]);
 
 function getAaveMarketUrl(chain = "") {
   const marketName = aaveMarketNameM[chain];
@@ -184,6 +192,12 @@ function hasLendChainDiscovery(defi = "") {
 
 function getLendChainDiscoveryColumnTitle(defi = "") {
   return defi == "morpho" ? "discovery" : "all";
+}
+
+function isInitialLendChainSupported(defi = "", chain = "", marketChains = []) {
+  if (defi == "venus") return venusInitialSupportedChainSet.has(chain);
+
+  return marketChains.includes(chain);
 }
 
 function getLendProtocolLabel(defi = "") {
@@ -425,11 +439,11 @@ export default function LendPanel({
       .filter((chainName) =>
         discovered.size
           ? discovered.has(chainName)
-          : marketChains.includes(chainName),
+          : isInitialLendChainSupported(defi, chainName, marketChains),
       );
 
     return [...new Set(chains)];
-  }, [chainList, discoveredChainSet, hasChainDiscovery, marketChains]);
+  }, [chainList, defi, discoveredChainSet, hasChainDiscovery, marketChains]);
   const rawSelectableChains = hasChainDiscovery
     ? selectableProtocolChains
     : marketChains;
@@ -1736,7 +1750,7 @@ export default function LendPanel({
             const chainName = chainE.chain;
             const supported = discoveredChainSet.size
               ? discoveredChainSet.has(chainName)
-              : marketChains.includes(chainName);
+              : isInitialLendChainSupported(defi, chainName, marketChains);
             return {
               ...(discoveredChainInfoM[chainName] || {}),
               chain: chainName,
