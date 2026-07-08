@@ -456,6 +456,13 @@ function getWalletNotFoundValue(wallet = "") {
   return clean ? `${walletNotFoundValue}:${clean}` : walletNotFoundValue;
 }
 
+function getWalletNotFoundPath(value = "") {
+  const text = String(value || "");
+  if (!text.startsWith(`${walletNotFoundValue}:`)) return "";
+
+  return text.slice(walletNotFoundValue.length + 1).replace(/\/+$/, "");
+}
+
 function getStoredWalletHistoryOption(value = "") {
   const text = String(value || "");
   if (text === "") return { value: "", label: "favs" };
@@ -499,6 +506,10 @@ function WalletSelectPicker({
   const optionM = new Map(options.map((option) => [option.value, option]));
   const selected = optionM.get(value);
   const historyOptions = historyValues
+    .filter((entry) => {
+      const notFoundPath = getWalletNotFoundPath(entry);
+      return !notFoundPath || !optionM.has(notFoundPath);
+    })
     .map((entry) => optionM.get(entry) || getStoredWalletHistoryOption(entry))
     .filter(Boolean);
 
@@ -1176,11 +1187,14 @@ function Wallet({
   }, [walletType]);
 
   useEffect(() => {
+    if (!localEditorStoreChecked || checkingLocalWallet) return;
     if (selectedAddress && !connectedWalletChecked) return;
     if (consumeWalletHistorySkip(walletSelectValue)) return;
     rememberWalletHistory(walletSelectValue);
   }, [
+    checkingLocalWallet,
     connectedWalletChecked,
+    localEditorStoreChecked,
     selectedAddress,
     walletSelectValue,
     walletSelectOptionKey,
@@ -2252,9 +2266,12 @@ function Wallet({
       connectedWalletValue,
     ];
     const historyValue = getCanonicalWalletHistoryValue(value);
+    const resolvedHistoryPath = getWalletHistoryValue(value).replace(/\/+$/, "");
     setWalletHistoryOrder((prev) => {
       const nextPrev = prev.filter(
-        (entry) => !isSameCanonicalWalletHistoryValue(entry, historyValue),
+        (entry) =>
+          !isSameCanonicalWalletHistoryValue(entry, historyValue) &&
+          getWalletNotFoundPath(entry) != resolvedHistoryPath,
       );
       const next = rememberSelectionValue(
         nextPrev,
