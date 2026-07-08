@@ -24,8 +24,9 @@ import {
   emptySwapSupportE,
   getDexLabel,
   getDiscoveryTokenDedupeKey,
-  getDiscoveryTokenKey,
+  hasCoinDiscovery,
   getInitialSwapDex,
+  getSwapLocalChainOptions,
   getTokenDiscoveryKey,
   getSwapRouteCookie,
   isDexSupportedForChain,
@@ -44,7 +45,6 @@ import AcrossClient from "./across/Client";
 import {
   buildJupiterSwapTxs,
   executeJupiterSwap,
-  getJupiterSupportedSwap,
   getJupiterSwapPreview,
   getJupiterTokenDiscovery,
 } from "./jupiter/sv";
@@ -68,7 +68,6 @@ import RelayClient, { signBrowserRelayItem } from "./relay/Client";
 import {
   buildUniswapSwapTxs,
   executeUniswapSwap,
-  getUniswapSupportedSwap,
   getUniswapSwapPreview,
 } from "./uniswap/sv";
 import UniswapClient from "./uniswap/Client";
@@ -145,8 +144,6 @@ function getSwapSupport(defi = "") {
   if (defi == "relay") return getRelaySupportedBridge();
   if (defi == "jumper") return getJumperSupportedBridge();
   if (defi == "across") return getAcrossSupportedBridge();
-  if (defi == "uniswap") return getUniswapSupportedSwap();
-  if (defi == "jupiter") return getJupiterSupportedSwap();
   return Promise.resolve(emptySwapSupportE);
 }
 
@@ -182,6 +179,7 @@ export default function SwapPanel({
   onPrevTradeType = () => {},
   onCycleTradeType,
   showGasAutoLabel = false,
+  inputMaxOff = false,
   loopWallets = false,
   getLoopWalletEntries = () => [],
   onTxComplete = () => {},
@@ -202,6 +200,11 @@ export default function SwapPanel({
     [chainNames, walletType],
   );
   const initialDefi = getInitialSwapDex(initialCookieM, walletType);
+  const initialSellChainValues = getSwapLocalChainOptions(
+    initialDefi,
+    sellChainNames,
+  );
+  const initialChainValues = getSwapLocalChainOptions(initialDefi, chainNames);
   const initialDexOrder = normalizeSelectionOrder(
     parseSelectionOrder(
       getInitialCookie(
@@ -222,7 +225,7 @@ export default function SwapPanel({
         ),
       ),
     ),
-    sellChainNames,
+    initialSellChainValues,
   );
   const initialToChainOrder = normalizeSelectionOrder(
     parseSelectionOrder(
@@ -235,14 +238,14 @@ export default function SwapPanel({
         ),
       ),
     ),
-    chainNames,
+    initialChainValues,
   );
   const initialSellChainNames = sortBySelectionOrder(
-    sellChainNames,
+    initialSellChainValues,
     initialFromChainOrder,
   );
   const initialBuyChainNames = sortBySelectionOrder(
-    chainNames,
+    initialChainValues,
     initialToChainOrder,
   );
   const initialFromChain =
@@ -400,21 +403,33 @@ export default function SwapPanel({
     chainList.find((chainE) => chainE.chain == fromChain) || chainList[0];
   const toChainE =
     chainList.find((chainE) => chainE.chain == toChain) || fromChainE;
+  const selectableSellChainNames = useMemo(
+    () => getSwapLocalChainOptions(defi, sellChainNames),
+    [defi, sellChainNames],
+  );
+  const selectableChainNames = useMemo(
+    () => getSwapLocalChainOptions(defi, chainNames),
+    [chainNames, defi],
+  );
   const orderedSellChainNames = useMemo(
-    () => sortBySelectionOrder(sellChainNames, fromChainOrder),
-    [fromChainOrder, sellChainNames],
+    () => sortBySelectionOrder(selectableSellChainNames, fromChainOrder),
+    [fromChainOrder, selectableSellChainNames],
   );
   const fromChainHistoryOptions = useMemo(
-    () => fromChainOrder.filter((chainName) => sellChainNames.includes(chainName)),
-    [fromChainOrder, sellChainNames],
+    () =>
+      fromChainOrder.filter((chainName) =>
+        selectableSellChainNames.includes(chainName),
+      ),
+    [fromChainOrder, selectableSellChainNames],
   );
   const orderedChainNames = useMemo(
-    () => sortBySelectionOrder(chainNames, toChainOrder),
-    [chainNames, toChainOrder],
+    () => sortBySelectionOrder(selectableChainNames, toChainOrder),
+    [selectableChainNames, toChainOrder],
   );
   const toChainHistoryOptions = useMemo(
-    () => toChainOrder.filter((chainName) => chainNames.includes(chainName)),
-    [chainNames, toChainOrder],
+    () =>
+      toChainOrder.filter((chainName) => selectableChainNames.includes(chainName)),
+    [selectableChainNames, toChainOrder],
   );
   const supportedDexOptions = useMemo(
     () => {
@@ -660,6 +675,7 @@ export default function SwapPanel({
     defi,
     getSupport: getSwapSupport,
   });
+  const swapHasCoinDiscovery = hasCoinDiscovery(defi);
   const discoveryChainEntries = useMemo(() => {
     const seen = new Set();
     return (swapSupportE.chains || []).filter((entry) => {
@@ -772,7 +788,7 @@ export default function SwapPanel({
             ),
           ),
         ),
-        chainNames,
+        selectableSellChainNames,
       ),
     );
     setToChainOrder(
@@ -782,7 +798,7 @@ export default function SwapPanel({
             getSwapRouteCookie(tradeSwapToChainOrderCookie, walletType, defi),
           ),
         ),
-        chainNames,
+        selectableChainNames,
       ),
     );
     setFromCoinOrder(
@@ -799,7 +815,7 @@ export default function SwapPanel({
         ),
       ),
     );
-  }, [chainNames, defi, walletType]);
+  }, [defi, selectableChainNames, selectableSellChainNames, walletType]);
 
   useEffect(() => {
     const savedFromChain = getCookie(
@@ -826,17 +842,22 @@ export default function SwapPanel({
   }, [defi, orderedChainNames, orderedSellChainNames, walletType]);
 
   useEffect(() => {
-    if (!chainNames.length) return;
-    if (sellChainNames.length && !sellChainNames.includes(fromChain)) {
-      setFromChain(orderedSellChainNames[0] || sellChainNames[0]);
+    if (!selectableChainNames.length) return;
+    if (
+      selectableSellChainNames.length &&
+      !selectableSellChainNames.includes(fromChain)
+    ) {
+      setFromChain(orderedSellChainNames[0] || selectableSellChainNames[0]);
     }
-    if (!chainNames.includes(toChain)) setToChain(orderedChainNames[0] || chainNames[0]);
+    if (!selectableChainNames.includes(toChain)) {
+      setToChain(orderedChainNames[0] || selectableChainNames[0]);
+    }
   }, [
-    chainNames,
     fromChain,
     orderedChainNames,
     orderedSellChainNames,
-    sellChainNames,
+    selectableChainNames,
+    selectableSellChainNames,
     toChain,
   ]);
 
@@ -1760,7 +1781,7 @@ export default function SwapPanel({
       maxSell,
       maxReverseSell,
       fromCoinDecimals,
-      { allowNegativeZero: true },
+      { allowNegativeZero: true, inputMaxOff },
     );
     setQtyInputSide("sell");
     setFromQty(qty);
@@ -1773,7 +1794,7 @@ export default function SwapPanel({
       maxBuy,
       maxBuyInput,
       toCoinDecimals,
-      { allowNegativeZero: true },
+      { allowNegativeZero: true, inputMaxOff },
     );
     setQtyInputSide("buy");
     setToQty(qty);
@@ -1937,25 +1958,37 @@ export default function SwapPanel({
   }
 
   function nextFromChain() {
-    const values = getHistoryCycleValues(fromChainHistoryOptions, orderedSellChainNames);
+    const values = getHistoryCycleValues(
+      fromChainHistoryOptions,
+      selectableSellChainNames,
+    );
     const next = nextValue(values, fromChain);
     if (next) selectFromChain(next, { rememberOrder: false });
   }
 
   function prevFromChain() {
-    const values = getHistoryCycleValues(fromChainHistoryOptions, orderedSellChainNames);
+    const values = getHistoryCycleValues(
+      fromChainHistoryOptions,
+      selectableSellChainNames,
+    );
     const prev = prevValue(values, fromChain);
     if (prev) selectFromChain(prev, { rememberOrder: false });
   }
 
   function nextToChain() {
-    const values = getHistoryCycleValues(toChainHistoryOptions, orderedChainNames);
+    const values = getHistoryCycleValues(
+      toChainHistoryOptions,
+      selectableChainNames,
+    );
     const next = nextValue(values, toChain);
     if (next) selectToChain(next, { rememberOrder: false });
   }
 
   function prevToChain() {
-    const values = getHistoryCycleValues(toChainHistoryOptions, orderedChainNames);
+    const values = getHistoryCycleValues(
+      toChainHistoryOptions,
+      selectableChainNames,
+    );
     const prev = prevValue(values, toChain);
     if (prev) selectToChain(prev, { rememberOrder: false });
   }
@@ -2085,10 +2118,6 @@ export default function SwapPanel({
     toast(`${name}: add chain manually in sets.js and data/coins first`);
   }
 
-  function showUnsupportedChain(chain = "") {
-    toast(`${chain}: ${defiE.label || "DEX"} does not support this chain`);
-  }
-
   function selectDiscoveryChain(entry = {}, side = "from") {
     const chain = entry.chain || "";
     const addedChains = side == "from" ? orderedSellChainNames : orderedChainNames;
@@ -2141,10 +2170,6 @@ export default function SwapPanel({
 
       return entry.symbol && entry.symbol == coin;
     });
-  }
-
-  function showUnsupportedCoin(chain = "", coin = "") {
-    toast(`${chain} ${coin}: ${defiE.label || "DEX"} does not support this coin`);
   }
 
   function selectDiscoveryCoin(entry = {}, side = "from") {
@@ -2249,25 +2274,37 @@ export default function SwapPanel({
   }
 
   function nextFromCoin() {
-    const values = getHistoryCycleValues(fromCoinHistoryOptions, fromCoins);
+    const values = getHistoryCycleValues(
+      fromCoinHistoryOptions,
+      getChainCoins(fromChainE),
+    );
     const next = nextValue(values, fromCoin);
     if (next) selectFromCoin(next, { rememberOrder: false });
   }
 
   function prevFromCoin() {
-    const values = getHistoryCycleValues(fromCoinHistoryOptions, fromCoins);
+    const values = getHistoryCycleValues(
+      fromCoinHistoryOptions,
+      getChainCoins(fromChainE),
+    );
     const prev = prevValue(values, fromCoin);
     if (prev) selectFromCoin(prev, { rememberOrder: false });
   }
 
   function nextToCoin() {
-    const values = getHistoryCycleValues(toCoinHistoryOptions, toCoins);
+    const values = getHistoryCycleValues(
+      toCoinHistoryOptions,
+      getChainCoins(toChainE),
+    );
     const next = nextValue(values, toCoin);
     if (next) selectToCoin(next, { rememberOrder: false });
   }
 
   function prevToCoin() {
-    const values = getHistoryCycleValues(toCoinHistoryOptions, toCoins);
+    const values = getHistoryCycleValues(
+      toCoinHistoryOptions,
+      getChainCoins(toChainE),
+    );
     const prev = prevValue(values, toCoin);
     if (prev) selectToCoin(prev, { rememberOrder: false });
   }
@@ -2534,7 +2571,7 @@ export default function SwapPanel({
               selectedChain={fromChain}
               addedChains={orderedSellChainNames}
               historyChains={fromChainHistoryOptions}
-              allChainOptions={sellChainNames}
+              allChainOptions={selectableSellChainNames}
               allChains={fromDiscoveryChainEntries}
               onSelect={selectFromChain}
               onPrev={prevFromChain}
@@ -2551,7 +2588,6 @@ export default function SwapPanel({
               pickerSortM={pickerSortM}
               setPickerSortM={setPickerSortM}
               selectDiscoveryChain={selectDiscoveryChain}
-              showUnsupportedChain={showUnsupportedChain}
               showManualChain={showManualChain}
               retrySwapSupport={retrySwapSupport}
             />
@@ -2580,7 +2616,7 @@ export default function SwapPanel({
               showMenu={showFromCoinMenu}
               setShowMenu={setShowFromCoinMenu}
               pickerRef={fromCoinPickerRef}
-              hasDiscovery={swapHasDiscovery}
+              hasDiscovery={swapHasCoinDiscovery}
               defi={defi}
               defiLabel={defiE.label}
               pickerSortM={pickerSortM}
@@ -2588,13 +2624,11 @@ export default function SwapPanel({
               getSwapCoinBalance={getSwapCoinBalance}
               isDiscoveryCoinSupported={isDiscoveryCoinSupported}
               selectDiscoveryCoin={selectDiscoveryCoin}
-              showUnsupportedCoin={showUnsupportedCoin}
               findLocalCoinForDiscovery={findLocalCoinForDiscovery}
               getTokenAddressKey={getTokenAddressKey}
               locallyAddedAddressM={locallyAddedAddressM}
               openDiscoveryCoinConfirm={openDiscoveryCoinConfirm}
               addingCoin={addingCoin}
-              getDiscoveryTokenKey={getDiscoveryTokenKey}
             />
             <span className="swapCoinPrice">
               <span className="gray">{fmtPrice(fromPrice)}</span>
@@ -2697,7 +2731,7 @@ export default function SwapPanel({
               selectedChain={toChain}
               addedChains={orderedChainNames}
               historyChains={toChainHistoryOptions}
-              allChainOptions={chainNames}
+              allChainOptions={selectableChainNames}
               allChains={toDiscoveryChainEntries}
               disabled={!defiE.bridge}
               title={defiE.bridge ? "" : "DEX swap uses the same chain"}
@@ -2716,7 +2750,6 @@ export default function SwapPanel({
               pickerSortM={pickerSortM}
               setPickerSortM={setPickerSortM}
               selectDiscoveryChain={selectDiscoveryChain}
-              showUnsupportedChain={showUnsupportedChain}
               showManualChain={showManualChain}
               retrySwapSupport={retrySwapSupport}
             />
@@ -2745,7 +2778,7 @@ export default function SwapPanel({
               showMenu={showToCoinMenu}
               setShowMenu={setShowToCoinMenu}
               pickerRef={toCoinPickerRef}
-              hasDiscovery={swapHasDiscovery}
+              hasDiscovery={swapHasCoinDiscovery}
               defi={defi}
               defiLabel={defiE.label}
               pickerSortM={pickerSortM}
@@ -2753,13 +2786,11 @@ export default function SwapPanel({
               getSwapCoinBalance={getSwapCoinBalance}
               isDiscoveryCoinSupported={isDiscoveryCoinSupported}
               selectDiscoveryCoin={selectDiscoveryCoin}
-              showUnsupportedCoin={showUnsupportedCoin}
               findLocalCoinForDiscovery={findLocalCoinForDiscovery}
               getTokenAddressKey={getTokenAddressKey}
               locallyAddedAddressM={locallyAddedAddressM}
               openDiscoveryCoinConfirm={openDiscoveryCoinConfirm}
               addingCoin={addingCoin}
-              getDiscoveryTokenKey={getDiscoveryTokenKey}
             />
             <span className="swapCoinPrice">
               <span className="gray">{fmtPrice(toPrice)}</span>

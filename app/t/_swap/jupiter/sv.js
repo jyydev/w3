@@ -131,20 +131,6 @@ export async function getJupiterTokenDiscovery({
   return { chain, term: cleanTerm, tokens };
 }
 
-export async function getJupiterSupportedSwap() {
-  const chain = "Solana";
-  const chains = [
-    {
-      chain,
-      chainId: chainIds.Solana,
-      name: chain,
-      added: !!coinM?.[chain],
-    },
-  ];
-
-  return { chains, tokens: [] };
-}
-
 async function jupiterFetch(endpoint, options = {}) {
   const res = await fetch(`${jupiterApiBase}${endpoint}`, {
     ...options,

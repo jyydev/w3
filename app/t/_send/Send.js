@@ -101,6 +101,7 @@ export default function SendPanel({
   onCycleTradeType,
   onFromWalletChange = () => {},
   showGasAutoLabel = false,
+  inputMaxOff = false,
   loopWallets = false,
   getLoopWalletEntries = () => [],
   onTxComplete = () => {},
@@ -757,7 +758,7 @@ export default function SendPanel({
 
     return Object.prototype.hasOwnProperty.call(balance || {}, "balance")
       ? toNum(balance.balance)
-      : 0;
+      : -1;
   }
 
   function cycleFromWallet(direction) {
@@ -850,7 +851,7 @@ export default function SendPanel({
       maxPositive,
       maxNegative,
       coinDecimals,
-      { allowNegativeZero: true },
+      { allowNegativeZero: true, inputMaxOff },
     );
   }
 
@@ -1533,6 +1534,7 @@ export default function SendPanel({
                     emptyText: "-",
                   },
                 ]}
+                extraSectionsPosition="before"
                 historyOptions={toWalletHistoryEntries}
                 allOptions={toWallets}
                 showMenu={showToWalletMenu}
@@ -1542,6 +1544,7 @@ export default function SendPanel({
                 setPickerSortM={setSimplePickerSortM}
                 sortKeyPrefix="sendToWallet"
                 header="wallet"
+                historyLimit={sendToWalletOrderCap}
                 menuClassName="sendWalletTableMenu"
                 tableClassName="sendWalletTable"
                 optionColumns={sendWalletPickerColumns}

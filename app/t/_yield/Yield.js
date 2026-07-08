@@ -263,6 +263,7 @@ export default function YieldPanel({
   onPrevTradeType = () => {},
   onCycleTradeType,
   showGasAutoLabel = false,
+  inputMaxOff = false,
   loopWallets = false,
   getLoopWalletEntries = () => [],
   onTxComplete = () => {},
@@ -1926,6 +1927,7 @@ export default function YieldPanel({
       receiptRate,
       underlyingDecimals: underlyingQtyDecimals,
       receiptDecimals: receiptQtyDecimals,
+      inputMaxOff,
     });
     applyTradeMarketQtyState(next, {
       setQtyInputSide,
@@ -1943,6 +1945,7 @@ export default function YieldPanel({
       receiptRate,
       underlyingDecimals: underlyingQtyDecimals,
       receiptDecimals: receiptQtyDecimals,
+      inputMaxOff,
     });
     applyTradeMarketQtyState(next, {
       setQtyInputSide,
@@ -2304,10 +2307,60 @@ export default function YieldPanel({
     );
   }
 
+  function removeHyperliquidChainHistory(value) {
+    const nextOrder = removeSelectionValue(hyperliquidChainOrder, value);
+    setHyperliquidChainOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidChainOrderCookie,
+        walletType,
+        "hyperliquid",
+      ),
+      encodeSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeHyperliquidDepositCoinHistory(value) {
+    const nextOrder = removeGroupedSelectionValue(
+      hyperliquidDepositCoinOrder,
+      activeHyperliquidDepositChain,
+      value,
+    );
+    setHyperliquidDepositCoinOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidDepositCoinOrderCookie,
+        walletType,
+        "hyperliquid",
+      ),
+      encodeGroupedSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
+  function removeHyperliquidWithdrawCoinHistory(value) {
+    const nextOrder = removeGroupedSelectionValue(
+      hyperliquidWithdrawCoinOrder,
+      activeHyperliquidWithdrawChain,
+      value,
+    );
+    setHyperliquidWithdrawCoinOrder(nextOrder);
+    setCookie(
+      getProtocolCookie(
+        tradeYieldHyperliquidWithdrawCoinOrderCookie,
+        walletType,
+        "hyperliquid",
+      ),
+      encodeGroupedSelectionOrder(nextOrder),
+      { maxAge: cookieMaxAge },
+    );
+  }
+
   function nextHyperliquidDepositChain() {
     const values = getHistoryCycleValues(
       hyperliquidDepositChainHistoryOptions,
-      orderedHyperliquidDepositChains,
+      orderedHyperliquidDepositAddedChains,
     );
     const next = nextValue(
       values,
@@ -2319,7 +2372,7 @@ export default function YieldPanel({
   function prevHyperliquidDepositChain() {
     const values = getHistoryCycleValues(
       hyperliquidDepositChainHistoryOptions,
-      orderedHyperliquidDepositChains,
+      orderedHyperliquidDepositAddedChains,
     );
     const prev = prevValue(
       values,
@@ -2359,7 +2412,7 @@ export default function YieldPanel({
   function nextHyperliquidDepositCoin() {
     const values = getHistoryCycleValues(
       hyperliquidDepositCoinHistoryOptions,
-      orderedHyperliquidDepositCoins,
+      orderedHyperliquidDepositAddedCoins,
     );
     const next = nextValue(
       values,
@@ -2371,7 +2424,7 @@ export default function YieldPanel({
   function prevHyperliquidDepositCoin() {
     const values = getHistoryCycleValues(
       hyperliquidDepositCoinHistoryOptions,
-      orderedHyperliquidDepositCoins,
+      orderedHyperliquidDepositAddedCoins,
     );
     const prev = prevValue(
       values,
@@ -2402,7 +2455,7 @@ export default function YieldPanel({
   function nextHyperliquidWithdrawChain() {
     const values = getHistoryCycleValues(
       hyperliquidWithdrawChainHistoryOptions,
-      orderedHyperliquidWithdrawChains,
+      orderedHyperliquidWithdrawAddedChains,
     );
     const next = nextValue(
       values,
@@ -2414,7 +2467,7 @@ export default function YieldPanel({
   function prevHyperliquidWithdrawChain() {
     const values = getHistoryCycleValues(
       hyperliquidWithdrawChainHistoryOptions,
-      orderedHyperliquidWithdrawChains,
+      orderedHyperliquidWithdrawAddedChains,
     );
     const prev = prevValue(
       values,
@@ -2454,7 +2507,7 @@ export default function YieldPanel({
   function nextHyperliquidWithdrawCoin() {
     const values = getHistoryCycleValues(
       hyperliquidWithdrawCoinHistoryOptions,
-      orderedHyperliquidWithdrawCoins,
+      orderedHyperliquidWithdrawAddedCoins,
     );
     const next = nextValue(
       values,
@@ -2466,7 +2519,7 @@ export default function YieldPanel({
   function prevHyperliquidWithdrawCoin() {
     const values = getHistoryCycleValues(
       hyperliquidWithdrawCoinHistoryOptions,
-      orderedHyperliquidWithdrawCoins,
+      orderedHyperliquidWithdrawAddedCoins,
     );
     const prev = prevValue(
       values,
@@ -2536,12 +2589,23 @@ export default function YieldPanel({
   }
 
   function getMarketCycleValues() {
-    const allCycleMarkets = hasProtocolAllMarkets
-      ? visibleAddedMarkets
-      : markets;
     const historyMarkets = hasProtocolAllMarkets
-      ? visibleAddedMarkets
+      ? getGroupedSelectionItems(
+          activeMarketOrder,
+          activeMarketOrderGroup,
+        )
+          .map(
+            (value) =>
+              visibleAddedMarkets.find((entry) => entry.value == value) ||
+              allMarkets.find(
+                (entry) =>
+                  (entry.addedValue || entry.value) == value ||
+                  entry.value == value,
+              ),
+          )
+          .filter(Boolean)
       : marketHistoryOptions;
+    const allCycleMarkets = hasProtocolAllMarkets ? visibleAddedMarkets : markets;
     return getHistoryCycleValues(
       historyMarkets.map((entry) => ({
         value: entry.value,
@@ -3729,6 +3793,21 @@ export default function YieldPanel({
             nextMarket={nextMarket}
             cycleDisabled={getMarketCycleValues().length < 2}
             visibleAddedMarkets={visibleAddedMarkets}
+            historyRows={getGroupedSelectionItems(
+              activeMarketOrder,
+              activeMarketOrderGroup,
+            )
+              .map(
+                (value) =>
+                  visibleAddedMarkets.find((entry) => entry.value == value) ||
+                  allMarkets.find(
+                    (entry) =>
+                      (entry.addedValue || entry.value) == value ||
+                      entry.value == value,
+                  ),
+              )
+              .filter(Boolean)
+              .map(getMarketTableRow)}
             addedRows={visibleAddedMarkets.map(getMarketTableRow)}
             allRows={allMarkets.map(getMarketTableRow)}
             allLoading={allLoading}
@@ -3782,6 +3861,7 @@ export default function YieldPanel({
                   side="deposit"
                   selectedChain={activeHyperliquidDepositChain}
                   addedChains={orderedHyperliquidDepositAddedChains}
+                  historyChains={hyperliquidDepositChainHistoryOptions}
                   allChains={orderedHyperliquidDepositChains}
                   bridgeE={hyperliquidBridgeE}
                   showMenu={showHyperliquidDepositChainMenu}
@@ -3790,19 +3870,21 @@ export default function YieldPanel({
                   cycleDisabled={
                     getHistoryCycleValues(
                       hyperliquidDepositChainHistoryOptions,
-                      orderedHyperliquidDepositChains,
+                      orderedHyperliquidDepositAddedChains,
                     ).length < 2
                   }
                   onSelect={selectHyperliquidDepositChain}
                   onPrev={prevHyperliquidDepositChain}
                   onNext={nextHyperliquidDepositChain}
                   onRetry={retryHyperliquidBridge}
+                  onRemoveHistory={removeHyperliquidChainHistory}
                 />
                 <HyperliquidCoinSelect
                   side="deposit"
                   chain={activeHyperliquidDepositChain}
                   selectedCoin={activeHyperliquidDepositCoin}
                   addedCoins={orderedHyperliquidDepositAddedCoins}
+                  historyCoins={hyperliquidDepositCoinHistoryOptions}
                   allCoins={orderedHyperliquidDepositCoins}
                   allCoinEntries={orderedHyperliquidDepositAllCoinEntries}
                   bridgeE={hyperliquidBridgeE}
@@ -3812,13 +3894,14 @@ export default function YieldPanel({
                   cycleDisabled={
                     getHistoryCycleValues(
                       hyperliquidDepositCoinHistoryOptions,
-                      orderedHyperliquidDepositCoins,
+                      orderedHyperliquidDepositAddedCoins,
                     ).length < 2
                   }
                   onSelect={selectHyperliquidDepositCoin}
                   onPrev={prevHyperliquidDepositCoin}
                   onNext={nextHyperliquidDepositCoin}
                   onRetry={retryHyperliquidBridge}
+                  onRemoveHistory={removeHyperliquidDepositCoinHistory}
                   getBalance={(coin) =>
                     getMarketCoinBalance(
                       hyperliquidDepositChainE,
@@ -4067,6 +4150,7 @@ export default function YieldPanel({
                   side="withdraw"
                   selectedChain={activeHyperliquidWithdrawChain}
                   addedChains={orderedHyperliquidWithdrawAddedChains}
+                  historyChains={hyperliquidWithdrawChainHistoryOptions}
                   allChains={orderedHyperliquidWithdrawChains}
                   bridgeE={hyperliquidBridgeE}
                   showMenu={showHyperliquidWithdrawChainMenu}
@@ -4075,19 +4159,21 @@ export default function YieldPanel({
                   cycleDisabled={
                     getHistoryCycleValues(
                       hyperliquidWithdrawChainHistoryOptions,
-                      orderedHyperliquidWithdrawChains,
+                      orderedHyperliquidWithdrawAddedChains,
                     ).length < 2
                   }
                   onSelect={selectHyperliquidWithdrawChain}
                   onPrev={prevHyperliquidWithdrawChain}
                   onNext={nextHyperliquidWithdrawChain}
                   onRetry={retryHyperliquidBridge}
+                  onRemoveHistory={removeHyperliquidChainHistory}
                 />
                 <HyperliquidCoinSelect
                   side="withdraw"
                   chain={activeHyperliquidWithdrawChain}
                   selectedCoin={activeHyperliquidWithdrawCoin}
                   addedCoins={orderedHyperliquidWithdrawAddedCoins}
+                  historyCoins={hyperliquidWithdrawCoinHistoryOptions}
                   allCoins={orderedHyperliquidWithdrawCoins}
                   allCoinEntries={orderedHyperliquidWithdrawAllCoinEntries}
                   bridgeE={hyperliquidBridgeE}
@@ -4097,13 +4183,14 @@ export default function YieldPanel({
                   cycleDisabled={
                     getHistoryCycleValues(
                       hyperliquidWithdrawCoinHistoryOptions,
-                      orderedHyperliquidWithdrawCoins,
+                      orderedHyperliquidWithdrawAddedCoins,
                     ).length < 2
                   }
                   onSelect={selectHyperliquidWithdrawCoin}
                   onPrev={prevHyperliquidWithdrawCoin}
                   onNext={nextHyperliquidWithdrawCoin}
                   onRetry={retryHyperliquidBridge}
+                  onRemoveHistory={removeHyperliquidWithdrawCoinHistory}
                   getBalance={(coin) =>
                     getMarketCoinBalance(
                       hyperliquidWithdrawChainE,

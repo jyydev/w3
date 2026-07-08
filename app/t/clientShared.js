@@ -30,6 +30,7 @@ export const tradeRightPaneCookie = "w3_trade_right_pane";
 export const tradeLeftPaneCookie = "w3_trade_left_pane";
 export const tradeRightPaneSelectCookie = "w3_trade_right_pane_select";
 export const tradePaneOrderCookie = "w3_trade_pane_order";
+export const tradeInputMaxOffCookie = "w3_trade_input_max_off";
 export const walletBalancePatchEvent = "w3:walletBalancePatch";
 export const tradeSwapDexCookie = "w3_trade_swap_dex";
 export const tradeSwapFromChainCookie = "w3_trade_swap_from_chain";
@@ -415,7 +416,10 @@ export function useTradeFallbackPrice({
   const coinEKey = getTradeCoinEKey(coinE);
 
   useEffect(() => {
-    if (!enabled || !cacheKey || !chain || !coin || toNum(listPrice) > 0) return;
+    if (!enabled || !cacheKey || !chain || !coin || toNum(listPrice) > 0) {
+      setLoading(false);
+      return;
+    }
     if (fallbackPrice !== undefined) return;
     if (tradeFallbackPriceCacheM[cacheKey] !== undefined) {
       setFallbackPriceE({
@@ -760,6 +764,9 @@ export function hasLoadedBalance(balance = {}) {
 export function getKnownCoinPrice(chainE, coin = "") {
   if (!chainE || !coin) return 0;
 
+  const configuredPrice = toNum(chainE.coinInfoM?.[coin]?.price);
+  if (configuredPrice > 0) return configuredPrice;
+
   for (const row of chainE.rows || []) {
     const balance = row?.balances?.[coin];
     const price = toNum(balance?.price);
@@ -779,7 +786,18 @@ export function getSelectedBalance(chainE, coin, selectedWalletEntry) {
   );
 
   const balance = row?.balances?.[coin];
-  if (hasLoadedBalance(balance)) return balance;
+  if (hasLoadedBalance(balance)) {
+    const price = toNum(balance.price) || getKnownCoinPrice(chainE, coin);
+    if (price > 0 && !(toNum(balance.price) > 0)) {
+      return {
+        ...balance,
+        price,
+        usd: toNum(balance.balance) * price,
+      };
+    }
+
+    return balance;
+  }
 
   if (
     row &&
@@ -884,8 +902,12 @@ export function TradePickerMenu({ className = "", children }) {
   return <CustomPickerMenu className={className}>{children}</CustomPickerMenu>;
 }
 
-export function TradePickerColumn({ title = "", children }) {
-  return <CustomPickerColumn title={title}>{children}</CustomPickerColumn>;
+export function TradePickerColumn({ title = "", historyLimit = 5, children }) {
+  return (
+    <CustomPickerColumn title={title} historyLimit={historyLimit}>
+      {children}
+    </CustomPickerColumn>
+  );
 }
 
 export function TradePickerTable({ className = "", headers = [], children }) {
@@ -980,8 +1002,18 @@ export function TradePickerSortHeader({
   );
 }
 
-export function getHistoryCycleValues(historyOptions = [], allOptions = []) {
-  return getCustomPickerHistoryCycleValues(historyOptions, allOptions);
+export function getHistoryCycleValues(
+  historyOptions = [],
+  allOptions = [],
+  getOptionValue,
+  isOptionDisabled,
+) {
+  return getCustomPickerHistoryCycleValues(
+    historyOptions,
+    allOptions,
+    getOptionValue,
+    isOptionDisabled,
+  );
 }
 
 export function TradeSelectionPicker({
@@ -990,6 +1022,7 @@ export function TradeSelectionPicker({
   historyOptions = [],
   allOptions = [],
   extraSections = [],
+  extraSectionsPosition,
   showMenu = false,
   setShowMenu = () => {},
   pickerRef,
@@ -999,6 +1032,7 @@ export function TradeSelectionPicker({
   header = "select",
   historyTitle = "history",
   allTitle = "all",
+  historyLimit = 5,
   emptyHistoryText = "-",
   emptyAllText = "-",
   className = "",
@@ -1011,6 +1045,7 @@ export function TradeSelectionPicker({
   showCycle,
   disabled = false,
   cycleDisabled,
+  getOptionValue,
   getOptionLink,
   getOptionLabel,
   getOptionTitle,
@@ -1028,6 +1063,7 @@ export function TradeSelectionPicker({
       selectedValue={selectedValue}
       selectedLabel={selectedLabel}
       extraSections={extraSections}
+      extraSectionsPosition={extraSectionsPosition}
       historyOptions={historyOptions}
       allOptions={allOptions}
       showMenu={showMenu}
@@ -1039,6 +1075,7 @@ export function TradeSelectionPicker({
       header={header}
       historyTitle={historyTitle}
       allTitle={allTitle}
+      historyLimit={historyLimit}
       emptyHistoryText={emptyHistoryText}
       emptyAllText={emptyAllText}
       className={className}
@@ -1051,6 +1088,7 @@ export function TradeSelectionPicker({
       showCycle={showCycle}
       disabled={disabled}
       cycleDisabled={cycleDisabled}
+      getOptionValue={getOptionValue}
       getOptionLink={getOptionLink}
       getOptionLabel={getOptionLabel}
       getOptionTitle={getOptionTitle}
@@ -1231,7 +1269,7 @@ export function TradeMarketCoinBalance({ balance = {} }) {
 }
 
 export function getTradeMarketBalanceQty(balance = {}) {
-  return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
+  return hasLoadedBalance(balance) ? toNum(balance.balance) : -1;
 }
 
 export function isSameTradeWalletEntry(entryA = {}, entryB = {}) {
@@ -1366,6 +1404,7 @@ export function TradeMarketPicker({
   nextMarket = () => {},
   cycleDisabled,
   visibleAddedMarkets = [],
+  historyRows = [],
   addedRows = [],
   allRows = [],
   allLoading = false,
@@ -1493,12 +1532,88 @@ export function TradeMarketPicker({
     );
   }
 
+  function renderLocalMarketRows(rows = [], sortKey = addedMarketSort) {
+    const sortedRows = sortTradeMarketRows(rows, sortKey);
+    if (!sortedRows.length) {
+      return (
+        <tr>
+          <td colSpan={5} className="gray">
+            -
+          </td>
+        </tr>
+      );
+    }
+
+    return sortedRows.map((entry) => (
+      <tr
+        key={`local_${entry.value}`}
+        className={
+          entry.value == market ? "customPickerRow on" : "customPickerRow"
+        }
+        onClick={() => selectMarket(entry.value)}
+      >
+        <td>
+          <span className="customPickerCoinWithInfo">
+            <span>{entry.underlyingCoin}</span>
+            <MarketCoinInfoIcon
+              coin={entry.underlyingCoin}
+              name={entry.underlyingName}
+              address={entry.underlyingAddress}
+              decimals={entry.underlyingDecimals}
+              balance={entry.underlyingBalance}
+            />
+          </span>
+        </td>
+        <td>
+          <MarketCoinBalance balance={entry.underlyingBalance} />
+        </td>
+        <td>
+          <span className="customPickerCoinWithInfo">
+            <span>{entry.lendCoin}</span>
+            <MarketExternalLink entry={entry} />
+            <MarketInfoIcon entry={entry} />
+          </span>
+        </td>
+        <td>
+          <MarketCoinBalance balance={entry.lendBalance} />
+        </td>
+        <td>
+          <AprText apr={entry.supplyApr} label={false} />
+        </td>
+      </tr>
+    ));
+  }
+
+  function renderLocalMarketColumn(title = "all", rows = []) {
+    return (
+      <TradePickerColumn title={title}>
+        <TradePickerTable
+          className="customPickerAddedTable"
+          headers={[
+            <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
+            <SortHeader sortKey="underlyingQty">qty</SortHeader>,
+            <SortHeader sortKey="lendCoin">coin</SortHeader>,
+            <SortHeader sortKey="lendQty">qty</SortHeader>,
+            <SortHeader sortKey="apr">apr</SortHeader>,
+          ]}
+        >
+          <tbody>{renderLocalMarketRows(rows)}</tbody>
+        </TradePickerTable>
+      </TradePickerColumn>
+    );
+  }
+  const localMarketCycleValues = getCustomPickerHistoryCycleValues(
+    historyRows,
+    addedRows,
+    (entry) => entry.value,
+  );
+
   return (
     <div className="selectCycle walletCycle tradeMarketCycle">
       <CycleButtonPair
         onPrev={prevMarket}
         onNext={nextMarket}
-        disabled={cycleDisabled ?? visibleAddedMarkets.length < 2}
+        disabled={cycleDisabled ?? localMarketCycleValues.length < 2}
       />
       <CustomPicker ref={marketPickerRef}>
         <CustomPickerButton
@@ -1509,73 +1624,8 @@ export function TradeMarketPicker({
         </CustomPickerButton>
         {showMarketMenu && (
           <TradePickerMenu className="tradeMarketMenu">
-            <TradePickerColumn title="added">
-              <TradePickerTable
-                className="customPickerAddedTable"
-                headers={[
-                  <SortHeader sortKey="underlyingCoin">coin</SortHeader>,
-                  <SortHeader sortKey="underlyingQty">qty</SortHeader>,
-                  <SortHeader sortKey="lendCoin">coin</SortHeader>,
-                  <SortHeader sortKey="lendQty">qty</SortHeader>,
-                  <SortHeader sortKey="apr">apr</SortHeader>,
-                ]}
-              >
-                <tbody>
-                  {visibleAddedMarkets.length ? (
-                    sortTradeMarketRows(addedRows, addedMarketSort).map(
-                      (entry) => (
-                        <tr
-                          key={`wallet_${entry.value}`}
-                          className={
-                            entry.value == market
-                              ? "customPickerRow on"
-                              : "customPickerRow"
-                          }
-                          onClick={() => selectMarket(entry.value)}
-                        >
-                          <td>
-                            <span className="customPickerCoinWithInfo">
-                              <span>{entry.underlyingCoin}</span>
-                              <MarketCoinInfoIcon
-                                coin={entry.underlyingCoin}
-                                name={entry.underlyingName}
-                                address={entry.underlyingAddress}
-                                decimals={entry.underlyingDecimals}
-                                balance={entry.underlyingBalance}
-                              />
-                            </span>
-                          </td>
-                          <td>
-                            <MarketCoinBalance
-                              balance={entry.underlyingBalance}
-                            />
-                          </td>
-                          <td>
-                            <span className="customPickerCoinWithInfo">
-                              <span>{entry.lendCoin}</span>
-                              <MarketExternalLink entry={entry} />
-                              <MarketInfoIcon entry={entry} />
-                            </span>
-                          </td>
-                          <td>
-                            <MarketCoinBalance balance={entry.lendBalance} />
-                          </td>
-                          <td>
-                            <AprText apr={entry.supplyApr} label={false} />
-                          </td>
-                        </tr>
-                      ),
-                    )
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="gray">
-                        -
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </TradePickerTable>
-            </TradePickerColumn>
+            {renderLocalMarketColumn("history", historyRows)}
+            {renderLocalMarketColumn("all", addedRows)}
             <TradePickerColumn title={allColumnTitle}>
               <TradePickerTable
                 className="customPickerAllTable"
@@ -2584,7 +2634,7 @@ export function normalizeSignedQtyInput(
   maxPositive,
   maxNegative,
   decimals = 18,
-  { allowNegativeZero = false } = {},
+  { allowNegativeZero = false, inputMaxOff = false } = {},
 ) {
   const raw = String(value ?? "").trim();
   if (allowNegativeZero && raw == "-") return "0";
@@ -2608,7 +2658,7 @@ export function normalizeSignedQtyInput(
     return raw.includes(".") ? "-0." : "-0";
   }
 
-  if (Number.isFinite(max) && n > max) {
+  if (!inputMaxOff && Number.isFinite(max) && n > max) {
     const maxQty = formatTradeQty(max, decimals);
     return negative && maxQty != "0" ? `-${maxQty}` : maxQty;
   }
@@ -2662,6 +2712,7 @@ export function getTradeMarketQtyPair({
   underlyingDecimals = 18,
   receiptDecimals = 18,
   allowNegativeZero = true,
+  inputMaxOff = false,
 } = {}) {
   if (side == "redeem") {
     const maxLendReceipt = maxUnderlying * receiptRate;
@@ -2670,7 +2721,7 @@ export function getTradeMarketQtyPair({
       maxReceipt,
       maxLendReceipt,
       receiptDecimals,
-      { allowNegativeZero },
+      { allowNegativeZero, inputMaxOff },
     );
 
     return {
@@ -2690,7 +2741,7 @@ export function getTradeMarketQtyPair({
     maxUnderlying,
     maxRedeemUnderlying,
     underlyingDecimals,
-    { allowNegativeZero },
+    { allowNegativeZero, inputMaxOff },
   );
 
   return {

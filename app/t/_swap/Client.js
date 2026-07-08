@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { pc } from "@/fn/basic";
-import { CycleButtonPair } from "@/components/Shared";
 import { isAcrossSupportedForChain } from "./across/Client";
 import { isJumperSupportedForChain } from "./jumper/Client";
 import { isJupiterSwapSupportedForChain } from "./jupiter/Client";
@@ -17,16 +16,11 @@ import {
   inputQty,
   tradeSwapDexCookie,
   TradeSelectionPicker,
-  TradePickerColumn,
-  TradePickerMenu,
-  TradePickerSortHeader,
-  TradePickerTable,
-  sortTradePickerRows,
   toNum,
   withClientTimeout,
 } from "../clientShared";
 
-const chainDiscoveryDexs = ["relay", "jumper", "across", "uniswap", "jupiter"];
+const chainDiscoveryDexs = ["relay", "jumper", "across"];
 export const emptySwapSupportE = {
   chains: [],
   tokens: [],
@@ -59,6 +53,17 @@ export function clearSwapClientRuntimeCache() {
 
 export function hasChainDiscovery(defi = "") {
   return chainDiscoveryDexs.includes(defi);
+}
+
+export function hasCoinDiscovery(defi = "") {
+  return hasChainDiscovery(defi) || defi == "jupiter";
+}
+
+export function getSwapLocalChainOptions(defi = "", chainNames = []) {
+  if (defi == "jupiter") return chainNames.filter(isJupiterSwapSupportedForChain);
+  if (defi == "uniswap") return chainNames.filter(isUniswapSupportedForChain);
+
+  return chainNames;
 }
 
 export function getDexLabel(value = "") {
@@ -108,17 +113,6 @@ export function getTokenSearchKey(chain = "", term = "") {
 
 export function getTokenDiscoveryKey(defi = "", chain = "", term = "") {
   return `${defi}:${getTokenSearchKey(chain, term)}`;
-}
-
-export function getDiscoveryTokenKey(entry = {}, index = "") {
-  return [
-    entry.chain || "",
-    getTokenAddressKey(entry.chain, entry.address),
-    entry.symbol || "",
-    entry.name || "",
-    Number.isFinite(Number(entry.decimals)) ? Number(entry.decimals) : "",
-    index,
-  ].join(":");
 }
 
 export function getDiscoveryTokenDedupeKey(entry = {}) {
@@ -252,282 +246,7 @@ function CoinBalance({ balance = {} }) {
 }
 
 function getSwapBalanceQty(balance = {}) {
-  return hasLoadedBalance(balance) ? toNum(balance.balance) : 0;
-}
-
-function getPickerSortKey(defi = "", name = "") {
-  return `${defi || "dex"}:${name}`;
-}
-
-function PickerSortHeader({
-  defi = "",
-  picker = "",
-  sortKey = "",
-  pickerSortM = {},
-  setPickerSortM = () => {},
-  children,
-}) {
-  const pickerKey = getPickerSortKey(defi, picker);
-
-  return (
-    <TradePickerSortHeader
-      activeSort={pickerSortM[pickerKey] || ""}
-      sortKey={sortKey}
-      onSort={() =>
-        setPickerSortM((sortM) => ({
-          ...sortM,
-          [pickerKey]: sortM[pickerKey] == sortKey ? "" : sortKey,
-        }))
-      }
-    >
-      {children}
-    </TradePickerSortHeader>
-  );
-}
-
-function DiscoveryChainMenu({
-  side = "from",
-  selectedChain = "",
-  addedChains = [],
-  historyChains = [],
-  allChainOptions = [],
-  allChains = [],
-  swapSupportE = {},
-  defi = "",
-  defiLabel = "DEX",
-  pickerSortM = {},
-  setPickerSortM = () => {},
-  selectDiscoveryChain = () => {},
-  showUnsupportedChain = () => {},
-  showManualChain = () => {},
-  retrySwapSupport = () => {},
-}) {
-  const supportLoaded =
-    swapSupportE.loaded && !swapSupportE.loading && !swapSupportE.error;
-  const addedPicker = `${side}:chain:added`;
-  const allPicker = `${side}:chain:all`;
-  const addedSort = pickerSortM[getPickerSortKey(defi, addedPicker)] || "";
-  const allSort = pickerSortM[getPickerSortKey(defi, allPicker)] || "";
-  const addedChainRows = sortTradePickerRows(
-    addedChains.map((chain) => {
-      const supported =
-        !supportLoaded || allChains.some((entry) => entry.chain == chain);
-      return {
-        chain,
-        label: chain,
-        supported,
-        on: supported ? 1 : 0,
-      };
-    }),
-    addedSort,
-    {
-      chain: (entry) => entry.label,
-      on: (entry) => entry.on,
-    },
-    { on: "desc" },
-  );
-  const allChainRows = sortTradePickerRows(
-    allChains.map((entry) => {
-      const label = entry.name || entry.chain || entry.chainId;
-      const canSelect = !!entry.chain && addedChains.includes(entry.chain);
-      return {
-        entry,
-        label,
-        chain: entry.chain || "",
-        canSelect,
-        add: canSelect ? 1 : 0,
-      };
-    }),
-    allSort,
-    {
-      chain: (entry) => entry.label,
-      add: (entry) => entry.add,
-    },
-    { add: "desc" },
-  );
-
-  return (
-    <TradePickerMenu className="tradeChainMenu">
-      <TradePickerColumn title="added">
-        <TradePickerTable
-          className="tradeChainAddedTable"
-          headers={[
-            <PickerSortHeader
-              defi={defi}
-              picker={addedPicker}
-              sortKey="chain"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              chain
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={addedPicker}
-              sortKey="on"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              on
-            </PickerSortHeader>,
-          ]}
-        >
-          <tbody>
-            {addedChainRows.length ? (
-              addedChainRows.map((row) => {
-                const { chain, supported } = row;
-                return (
-                  <tr
-                    key={`${side}_added_${chain}`}
-                    className={[
-                      "customPickerRow",
-                      chain == selectedChain ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeChainAllSelect"
-                        onClick={() =>
-                          supported
-                            ? selectDiscoveryChain(
-                                { chain, name: chain, added: true },
-                                side,
-                              )
-                            : showUnsupportedChain(chain)
-                        }
-                      >
-                        <span>{chain}</span>
-                      </button>
-                    </td>
-                    <td>{!supported && <span className="gray">off</span>}</td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={2} className="gray">
-                  -
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-      <TradePickerColumn title="discovery">
-        <TradePickerTable
-          className="tradeChainAllTable"
-          headers={[
-            <PickerSortHeader
-              defi={defi}
-              picker={allPicker}
-              sortKey="chain"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              chain
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={allPicker}
-              sortKey="add"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              add
-            </PickerSortHeader>,
-          ]}
-        >
-          <tbody>
-            {swapSupportE.loading && (
-              <tr>
-                <td colSpan={2} className="gray">
-                  loading {defiLabel || "DEX"}...
-                </td>
-              </tr>
-            )}
-            {!swapSupportE.loading && swapSupportE.error && (
-              <tr>
-                <td>
-                  <span className="red">{swapSupportE.error}</span>
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn small bgGray"
-                    onClick={retrySwapSupport}
-                  >
-                    retry
-                  </button>
-                </td>
-              </tr>
-            )}
-            {!swapSupportE.loading &&
-              !swapSupportE.error &&
-              !allChains.length && (
-                <tr>
-                  <td className="gray">-</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn small bgGray"
-                      onClick={retrySwapSupport}
-                    >
-                      retry
-                    </button>
-                  </td>
-                </tr>
-              )}
-            {!swapSupportE.loading &&
-              !swapSupportE.error &&
-              allChainRows.map((row) => {
-                const { entry, label, canSelect } = row;
-                return (
-                  <tr
-                    key={`${side}_all_${entry.chainId || label}`}
-                    className={
-                      entry.chain == selectedChain
-                        ? "customPickerRow on"
-                        : "customPickerRow"
-                    }
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeChainAllSelect"
-                        onClick={() => selectDiscoveryChain(entry, side)}
-                        disabled={!canSelect}
-                      >
-                        <span>{label}</span>
-                        {entry.chain && entry.chain != label && (
-                          <span className="gray">{entry.chain}</span>
-                        )}
-                      </button>
-                    </td>
-                    <td>
-                      {canSelect ? (
-                        <span className="gray">✓</span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn small bgCyan"
-                          onClick={() => showManualChain(entry)}
-                        >
-                          +
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-    </TradePickerMenu>
-  );
+  return hasLoadedBalance(balance) ? toNum(balance.balance) : -1;
 }
 
 export function SwapChainSelect({
@@ -554,422 +273,187 @@ export function SwapChainSelect({
   pickerSortM = {},
   setPickerSortM = () => {},
   selectDiscoveryChain = () => {},
-  showUnsupportedChain = () => {},
   showManualChain = () => {},
   retrySwapSupport = () => {},
 }) {
-  const chainCycleValues = getHistoryCycleValues(
-    historyChains,
-    allChainOptions.length ? allChainOptions : addedChains,
-  );
-
-  if (!hasDiscovery) {
-    return (
-      <TradeSelectionPicker
-        selectedValue={selectedChain}
-        historyOptions={historyChains}
-        allOptions={allChainOptions.length ? allChainOptions : addedChains}
-        showMenu={showMenu}
-        setShowMenu={setShowMenu}
-        pickerRef={pickerRef}
-        pickerSortM={pickerSortM}
-        setPickerSortM={setPickerSortM}
-        sortKeyPrefix={`swap${side}Chain:${defi || "dex"}`}
-        header="chain"
-        className="swapChainCycle"
-        menuClassName="tradeChainMenu"
-        disabled={disabled}
-        cycleDisabled={disabled || chainCycleValues.length < 2}
-        onSelect={onSelect}
-        onRemoveHistory={onRemoveHistory}
-        onPrev={onPrev}
-        onNext={onNext}
-        onOpen={onFocusChain}
-        onFocus={onFocusChain}
-      />
-    );
-  }
-
-  return (
-    <div className="selectCycle walletCycle swapChainCycle">
-      <CycleButtonPair
-        onPrev={onPrev}
-        onNext={onNext}
-        disabled={disabled || chainCycleValues.length < 2}
-      />
-      <div className="customPicker" ref={pickerRef}>
-        <button
-          type="button"
-          className="customPickerButton"
-          disabled={disabled}
-          title={title}
-          onClick={() => {
-            onFocusChain();
-            setShowMenu((show) => !show);
-          }}
-          onFocus={onFocusChain}
-        >
-          {selectedChain || "no chain"}
-        </button>
-        {showMenu && (
-          <DiscoveryChainMenu
-            side={side}
-            selectedChain={selectedChain}
-            addedChains={addedChains}
-            allChains={allChains}
-            swapSupportE={swapSupportE}
-            defi={defi}
-            defiLabel={defiLabel}
-            pickerSortM={pickerSortM}
-            setPickerSortM={setPickerSortM}
-            selectDiscoveryChain={selectDiscoveryChain}
-            showUnsupportedChain={showUnsupportedChain}
-            showManualChain={showManualChain}
-            retrySwapSupport={retrySwapSupport}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DiscoveryCoinMenu({
-  side = "from",
-  chain = "",
-  selectedCoin = "",
-  addedCoins = [],
-  historyCoins = [],
-  allCoinOptions = [],
-  allTokens = [],
-  tokenDiscoveryE = {},
-  strictSupport = true,
-  searchTerm = "",
-  onSearchChange = () => {},
-  onSearchSubmit = () => {},
-  onRetryTokens = () => {},
-  showSearch = false,
-  defi = "",
-  defiLabel = "DEX",
-  pickerSortM = {},
-  setPickerSortM = () => {},
-  getSwapCoinBalance = () => ({}),
-  isDiscoveryCoinSupported = () => false,
-  selectDiscoveryCoin = () => {},
-  showUnsupportedCoin = () => {},
-  findLocalCoinForDiscovery = () => "",
-  getTokenAddressKey = () => "",
-  locallyAddedAddressM = {},
-  openDiscoveryCoinConfirm = () => {},
-  addingCoin = false,
-  getDiscoveryTokenKey = () => "",
-}) {
-  const addedPicker = `${side}:coin:added:${chain}`;
-  const allPicker = `${side}:coin:all:${chain}`;
-  const addedSort = pickerSortM[getPickerSortKey(defi, addedPicker)] || "";
-  const allSort = pickerSortM[getPickerSortKey(defi, allPicker)] || "";
   const supportLoaded =
-    strictSupport &&
-    tokenDiscoveryE.loaded &&
-    !tokenDiscoveryE.loading &&
-    !tokenDiscoveryE.error;
-  const addedCoinRows = sortTradePickerRows(
-    addedCoins.map((coin) => {
-      const balance = getSwapCoinBalance(chain, coin);
-      const supported =
-        !supportLoaded || isDiscoveryCoinSupported(chain, coin, allTokens);
-      return {
-        coin,
-        balance,
-        qty: getSwapBalanceQty(balance),
-        supported,
-        on: supported ? 1 : 0,
-      };
-    }),
-    addedSort,
+    swapSupportE.loaded && !swapSupportE.loading && !swapSupportE.error;
+  const chainValue = (entry) =>
+    typeof entry == "string"
+      ? entry
+      : entry?.chain || entry?.value || entry?.label || "";
+  const localChainOption = (entry) => {
+    const chain = chainValue(entry);
+    return {
+      value: chain,
+      label: chain,
+      supported:
+        !hasDiscovery ||
+        !supportLoaded ||
+        allChains.some((supportEntry) => supportEntry.chain == chain),
+    };
+  };
+  const localAllChains = allChainOptions.length ? allChainOptions : addedChains;
+  const historyChainOptions = historyChains.map(localChainOption);
+  const allChainPickerOptions = localAllChains.map(localChainOption);
+  const discoveryChainOptions = allChains.map((entry) => {
+    const label = entry.name || entry.chain || entry.chainId || "";
+    const canSelect = !!entry.chain && addedChains.includes(entry.chain);
+    return {
+      ...entry,
+      value: entry.chain || label,
+      label,
+      canSelect,
+      add: canSelect ? 1 : 0,
+    };
+  });
+  const chainColumns = [
     {
-      coin: (entry) => entry.coin,
-      qty: (entry) => entry.qty,
-      on: (entry) => entry.on,
+      key: "chain",
+      label: "chain",
+      getValue: (entry) => entry.label,
+      getSortValue: (entry) => entry.label,
     },
-    { qty: "desc", on: "desc" },
-  );
-  const allTokenRows = sortTradePickerRows(
-    allTokens.map((entry, index) => {
-      const localCoin = findLocalCoinForDiscovery(chain, entry);
-      const balance = getSwapCoinBalance(
-        chain,
-        localCoin || entry.symbol,
-        entry.address,
-      );
-      const addressKey = getTokenAddressKey(chain, entry.address);
-      const added =
-        !!localCoin ||
-        !!(addressKey && locallyAddedAddressM[`${chain}:${addressKey}`]);
-      const symbol = entry.symbol || "token";
-      const name = entry.name && entry.name != symbol ? entry.name : "";
-      return {
-        entry,
-        index,
-        localCoin,
-        balance,
-        qty: getSwapBalanceQty(balance),
-        added,
-        add: added ? 1 : 0,
-        symbol,
-        name,
-      };
-    }),
-    allSort,
+  ];
+  const discoveryChainColumns = [
     {
-      coin: (entry) => entry.symbol,
-      name: (entry) => entry.name,
-      qty: (entry) => entry.qty,
-      add: (entry) => entry.add,
+      key: "chain",
+      label: "chain",
+      getValue: (entry) => (
+        <span className="tradeChainAllSelect">
+          <span>{entry.label}</span>
+          {entry.chain && entry.chain != entry.label && (
+            <span className="gray">{entry.chain}</span>
+          )}
+        </span>
+      ),
+      getSortValue: (entry) => entry.label,
     },
-    { qty: "desc", add: "desc" },
+    {
+      key: "add",
+      label: "add",
+      getValue: (entry) =>
+        entry.canSelect ? (
+          <span className="gray">✓</span>
+        ) : (
+          <button
+            type="button"
+            className="btn small bgCyan"
+            onClick={(e) => {
+              e.stopPropagation();
+              showManualChain(entry);
+            }}
+          >
+            +
+          </button>
+        ),
+      getSortValue: (entry) => entry.add,
+    },
+  ];
+  const chainCycleValues = getHistoryCycleValues(
+    hasDiscovery ? historyChainOptions : historyChains,
+    hasDiscovery ? allChainPickerOptions : localAllChains,
+    hasDiscovery ? (entry) => entry.value : undefined,
+    hasDiscovery ? (entry) => entry.supported === false : undefined,
   );
-  function getCoinRowClass(active = false, supported = true) {
-    return [
-      "customPickerRow",
-      active ? "on" : "",
-      supported ? "" : "unsupported",
-    ]
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  function SelectCoinButton({ onSelect, children }) {
-    return (
-      <button
-        type="button"
-        className="customPickerSelect tradeCoinAllSelect"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect();
-        }}
-      >
-        <span>{children}</span>
-      </button>
-    );
-  }
 
   return (
-    <TradePickerMenu className="tradeCoinMenu">
-      <TradePickerColumn title="added">
-        <TradePickerTable
-          className="tradeCoinAddedTable"
-          headers={[
-            <PickerSortHeader
-              defi={defi}
-              picker={addedPicker}
-              sortKey="coin"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              coin
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={addedPicker}
-              sortKey="qty"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              qty
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={addedPicker}
-              sortKey="on"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              on
-            </PickerSortHeader>,
-          ]}
-        >
-          <tbody>
-            {addedCoinRows.length ? (
-              addedCoinRows.map((row) => {
-                const { coin, balance, supported } = row;
-                const selectRow = () =>
-                  supported
-                    ? selectDiscoveryCoin({ symbol: coin }, side)
-                    : showUnsupportedCoin(chain, coin);
-
-                return (
-                  <tr
-                    key={`${side}_added_coin_${coin}`}
-                    className={getCoinRowClass(coin == selectedCoin, supported)}
-                    onClick={selectRow}
-                  >
-                    <td>
-                      <SelectCoinButton onSelect={selectRow}>
-                        {coin}
-                      </SelectCoinButton>
-                    </td>
-                    <td>
-                      <CoinBalance balance={balance} />
-                    </td>
-                    <td>{!supported && <span className="gray">off</span>}</td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={3} className="gray">
-                  -
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-      <TradePickerColumn title="discovery">
-        {showSearch && (
-          <form className="swapCoinSearch" onSubmit={onSearchSubmit}>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="search"
-            />
-            <button type="submit" className="btn small bgGray">
-              go
-            </button>
-          </form>
-        )}
-        <TradePickerTable
-          className="tradeCoinAllTable"
-          headers={[
-            <PickerSortHeader
-              defi={defi}
-              picker={allPicker}
-              sortKey="coin"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              coin
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={allPicker}
-              sortKey="name"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              name
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={allPicker}
-              sortKey="qty"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              qty
-            </PickerSortHeader>,
-            <PickerSortHeader
-              defi={defi}
-              picker={allPicker}
-              sortKey="add"
-              pickerSortM={pickerSortM}
-              setPickerSortM={setPickerSortM}
-            >
-              add
-            </PickerSortHeader>,
-          ]}
-        >
-          <tbody>
-            {tokenDiscoveryE.loading && (
-              <tr>
-                <td colSpan={4} className="gray">
-                  loading {defiLabel || "DEX"}...
-                </td>
-              </tr>
-            )}
-            {!tokenDiscoveryE.loading && tokenDiscoveryE.error && (
-              <tr>
-                <td colSpan={3}>
-                  <span className="red">{tokenDiscoveryE.error}</span>
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn small bgGray"
-                    onClick={onRetryTokens}
-                  >
-                    retry
-                  </button>
-                </td>
-              </tr>
-            )}
-            {!tokenDiscoveryE.loading &&
-              !tokenDiscoveryE.error &&
-              !allTokens.length && (
-                <tr>
-                  <td colSpan={3} className="gray">
-                    -
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn small bgGray"
-                      onClick={onRetryTokens}
-                    >
-                      retry
-                    </button>
-                  </td>
-                </tr>
-              )}
-            {!tokenDiscoveryE.loading &&
-              !tokenDiscoveryE.error &&
-              allTokenRows.map((row) => {
-                const {
-                  entry,
-                  index,
-                  localCoin,
-                  balance,
-                  added,
-                  symbol,
-                  name,
-                } = row;
-                const rowCoin = localCoin || symbol;
-                const selectRow = () => selectDiscoveryCoin(entry, side);
-
-                return (
-                  <tr
-                    key={`${side}_all_coin_${getDiscoveryTokenKey(entry, index)}`}
-                    className={getCoinRowClass(rowCoin == selectedCoin)}
-                    onClick={selectRow}
-                  >
-                    <td>
-                      <SelectCoinButton onSelect={selectRow}>
-                        {symbol}
-                      </SelectCoinButton>
-                    </td>
-                    <td className="gray">{name}</td>
-                    <td>
-                      <CoinBalance balance={balance} />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className={added ? "btn small bgGray" : "btn small bgCyan"}
-                        onClick={(e) => openDiscoveryCoinConfirm(e, chain, entry)}
-                        disabled={added || addingCoin}
-                        title={entry.name || symbol}
-                      >
-                        {added ? "✓" : "+"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-    </TradePickerMenu>
+    <TradeSelectionPicker
+      selectedValue={selectedChain}
+      selectedLabel={selectedChain || "no chain"}
+      historyOptions={hasDiscovery ? historyChainOptions : historyChains}
+      allOptions={hasDiscovery ? allChainPickerOptions : localAllChains}
+      extraSections={
+        hasDiscovery
+          ? [
+              {
+                section: "discovery",
+                title: "discovery",
+                options: discoveryChainOptions,
+                emptyText: "-",
+                optionColumns: discoveryChainColumns,
+                getOptionValue: (entry) => entry.value,
+                getOptionLabel: (entry) => entry.label,
+                getOptionTitle: (entry) => entry.label,
+                onSelect: (_, entry) =>
+                  entry.canSelect
+                    ? selectDiscoveryChain(entry, side)
+                    : showManualChain(entry),
+                renderBody: ({ columns, renderRows }) => {
+                  if (swapSupportE.loading) {
+                    return (
+                      <tr>
+                        <td colSpan={columns.length} className="gray">
+                          loading {defiLabel || "DEX"}...
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (swapSupportE.error) {
+                    return (
+                      <tr>
+                        <td>
+                          <span className="red">{swapSupportE.error}</span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn small bgGray"
+                            onClick={retrySwapSupport}
+                          >
+                            retry
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (!discoveryChainOptions.length) {
+                    return (
+                      <tr>
+                        <td className="gray">-</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn small bgGray"
+                            onClick={retrySwapSupport}
+                          >
+                            retry
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return renderRows();
+                },
+              },
+            ]
+          : []
+      }
+      showMenu={showMenu}
+      setShowMenu={setShowMenu}
+      pickerRef={pickerRef}
+      pickerSortM={pickerSortM}
+      setPickerSortM={setPickerSortM}
+      sortKeyPrefix={`swap${side}Chain:${defi || "dex"}`}
+      header="chain"
+      className="swapChainCycle"
+      menuClassName="tradeChainMenu"
+      disabled={disabled}
+      cycleDisabled={disabled || chainCycleValues.length < 2}
+      getOptionValue={hasDiscovery ? (entry) => entry.value : undefined}
+      getOptionLabel={hasDiscovery ? (entry) => entry.label : undefined}
+      getOptionTitle={hasDiscovery ? (entry) => entry.label : undefined}
+      optionColumns={hasDiscovery ? chainColumns : undefined}
+      isOptionDisabled={
+        hasDiscovery ? (entry) => entry.supported === false : undefined
+      }
+      onSelect={onSelect}
+      onRemoveHistory={onRemoveHistory}
+      onPrev={onPrev}
+      onNext={onNext}
+      onOpen={onFocusChain}
+      onFocus={onFocusChain}
+    />
   );
 }
 
@@ -1004,93 +488,237 @@ export function SwapCoinSelect({
   getSwapCoinBalance = () => ({}),
   isDiscoveryCoinSupported = () => false,
   selectDiscoveryCoin = () => {},
-  showUnsupportedCoin = () => {},
   findLocalCoinForDiscovery = () => "",
   getTokenAddressKey = () => "",
   locallyAddedAddressM = {},
   openDiscoveryCoinConfirm = () => {},
   addingCoin = false,
-  getDiscoveryTokenKey = () => "",
 }) {
-  const coinCycleValues = getHistoryCycleValues(
-    historyCoins,
-    allCoinOptions.length ? allCoinOptions : addedCoins,
-  );
-
-  if (!hasDiscovery) {
-    return (
-      <TradeSelectionPicker
-        selectedValue={selectedCoin}
-        historyOptions={historyCoins}
-        allOptions={allCoinOptions.length ? allCoinOptions : addedCoins}
-        showMenu={showMenu}
-        setShowMenu={setShowMenu}
-        pickerRef={pickerRef}
-        pickerSortM={pickerSortM}
-        setPickerSortM={setPickerSortM}
-        sortKeyPrefix={`swap${side}Coin:${defi || "dex"}:${chain || ""}`}
-        header="coin"
-        className="swapCoinCycle"
-        menuClassName="tradeCoinMenu"
-        cycleDisabled={coinCycleValues.length < 2}
-        onSelect={onSelect}
-        onRemoveHistory={onRemoveHistory}
-        onPrev={onPrev}
-        onNext={onNext}
-      />
+  const supportLoaded =
+    strictSupport &&
+    tokenDiscoveryE.loaded &&
+    !tokenDiscoveryE.loading &&
+    !tokenDiscoveryE.error;
+  const localCoinOption = (coin) => {
+    const balance = getSwapCoinBalance(chain, coin);
+    return {
+      value: coin,
+      label: coin,
+      coin,
+      balance,
+      qty: getSwapBalanceQty(balance),
+      supported:
+        !hasDiscovery ||
+        !supportLoaded ||
+        isDiscoveryCoinSupported(chain, coin, allTokens),
+    };
+  };
+  const localAllCoins = allCoinOptions.length ? allCoinOptions : addedCoins;
+  const historyCoinOptions = historyCoins.map(localCoinOption);
+  const allCoinPickerOptions = localAllCoins.map(localCoinOption);
+  const discoveryCoinOptions = allTokens.map((entry, index) => {
+    const localCoin = findLocalCoinForDiscovery(chain, entry);
+    const balance = getSwapCoinBalance(
+      chain,
+      localCoin || entry.symbol,
+      entry.address,
     );
-  }
-
-  return (
-    <div className="selectCycle walletCycle swapCoinCycle selectedCompact">
-      <CycleButtonPair
-        onPrev={onPrev}
-        onNext={onNext}
-        disabled={coinCycleValues.length < 2}
-      />
-      <div className="customPicker" ref={pickerRef}>
+    const addressKey = getTokenAddressKey(chain, entry.address);
+    const added =
+      !!localCoin ||
+      !!(addressKey && locallyAddedAddressM[`${chain}:${addressKey}`]);
+    const symbol = entry.symbol || "token";
+    const name = entry.name && entry.name != symbol ? entry.name : "";
+    return {
+      value: localCoin || symbol,
+      label: localCoin || symbol,
+      entry,
+      index,
+      localCoin,
+      balance,
+      qty: getSwapBalanceQty(balance),
+      added,
+      add: added ? 1 : 0,
+      symbol,
+      name,
+    };
+  });
+  const coinColumns = [
+    {
+      key: "coin",
+      label: "coin",
+      getValue: (entry) => entry.coin,
+      getSortValue: (entry) => entry.coin,
+    },
+    {
+      key: "qty",
+      label: "qty",
+      getValue: (entry) => <CoinBalance balance={entry.balance} />,
+      getSortValue: (entry) => entry.qty,
+      sortDirection: "desc",
+    },
+    {
+      key: "on",
+      label: "on",
+      getValue: (entry) =>
+        entry.supported === false ? <span className="gray">off</span> : "",
+      getSortValue: (entry) => (entry.supported === false ? 0 : 1),
+    },
+  ];
+  const discoveryCoinColumns = [
+    {
+      key: "coin",
+      label: "coin",
+      getValue: (entry) => entry.symbol,
+      getSortValue: (entry) => entry.symbol,
+    },
+    {
+      key: "name",
+      label: "name",
+      className: "gray",
+      getValue: (entry) => entry.name,
+      getSortValue: (entry) => entry.name,
+    },
+    {
+      key: "qty",
+      label: "qty",
+      getValue: (entry) => <CoinBalance balance={entry.balance} />,
+      getSortValue: (entry) => entry.qty,
+      sortDirection: "desc",
+    },
+    {
+      key: "add",
+      label: "add",
+      getValue: (entry) => (
         <button
           type="button"
-          className="customPickerButton"
-          onClick={() => {
-            const nextShow = !showMenu;
-            setShowMenu(nextShow);
-            if (nextShow) onOpen();
+          className={entry.added ? "btn small bgGray" : "btn small bgCyan"}
+          onClick={(e) => {
+            e.stopPropagation();
+            openDiscoveryCoinConfirm(e, chain, entry.entry);
           }}
+          disabled={entry.added || addingCoin}
+          title={entry.entry.name || entry.symbol}
         >
-          {selectedCoin || "no coin"}
+          {entry.added ? "✓" : "+"}
         </button>
-        {showMenu && (
-          <DiscoveryCoinMenu
-            side={side}
-            chain={chain}
-            selectedCoin={selectedCoin}
-            addedCoins={addedCoins}
-            allTokens={allTokens}
-            tokenDiscoveryE={tokenDiscoveryE}
-            strictSupport={strictSupport}
-            searchTerm={searchTerm}
-            onSearchChange={onSearchChange}
-            onSearchSubmit={onSearchSubmit}
-            onRetryTokens={onRetryTokens}
-            showSearch={showSearch}
-            defi={defi}
-            defiLabel={defiLabel}
-            pickerSortM={pickerSortM}
-            setPickerSortM={setPickerSortM}
-            getSwapCoinBalance={getSwapCoinBalance}
-            isDiscoveryCoinSupported={isDiscoveryCoinSupported}
-            selectDiscoveryCoin={selectDiscoveryCoin}
-            showUnsupportedCoin={showUnsupportedCoin}
-            findLocalCoinForDiscovery={findLocalCoinForDiscovery}
-            getTokenAddressKey={getTokenAddressKey}
-            locallyAddedAddressM={locallyAddedAddressM}
-            openDiscoveryCoinConfirm={openDiscoveryCoinConfirm}
-            addingCoin={addingCoin}
-            getDiscoveryTokenKey={getDiscoveryTokenKey}
-          />
-        )}
-      </div>
-    </div>
+      ),
+      getSortValue: (entry) => entry.add,
+    },
+  ];
+  const coinCycleValues = getHistoryCycleValues(
+    hasDiscovery ? historyCoinOptions : historyCoins,
+    hasDiscovery ? allCoinPickerOptions : localAllCoins,
+    hasDiscovery ? (entry) => entry.value : undefined,
+    hasDiscovery ? (entry) => entry.supported === false : undefined,
+  );
+
+  return (
+    <TradeSelectionPicker
+      selectedValue={selectedCoin}
+      selectedLabel={selectedCoin || "no coin"}
+      historyOptions={hasDiscovery ? historyCoinOptions : historyCoins}
+      allOptions={hasDiscovery ? allCoinPickerOptions : localAllCoins}
+      extraSections={
+        hasDiscovery
+          ? [
+              {
+                section: "discovery",
+                title: "discovery",
+                options: discoveryCoinOptions,
+                emptyText: "-",
+                optionColumns: discoveryCoinColumns,
+                getOptionValue: (entry) => entry.value,
+                getOptionLabel: (entry) => entry.label,
+                getOptionTitle: (entry) => entry.entry?.name || entry.symbol,
+                onSelect: (_, entry) => selectDiscoveryCoin(entry.entry, side),
+                beforeTable: showSearch ? (
+                  <form className="swapCoinSearch" onSubmit={onSearchSubmit}>
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => onSearchChange(e.target.value)}
+                      placeholder="search"
+                    />
+                    <button type="submit" className="btn small bgGray">
+                      go
+                    </button>
+                  </form>
+                ) : null,
+                renderBody: ({ columns, renderRows }) => {
+                  if (tokenDiscoveryE.loading) {
+                    return (
+                      <tr>
+                        <td colSpan={columns.length} className="gray">
+                          loading {defiLabel || "DEX"}...
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (tokenDiscoveryE.error) {
+                    return (
+                      <tr>
+                        <td colSpan={columns.length - 1}>
+                          <span className="red">{tokenDiscoveryE.error}</span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn small bgGray"
+                            onClick={onRetryTokens}
+                          >
+                            retry
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (!discoveryCoinOptions.length) {
+                    return (
+                      <tr>
+                        <td colSpan={columns.length - 1} className="gray">
+                          -
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn small bgGray"
+                            onClick={onRetryTokens}
+                          >
+                            retry
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return renderRows();
+                },
+              },
+            ]
+          : []
+      }
+      showMenu={showMenu}
+      setShowMenu={setShowMenu}
+      pickerRef={pickerRef}
+      pickerSortM={pickerSortM}
+      setPickerSortM={setPickerSortM}
+      sortKeyPrefix={`swap${side}Coin:${defi || "dex"}:${chain || ""}`}
+      header="coin"
+      className="swapCoinCycle selectedCompact"
+      menuClassName="tradeCoinMenu"
+      cycleDisabled={coinCycleValues.length < 2}
+      getOptionValue={hasDiscovery ? (entry) => entry.value : undefined}
+      getOptionLabel={hasDiscovery ? (entry) => entry.label : undefined}
+      getOptionTitle={hasDiscovery ? (entry) => entry.label : undefined}
+      optionColumns={hasDiscovery ? coinColumns : undefined}
+      isOptionDisabled={
+        hasDiscovery ? (entry) => entry.supported === false : undefined
+      }
+      onSelect={onSelect}
+      onRemoveHistory={onRemoveHistory}
+      onPrev={onPrev}
+      onNext={onNext}
+      onOpen={onOpen}
+    />
   );
 }

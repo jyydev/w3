@@ -156,6 +156,46 @@ function getInitialClientCookieM(cookieStore) {
   );
 }
 
+async function getInitialLendChainDiscovery(getSupportedChains) {
+  try {
+    const res = await getSupportedChains();
+    return {
+      chains: Array.isArray(res?.chains) ? res.chains : [],
+      loading: false,
+      loaded: true,
+      error: "",
+    };
+  } catch {
+    return {
+      chains: [],
+      loading: false,
+      loaded: false,
+      error: "",
+    };
+  }
+}
+
+async function getInitialTradePickerData(enabled = false) {
+  if (!enabled) return {};
+
+  const [{ getAaveSupportedChains }, { getVenusSupportedChains }] =
+    await Promise.all([
+      import("../t/_lend/aave/sv"),
+      import("../t/_lend/venus/sv"),
+    ]);
+  const [aave, venus] = await Promise.all([
+    getInitialLendChainDiscovery(getAaveSupportedChains),
+    getInitialLendChainDiscovery(getVenusSupportedChains),
+  ]);
+
+  return {
+    lendChainDiscoveryM: {
+      aave,
+      venus,
+    },
+  };
+}
+
 function getFavWalletEntries(
   favAddrs = [],
   walletType = defaultWalletType,
@@ -503,6 +543,7 @@ async function WPage({
 
       return { chain, coins: [], allCoins, coinInfoM, scanner: "", rows: [] };
     });
+  const initialTradePickerData = await getInitialTradePickerData(!!afterWallet);
 
   return (
     <div>
@@ -585,6 +626,7 @@ async function WPage({
             walletType: selectedWalletType,
             walletTypeOptions,
             initialCookieM,
+            initialTradePickerData,
           })
         : afterWallet}
     </div>

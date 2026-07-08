@@ -20,6 +20,7 @@ import { ckPrefix, scanners, walletChainFilterPriority } from "@/sets";
 import {
   CustomHistoryPicker,
   CycleButtonPair,
+  getCustomPickerHistoryCycleValues,
   TableSortHeader,
   TrashIcon,
 } from "@/components/Shared";
@@ -508,6 +509,7 @@ function WalletSelectPicker({
       historyOptions={historyOptions}
       allOptions={options}
       header="wallets"
+      historyLimit={walletHistoryCap}
       pickerClassName="walletSelectPicker"
       buttonClassName="walletSelectPickerButton"
       menuClassName="walletSelectPickerMenu"
@@ -544,6 +546,7 @@ function ChainSelectPicker({
       historyOptions={historyOptions}
       allOptions={options}
       header="chain"
+      historyLimit={chainSortCap}
       pickerClassName="walletSelectPicker"
       buttonClassName="walletSelectPickerButton"
       menuClassName="walletSelectPickerMenu"
@@ -699,7 +702,6 @@ function Wallet({
   let [disabledWalletList, setDisabledWalletList] = useState(disabledWallets);
   let [offAddrList, setOffAddrList] = useState(offAddrs);
   let [walletSettingSort, setWalletSettingSort] = useState("");
-  let [openWalletSettings, setOpenWalletSettings] = useState(false);
   let [disabledCoinsM, setDisabledCoinsM] = useState(disabledCoinM);
   let [offCoinsM, setOffCoinsM] = useState(offCoinM);
   let [localOffChains, setLocalOffChains] = useState([]);
@@ -1033,9 +1035,10 @@ function Wallet({
   }
 
   function getChainCycleValues() {
-    return chainHistoryValues.length
-      ? chainHistoryValues
-      : chainSelectOptions.map((option) => option.value);
+    return getCustomPickerHistoryCycleValues(
+      chainHistoryValues,
+      chainSelectOptions.map((option) => option.value),
+    );
   }
 
   function cycleActiveChain(direction = 1) {
@@ -2445,7 +2448,10 @@ function Wallet({
   }
 
   function getWalletCycleValues() {
-    return walletHistoryValues.length ? walletHistoryValues : getWalletOptionValues();
+    return getCustomPickerHistoryCycleValues(
+      walletHistoryValues,
+      getWalletOptionValues(),
+    );
   }
 
   function nextWallet() {
@@ -3055,7 +3061,7 @@ function Wallet({
     );
   }
 
-  function renderAddressSettings() {
+  function renderAddressSettingsHeader() {
     const disabled = new Set(disabledWalletList.map(getWalletDisableKey));
     const serverDisabled = new Set(offAddrList.map(getNameDisableKey));
     const wallets = mergedWalletEntries
@@ -3118,21 +3124,8 @@ function Wallet({
       });
 
     return (
-      <span
-        className={`infoHover clickInfo walletAddrSettingsIcon ${
-          openWalletSettings ? "infoOpen" : ""
-        }`}
-        onMouseLeave={() => setOpenWalletSettings(false)}
-      >
-        <button
-          type="button"
-          className="settingsIcon addrSettingsIcon"
-          title="wallet address settings"
-          aria-label="wallet address settings"
-          onClick={() => setOpenWalletSettings((prev) => !prev)}
-        >
-          ⚙
-        </button>
+      <span className="infoHover walletAddrSettingsHeader">
+        <SortHeader sortKey="name">addr</SortHeader>
         <span className="infoCard walletAddrSettingsCard">
           <span className="infoCardTitle">Wallets</span>
           <table className="walletSettingsTable">
@@ -4268,8 +4261,7 @@ function Wallet({
             </th>
             <th rowSpan={2}>
               <span className="addrHeaderTools">
-                <SortHeader sortKey="name">addr</SortHeader>
-                {renderAddressSettings()}
+                {renderAddressSettingsHeader()}
               </span>
             </th>
             <th rowSpan={2}>

@@ -409,7 +409,9 @@ function isUsdLikeCoin(coin, coinE = {}) {
 }
 
 function getTokenAddress({ chain, coin, coinE }) {
-  return coinE.address ?? nativePriceTokenM[chain]?.[coin];
+  const address = String(coinE.address || "").trim();
+  if (address) return address;
+  return coinE.native ? nativePriceTokenM[chain]?.[coin] : "";
 }
 
 function getSolanaPublicKey(address) {

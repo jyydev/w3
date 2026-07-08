@@ -16,7 +16,6 @@ import {
   getTradeCoinEntry,
   getUnsignedTx,
   getWallet,
-  nativeEvmAddress,
 } from "../../sharedServer";
 
 const defaultSlippageBps = 50n;const uniswapFeeTiers = [100, 500, 3000, 10000];
@@ -88,33 +87,6 @@ function getUniswapToken(chain = "", coin = "") {
     address: ethers.getAddress(coinE.address),
     native: false,
   };
-}
-
-export async function getUniswapSupportedSwap() {
-  const chains = Object.keys(uniswapV3M).map((chain) => ({
-    chain,
-    chainId: chainIds[chain] || "",
-    name: chain,
-    added: !!coinM?.[chain],
-    router: uniswapV3M[chain]?.router || "",
-    quoter: uniswapV3M[chain]?.quoter || "",
-  }));
-  const tokens = Object.keys(uniswapV3M).flatMap((chain) =>
-    Object.entries(coinM?.[chain] || {}).map(([symbol, coinE]) => ({
-      chain,
-      chainId: chainIds[chain] || "",
-      address: coinE.native
-        ? uniswapWrappedNativeM[chain] || nativeEvmAddress
-        : coinE.address || "",
-      symbol,
-      name: coinE.name || symbol,
-      decimals: Number(coinE.decimals),
-      added: true,
-      native: !!coinE.native,
-    })),
-  );
-
-  return { chains, tokens };
 }
 
 async function getBestUniswapQuote({ chain, provider, tokenIn, tokenOut, amountIn }) {

@@ -133,10 +133,42 @@ export function CustomPickerMenu({ className = "", children }) {
   return <div className={cn("customPickerMenu", className)}>{children}</div>;
 }
 
-export function CustomPickerColumn({ title = "", className = "", children }) {
+function getCustomPickerColumnInfo(title = "", historyLimit = 5) {
+  const key = String(title || "").trim().toLowerCase();
+  if (key == "history") {
+    return `Recent selections saved in cookies. Latest first. Cap: ${historyLimit}.`;
+  }
+  if (key == "all") {
+    return "All local selectable options from the app data and settings.";
+  }
+  if (key == "discovery") {
+    return "Dynamically loaded protocol/API options. Items may appear after discovery finishes.";
+  }
+
+  return "";
+}
+
+export function CustomPickerColumn({
+  title = "",
+  className = "",
+  info,
+  historyLimit = 5,
+  children,
+}) {
+  const infoText =
+    info === undefined ? getCustomPickerColumnInfo(title, historyLimit) : info;
+
   return (
     <div className={cn("customPickerColumn", className)}>
-      <span className="customPickerColumnTitle">{title}</span>
+      <span className="customPickerColumnTitle">
+        <span>{title}</span>
+        {infoText && (
+          <span className="infoHover hoverOnlyInfo customPickerColumnInfo">
+            <span className="infoIcon">i</span>
+            <span className="infoCard">{infoText}</span>
+          </span>
+        )}
+      </span>
       {children}
     </div>
   );
@@ -223,15 +255,22 @@ function getCustomPickerOptionLabel(option) {
   return String(option?.label ?? option?.value ?? "");
 }
 
-function sortCustomPickerOptions(options = [], sortKey = "", getters = {}) {
+function sortCustomPickerOptions(
+  options = [],
+  sortKey = "",
+  getters = {},
+  directionM = {},
+) {
   if (!sortKey) return options;
   const getter = getters[sortKey] || getCustomPickerOptionLabel;
+  const direction = directionM[sortKey] || "asc";
+  const multiplier = direction == "desc" ? -1 : 1;
 
   return [...options].sort((a, b) =>
     String(getter(a) ?? "").localeCompare(String(getter(b) ?? ""), undefined, {
       numeric: true,
       sensitivity: "base",
-    }),
+    }) * multiplier,
   );
 }
 
@@ -239,15 +278,23 @@ export function getCustomPickerHistoryCycleValues(
   historyOptions = [],
   allOptions = [],
   getOptionValue = getCustomPickerOptionValue,
+  isOptionDisabled = () => false,
 ) {
-  const source = historyOptions.length ? historyOptions : allOptions;
-  return source.map(getOptionValue).filter(Boolean);
+  const getValues = (options = []) =>
+    options
+      .filter((option) => !isOptionDisabled(option))
+      .map(getOptionValue)
+      .filter(Boolean);
+  const historyValues = getValues(historyOptions);
+
+  return historyValues.length ? historyValues : getValues(allOptions);
 }
 
 export function CustomHistoryPicker({
   selectedValue = "",
   selectedLabel = "",
   extraSections = [],
+  extraSectionsPosition = "after",
   historyOptions = [],
   allOptions = [],
   showMenu,
@@ -259,6 +306,7 @@ export function CustomHistoryPicker({
   header = "select",
   historyTitle = "history",
   allTitle = "all",
+  historyLimit = 5,
   emptyHistoryText = "-",
   emptyAllText = "-",
   className = "",
@@ -331,7 +379,7 @@ export function CustomHistoryPicker({
     }));
   }
 
-  const columns = propsOptionColumns(optionColumns, header);
+  const columns = propsOptionColumns(optionColumns, header, getOptionLabel);
 
   function SortHeader({ section = "all", column, children }) {
     const sortKey = column?.key || "label";
@@ -346,38 +394,71 @@ export function CustomHistoryPicker({
     );
   }
 
-  function sortedOptions(section = "all", options = []) {
+  function sortedOptions(
+    section = "all",
+    options = [],
+    sectionColumns = columns,
+    sectionGetOptionLabel = getOptionLabel,
+  ) {
     const getterM = Object.fromEntries(
-      columns.map((column) => [
+      sectionColumns.map((column) => [
         column.key,
-        column.getSortValue || column.getValue || getOptionLabel,
+        column.getSortValue || column.getValue || sectionGetOptionLabel,
+      ]),
+    );
+    const directionM = Object.fromEntries(
+      sectionColumns.map((column) => [
+        column.key,
+        column.sortDirection || "asc",
       ]),
     );
     return sortCustomPickerOptions(
       options,
       sortM[pickerSortKey(section)] || "",
       getterM,
+      directionM,
     );
   }
 
-  function selectOption(option) {
-    if (!option || isOptionDisabled(option)) return;
-    onSelect(getOptionValue(option), option);
+  function selectOption(option, sectionConfig = {}) {
+    const sectionIsOptionDisabled =
+      sectionConfig.isOptionDisabled || isOptionDisabled;
+    const sectionGetOptionValue = sectionConfig.getOptionValue || getOptionValue;
+    const sectionOnSelect = sectionConfig.onSelect || onSelect;
+
+    if (!option || sectionIsOptionDisabled(option)) return;
+    sectionOnSelect(sectionGetOptionValue(option), option);
     setOpen(false);
   }
 
-  function removeHistoryOption(e, option) {
+  function removeHistoryOption(e, option, sectionGetOptionValue = getOptionValue) {
     e.stopPropagation();
     if (!option) return;
-    onRemoveHistory?.(getOptionValue(option), option);
+    onRemoveHistory?.(sectionGetOptionValue(option), option);
   }
 
-  function renderRows(section = "all", options = [], emptyText = "-") {
-    const rows = sortedOptions(section, options);
+  function renderRows({
+    section = "all",
+    options = [],
+    emptyText = "-",
+    sectionColumns = columns,
+    sectionConfig = {},
+    sectionGetOptionValue = getOptionValue,
+    sectionGetOptionLabel = getOptionLabel,
+    sectionGetOptionLink = getOptionLink,
+    sectionGetOptionTitle = getOptionTitle,
+    sectionIsOptionDisabled = isOptionDisabled,
+  } = {}) {
+    const rows = sortedOptions(
+      section,
+      options,
+      sectionColumns,
+      sectionGetOptionLabel,
+    );
     if (!rows.length) {
       return (
         <tr>
-          <CustomPickerCell colSpan={columns.length}>
+          <CustomPickerCell colSpan={sectionColumns.length}>
             <span className="gray">{emptyText}</span>
           </CustomPickerCell>
         </tr>
@@ -385,9 +466,9 @@ export function CustomHistoryPicker({
     }
 
     return rows.map((option) => {
-      const value = getOptionValue(option);
-      const label = getOptionLabel(option);
-      const optionLink = getOptionLink(option);
+      const value = sectionGetOptionValue(option);
+      const label = sectionGetOptionLabel(option);
+      const optionLink = sectionGetOptionLink(option);
       const linkHref =
         typeof optionLink == "string" ? optionLink : optionLink?.href || "";
       const linkLabel =
@@ -396,16 +477,17 @@ export function CustomHistoryPicker({
         typeof optionLink == "string"
           ? `open ${label}`
           : optionLink?.title || `open ${label}`;
-      const history = section == "history";
+      const history =
+        sectionConfig.showRemoveHistory ?? section == "history";
       return (
         <CustomPickerRow
           key={`${section}_${value}`}
           active={value == selectedValue}
-          unsupported={isOptionDisabled(option)}
-          onClick={() => selectOption(option)}
-          title={getOptionTitle(option)}
+          unsupported={sectionIsOptionDisabled(option)}
+          onClick={() => selectOption(option, sectionConfig)}
+          title={sectionGetOptionTitle(option)}
         >
-          {columns.map((column, index) => (
+          {sectionColumns.map((column, index) => (
             <CustomPickerCell
               key={`${section}_${value}_${column.key}`}
               className={column.className || ""}
@@ -435,7 +517,9 @@ export function CustomHistoryPicker({
                     className="walletDeleteButton walletHistoryRemoveButton"
                     title={`remove ${label} from history`}
                     aria-label={`remove ${label} from history`}
-                    onClick={(e) => removeHistoryOption(e, option)}
+                    onClick={(e) =>
+                      removeHistoryOption(e, option, sectionGetOptionValue)
+                    }
                   >
                     <TrashIcon />
                   </button>
@@ -454,12 +538,36 @@ export function CustomHistoryPicker({
     options = [],
     emptyText = "-",
     tableClassName: sectionTableClassName = "",
+    header: sectionHeader = header,
+    optionColumns: sectionOptionColumns = optionColumns,
+    getOptionValue: sectionGetOptionValue = getOptionValue,
+    getOptionLabel: sectionGetOptionLabel = getOptionLabel,
+    getOptionLink: sectionGetOptionLink = getOptionLink,
+    getOptionTitle: sectionGetOptionTitle = getOptionTitle,
+    isOptionDisabled: sectionIsOptionDisabled = isOptionDisabled,
+    onSelect: sectionOnSelect = onSelect,
+    showRemoveHistory,
+    beforeTable = null,
+    renderBody,
   }) {
+    const sectionConfig = {
+      getOptionValue: sectionGetOptionValue,
+      isOptionDisabled: sectionIsOptionDisabled,
+      onSelect: sectionOnSelect,
+      showRemoveHistory,
+    };
+    const sectionColumns = propsOptionColumns(
+      sectionOptionColumns,
+      sectionHeader,
+      sectionGetOptionLabel,
+    );
+
     return (
-      <CustomPickerColumn key={section} title={title}>
+      <CustomPickerColumn key={section} title={title} historyLimit={historyLimit}>
+        {beforeTable}
         <CustomPickerTable
           className={cn(sectionTableClassName, tableClassName)}
-          headers={columns.map((column) => (
+          headers={sectionColumns.map((column) => (
             <SortHeader
               key={`${section}_${column.key}`}
               section={section}
@@ -469,7 +577,38 @@ export function CustomHistoryPicker({
             </SortHeader>
           ))}
         >
-          <tbody>{renderRows(section, options, emptyText)}</tbody>
+          <tbody>
+            {typeof renderBody == "function"
+              ? renderBody({
+                  columns: sectionColumns,
+                  renderRows: (override = {}) =>
+                    renderRows({
+                      section,
+                      options,
+                      emptyText,
+                      sectionColumns,
+                      sectionConfig,
+                      sectionGetOptionValue,
+                      sectionGetOptionLabel,
+                      sectionGetOptionLink,
+                      sectionGetOptionTitle,
+                      sectionIsOptionDisabled,
+                      ...override,
+                    }),
+                })
+              : renderRows({
+                  section,
+                  options,
+                  emptyText,
+                  sectionColumns,
+                  sectionConfig,
+                  sectionGetOptionValue,
+                  sectionGetOptionLabel,
+                  sectionGetOptionLink,
+                  sectionGetOptionTitle,
+                  sectionIsOptionDisabled,
+                })}
+          </tbody>
         </CustomPickerTable>
       </CustomPickerColumn>
     );
@@ -479,6 +618,7 @@ export function CustomHistoryPicker({
     historyOptions,
     allOptions,
     getOptionValue,
+    isOptionDisabled,
   );
   const buttonOptions = [
     ...extraSections.flatMap((section) => section?.options || []),
@@ -511,7 +651,8 @@ export function CustomHistoryPicker({
       </CustomPickerButton>
       {open && (
         <CustomPickerMenu className={menuClassName}>
-          {extraSections.map((section) => renderSection(section))}
+          {extraSectionsPosition == "before" &&
+            extraSections.map((section) => renderSection(section))}
           {renderSection({
             section: "history",
             title: historyTitle,
@@ -525,6 +666,8 @@ export function CustomHistoryPicker({
             emptyText: emptyAllText,
             tableClassName: allTableClassName,
           })}
+          {extraSectionsPosition != "before" &&
+            extraSections.map((section) => renderSection(section))}
         </CustomPickerMenu>
       )}
     </CustomPicker>
@@ -545,7 +688,11 @@ export function CustomHistoryPicker({
   );
 }
 
-function propsOptionColumns(columns, header) {
+function propsOptionColumns(
+  columns,
+  header,
+  fallbackGetValue = getCustomPickerOptionLabel,
+) {
   if (Array.isArray(columns) && columns.length) {
     return columns.map((column) => ({
       key: column.key || "label",
@@ -553,6 +700,7 @@ function propsOptionColumns(columns, header) {
       className: column.className || "",
       getValue: column.getValue || getCustomPickerOptionLabel,
       getSortValue: column.getSortValue || column.getValue,
+      sortDirection: column.sortDirection || "",
     }));
   }
 
@@ -560,8 +708,8 @@ function propsOptionColumns(columns, header) {
     {
       key: "label",
       label: header,
-      getValue: getCustomPickerOptionLabel,
-      getSortValue: getCustomPickerOptionLabel,
+      getValue: fallbackGetValue,
+      getSortValue: fallbackGetValue,
     },
   ];
 }

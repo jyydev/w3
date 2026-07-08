@@ -846,8 +846,7 @@ img.assetIcon {
   padding: 1px 3px;
 }
 .walletSettingsIcon,
-.walletChainSettingsIcon,
-.walletAddrSettingsIcon {
+.walletChainSettingsIcon {
   cursor: default;
 }
 .walletChainOption {
@@ -882,10 +881,8 @@ img.assetIcon {
   align-items: center;
   gap: 1px;
 }
-.addrSettingsIcon {
-  width: 20px;
-  height: 20px;
-  font-size: 18px;
+.walletAddrSettingsHeader {
+  cursor: default;
 }
 .walletAddrSettingsCard {
   min-width: max-content;
@@ -1087,6 +1084,35 @@ img.assetIcon {
 }
 .tradePanelBar {
   align-items: center;
+}
+.tradeSettingsInfo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.tradeSettingsLabel {
+  border: 0;
+  background: transparent;
+  color: var(--gray);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.tradeSettingsLabel:hover {
+  color: var(--orange);
+}
+.tradeSettingsCard {
+  min-width: 190px;
+}
+.tradeSettingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tradeSettingSwitch {
+  margin: 0 !important;
+  flex: 0 0 var(--switch-width);
 }
 .tradePaneControls {
   display: inline-flex;
@@ -1419,9 +1445,25 @@ img.assetIcon {
   min-width: 0;
 }
 .customPickerColumnTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-bottom: 2px;
   color: rgb(150, 150, 150);
   font-size: 12px;
+}
+.customPickerColumnInfo {
+  vertical-align: middle;
+}
+.customPickerColumnInfo .infoIcon {
+  width: 12px;
+  height: 12px;
+  border-color: #444;
+  font-size: 8px;
+}
+.customPickerColumnInfo .infoCard {
+  min-width: 210px;
+  white-space: normal;
 }
 .tradeMarketMenu {
   grid-template-columns: max-content max-content;

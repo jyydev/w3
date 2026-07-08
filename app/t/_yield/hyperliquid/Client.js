@@ -3,16 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButtonPair } from "@/components/Shared";
 import { getHyperliquidSpotBridgeDiscovery } from "./sv";
 import {
   emitTradeChainSelect,
   getChainCoins,
   getInitialCookie,
   getTradeModeCookie,
-  TradePickerColumn,
-  TradePickerMenu,
-  TradePickerTable,
+  TradeSelectionPicker,
 } from "../../clientShared";
 
 const hyperliquidBridgeCoinM = {
@@ -90,6 +87,12 @@ export function getHyperliquidAgentCookie(
 
 function NoopBalance() {
   return null;
+}
+
+function getBalanceQty(balance = {}) {
+  return Object.prototype.hasOwnProperty.call(balance || {}, "balance")
+    ? Number(balance?.balance || 0) || 0
+    : -1;
 }
 
 export function getHyperliquidRouteText(tokenE = {}) {
@@ -541,332 +544,12 @@ export function useHyperliquidBridgeSelection({
   };
 }
 
-export function HyperliquidCoinMenu({
-  side = "deposit",
-  chain = "",
-  selectedCoin = "",
-  addedCoins = [],
-  allCoins = [],
-  allCoinEntries = [],
-  bridgeE = {},
-  onSelect = () => {},
-  onRetry = () => {},
-  getBalance = () => ({}),
-  MarketCoinBalance = NoopBalance,
-}) {
-  const entryM = Object.fromEntries(
-    allCoinEntries.map((entry) => [entry.coin, entry]),
-  );
-
-  return (
-    <TradePickerMenu className="tradeCoinMenu">
-      <TradePickerColumn title="added">
-        <TradePickerTable
-          className="tradeCoinAddedTable"
-          headers={["coin", "qty", "on"]}
-        >
-          <tbody>
-            {addedCoins.length ? (
-              addedCoins.map((coin) => {
-                const balance = getBalance(coin);
-                const supported = !bridgeE.loaded || allCoins.includes(coin);
-                return (
-                  <tr
-                    key={`hl_${side}_added_coin_${coin}`}
-                    className={[
-                      "customPickerRow",
-                      coin == selectedCoin ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeCoinAllSelect"
-                        onClick={() =>
-                          supported
-                            ? onSelect(coin)
-                            : toast(`${coin} is not supported by Hyperliquid`)
-                        }
-                      >
-                        <span>{coin}</span>
-                      </button>
-                    </td>
-                    <td>
-                      <MarketCoinBalance balance={balance} />
-                    </td>
-                    <td>{!supported && <span className="gray">off</span>}</td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={3} className="gray">
-                  -
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-      <TradePickerColumn title="discovery">
-        <TradePickerTable
-          className="tradeCoinAllTable"
-          headers={["coin", "qty", "add"]}
-        >
-          <tbody>
-            {bridgeE.loading && (
-              <tr>
-                <td colSpan={3} className="gray">
-                  loading Hyperliquid...
-                </td>
-              </tr>
-            )}
-            {!bridgeE.loading && bridgeE.error && (
-              <tr>
-                <td colSpan={2}>
-                  <span className="red">{bridgeE.error}</span>
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn small bgGray"
-                    onClick={onRetry}
-                  >
-                    retry
-                  </button>
-                </td>
-              </tr>
-            )}
-            {!bridgeE.loading && !bridgeE.error && !allCoins.length && (
-              <tr>
-                <td colSpan={2} className="gray">
-                  -
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn small bgGray"
-                    onClick={onRetry}
-                  >
-                    retry
-                  </button>
-                </td>
-              </tr>
-            )}
-            {!bridgeE.loading &&
-              !bridgeE.error &&
-              allCoins.map((coin) => {
-                const added = addedCoins.includes(coin);
-                const entry = entryM[coin] || {};
-                const balance = getBalance(coin);
-                const routeText = getHyperliquidRouteText(entry);
-                return (
-                  <tr
-                    key={`hl_${side}_all_coin_${coin}`}
-                    className={
-                      coin == selectedCoin
-                        ? "customPickerRow on"
-                        : "customPickerRow"
-                    }
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeCoinAllSelect"
-                        onClick={() => onSelect(coin)}
-                      >
-                        <span>{coin}</span>
-                        {routeText && <span className="gray">{routeText}</span>}
-                      </button>
-                    </td>
-                    <td>
-                      <MarketCoinBalance balance={balance} />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className={added ? "btn small bgGray" : "btn small bgCyan"}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (added) return;
-                          toast(
-                            `${
-                              chain ? `${chain} ` : ""
-                            }${coin}: add manually; Hyperliquid discovery has no contract address`,
-                          );
-                        }}
-                        disabled={added}
-                      >
-                        {added ? "✓" : "+"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-    </TradePickerMenu>
-  );
-}
-
-export function HyperliquidChainMenu({
-  side = "deposit",
-  selectedChain = "",
-  addedChains = [],
-  allChains = [],
-  bridgeE = {},
-  onSelect = () => {},
-  onRetry = () => {},
-}) {
-  return (
-    <TradePickerMenu className="tradeChainMenu">
-      <TradePickerColumn title="added">
-        <TradePickerTable
-          className="tradeChainAddedTable"
-          headers={["chain", "on"]}
-        >
-          <tbody>
-            {addedChains.length ? (
-              addedChains.map((chain) => {
-                const supported = !bridgeE.loaded || allChains.includes(chain);
-                return (
-                  <tr
-                    key={`hl_${side}_added_chain_${chain}`}
-                    className={[
-                      "customPickerRow",
-                      chain == selectedChain ? "on" : "",
-                      supported ? "" : "unsupported",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeChainAllSelect"
-                        onClick={() =>
-                          supported
-                            ? onSelect(chain)
-                            : toast(`${chain} is not supported by Hyperliquid`)
-                        }
-                      >
-                        <span>{chain}</span>
-                      </button>
-                    </td>
-                    <td>{!supported && <span className="gray">off</span>}</td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={2} className="gray">
-                  -
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-      <TradePickerColumn title="discovery">
-        <TradePickerTable
-          className="tradeChainAllTable"
-          headers={["chain", "add"]}
-        >
-          <tbody>
-            {bridgeE.loading && (
-              <tr>
-                <td colSpan={2} className="gray">
-                  loading Hyperliquid...
-                </td>
-              </tr>
-            )}
-            {!bridgeE.loading && bridgeE.error && (
-              <tr>
-                <td>
-                  <span className="red">{bridgeE.error}</span>
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn small bgGray"
-                    onClick={onRetry}
-                  >
-                    retry
-                  </button>
-                </td>
-              </tr>
-            )}
-            {!bridgeE.loading && !bridgeE.error && !allChains.length && (
-              <tr>
-                <td className="gray">-</td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn small bgGray"
-                    onClick={onRetry}
-                  >
-                    retry
-                  </button>
-                </td>
-              </tr>
-            )}
-            {!bridgeE.loading &&
-              !bridgeE.error &&
-              allChains.map((chain) => {
-                const added = addedChains.includes(chain);
-                return (
-                  <tr
-                    key={`hl_${side}_all_chain_${chain}`}
-                    className={
-                      chain == selectedChain
-                        ? "customPickerRow on"
-                        : "customPickerRow"
-                    }
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="customPickerSelect tradeChainAllSelect"
-                        onClick={() => onSelect(chain)}
-                      >
-                        <span>{chain}</span>
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className={added ? "btn small bgGray" : "btn small bgCyan"}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (added) return;
-                          toast(`${chain}: add chain manually before using this route`);
-                        }}
-                        disabled={added}
-                      >
-                        {added ? "✓" : "+"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-          </tbody>
-        </TradePickerTable>
-      </TradePickerColumn>
-    </TradePickerMenu>
-  );
-}
-
 export function HyperliquidCoinSelect({
   side = "deposit",
   chain = "",
   selectedCoin = "",
   addedCoins = [],
+  historyCoins = [],
   allCoins = [],
   allCoinEntries = [],
   bridgeE = {},
@@ -878,42 +561,189 @@ export function HyperliquidCoinSelect({
   onPrev = () => {},
   onNext = () => {},
   onRetry = () => {},
+  onRemoveHistory,
   getBalance = () => ({}),
   MarketCoinBalance = NoopBalance,
 }) {
-  return (
-    <div className="selectCycle walletCycle tradeCoinCycle">
-      <CycleButtonPair
-        onPrev={onPrev}
-        onNext={onNext}
-        disabled={cycleDisabled ?? (addedCoins.length < 2 && allCoins.length < 2)}
-      />
-      <div className="customPicker" ref={pickerRef}>
+  const entryM = Object.fromEntries(
+    allCoinEntries.map((entry) => [entry.coin, entry]),
+  );
+  const localCoinOption = (coin) => {
+    const balance = getBalance(coin);
+    const supported = !bridgeE.loaded || allCoins.includes(coin);
+    return {
+      value: coin,
+      label: coin,
+      coin,
+      balance,
+      supported,
+    };
+  };
+  const discoveryCoinOptions = allCoins.map((coin) => {
+    const entry = entryM[coin] || {};
+    const balance = getBalance(coin);
+    return {
+      value: coin,
+      label: coin,
+      coin,
+      entry,
+      balance,
+      added: addedCoins.includes(coin),
+      routeText: getHyperliquidRouteText(entry),
+    };
+  });
+  const coinColumns = [
+    {
+      key: "coin",
+      label: "coin",
+      getValue: (entry) => entry.coin,
+      getSortValue: (entry) => entry.coin,
+    },
+    {
+      key: "qty",
+      label: "qty",
+      getValue: (entry) => <MarketCoinBalance balance={entry.balance} />,
+      getSortValue: (entry) => getBalanceQty(entry.balance),
+      sortDirection: "desc",
+    },
+    {
+      key: "on",
+      label: "on",
+      getValue: (entry) =>
+        entry.supported ? "" : <span className="gray">off</span>,
+      getSortValue: (entry) => (entry.supported ? 1 : 0),
+    },
+  ];
+  const discoveryCoinColumns = [
+    {
+      key: "coin",
+      label: "coin",
+      getValue: (entry) => (
+        <span className="tradeCoinAllSelect">
+          <span>{entry.coin}</span>
+          {entry.routeText && <span className="gray">{entry.routeText}</span>}
+        </span>
+      ),
+      getSortValue: (entry) => entry.coin,
+    },
+    {
+      key: "qty",
+      label: "qty",
+      getValue: (entry) => <MarketCoinBalance balance={entry.balance} />,
+      getSortValue: (entry) => getBalanceQty(entry.balance),
+      sortDirection: "desc",
+    },
+    {
+      key: "add",
+      label: "add",
+      getValue: (entry) => (
         <button
           type="button"
-          className="customPickerButton"
-          disabled={!allCoins.length}
-          onClick={() => setShowMenu((show) => !show)}
+          className={entry.added ? "btn small bgGray" : "btn small bgCyan"}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (entry.added) return;
+            toast(
+              `${
+                chain ? `${chain} ` : ""
+              }${entry.coin}: add manually; Hyperliquid discovery has no contract address`,
+            );
+          }}
+          disabled={entry.added}
         >
-          {selectedCoin || "no coin"}
+          {entry.added ? "✓" : "+"}
         </button>
-        {showMenu && (
-          <HyperliquidCoinMenu
-            side={side}
-            chain={chain}
-            selectedCoin={selectedCoin}
-            addedCoins={addedCoins}
-            allCoins={allCoins}
-            allCoinEntries={allCoinEntries}
-            bridgeE={bridgeE}
-            onSelect={onSelect}
-            onRetry={onRetry}
-            getBalance={getBalance}
-            MarketCoinBalance={MarketCoinBalance}
-          />
-        )}
-      </div>
-    </div>
+      ),
+      getSortValue: (entry) => (entry.added ? 1 : 0),
+    },
+  ];
+
+  return (
+    <TradeSelectionPicker
+      selectedValue={selectedCoin}
+      selectedLabel={selectedCoin || "no coin"}
+      historyOptions={historyCoins.map(localCoinOption)}
+      allOptions={addedCoins.map(localCoinOption)}
+      extraSections={[
+        {
+          section: "discovery",
+          title: "discovery",
+          options: discoveryCoinOptions,
+          optionColumns: discoveryCoinColumns,
+          getOptionValue: (entry) => entry.coin,
+          getOptionLabel: (entry) => entry.coin,
+          getOptionTitle: (entry) => entry.coin,
+          onSelect: (coin) => onSelect(coin),
+          renderBody: ({ columns, renderRows }) => {
+            if (bridgeE.loading) {
+              return (
+                <tr>
+                  <td colSpan={columns.length} className="gray">
+                    loading Hyperliquid...
+                  </td>
+                </tr>
+              );
+            }
+            if (bridgeE.error) {
+              return (
+                <tr>
+                  <td colSpan={columns.length - 1}>
+                    <span className="red">{bridgeE.error}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={onRetry}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+            if (!discoveryCoinOptions.length) {
+              return (
+                <tr>
+                  <td colSpan={columns.length - 1} className="gray">
+                    -
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={onRetry}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+            return renderRows();
+          },
+        },
+      ]}
+      showMenu={showMenu}
+      setShowMenu={setShowMenu}
+      pickerRef={pickerRef}
+      sortKeyPrefix={`yieldHyperliquid${side}Coin:${chain || ""}`}
+      header="coin"
+      className="tradeCoinCycle"
+      menuClassName="tradeCoinMenu"
+      disabled={!addedCoins.length && !allCoins.length}
+      cycleDisabled={cycleDisabled}
+      getOptionValue={(entry) => entry.value}
+      getOptionLabel={(entry) => entry.label}
+      getOptionTitle={(entry) => entry.label}
+      optionColumns={coinColumns}
+      isOptionDisabled={(entry) => !entry.supported}
+      onSelect={onSelect}
+      onRemoveHistory={onRemoveHistory}
+      onPrev={onPrev}
+      onNext={onNext}
+    />
   );
 }
 
@@ -921,6 +751,7 @@ export function HyperliquidChainSelect({
   side = "deposit",
   selectedChain = "",
   addedChains = [],
+  historyChains = [],
   allChains = [],
   bridgeE = {},
   showMenu = false,
@@ -931,40 +762,152 @@ export function HyperliquidChainSelect({
   onPrev = () => {},
   onNext = () => {},
   onRetry = () => {},
+  onRemoveHistory,
 }) {
-  return (
-    <div className="selectCycle walletCycle tradeChainCycle">
-      <CycleButtonPair
-        onPrev={onPrev}
-        onNext={onNext}
-        disabled={cycleDisabled ?? (addedChains.length < 2 && allChains.length < 2)}
-      />
-      <div className="customPicker" ref={pickerRef}>
+  const localChainOption = (chain) => {
+    const supported = !bridgeE.loaded || allChains.includes(chain);
+    return {
+      value: chain,
+      label: chain,
+      chain,
+      supported,
+    };
+  };
+  const discoveryChainOptions = allChains.map((chain) => ({
+    value: chain,
+    label: chain,
+    chain,
+    added: addedChains.includes(chain),
+  }));
+  const chainColumns = [
+    {
+      key: "chain",
+      label: "chain",
+      getValue: (entry) => entry.chain,
+      getSortValue: (entry) => entry.chain,
+    },
+    {
+      key: "on",
+      label: "on",
+      getValue: (entry) =>
+        entry.supported ? "" : <span className="gray">off</span>,
+      getSortValue: (entry) => (entry.supported ? 1 : 0),
+    },
+  ];
+  const discoveryChainColumns = [
+    {
+      key: "chain",
+      label: "chain",
+      getValue: (entry) => entry.chain,
+      getSortValue: (entry) => entry.chain,
+    },
+    {
+      key: "add",
+      label: "add",
+      getValue: (entry) => (
         <button
           type="button"
-          className="customPickerButton"
-          disabled={!allChains.length}
-          onClick={() => {
-            if (selectedChain) emitTradeChainSelect(selectedChain);
-            setShowMenu((show) => !show);
+          className={entry.added ? "btn small bgGray" : "btn small bgCyan"}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (entry.added) return;
+            toast(`${entry.chain}: add chain manually before using this route`);
           }}
-          onFocus={() => selectedChain && emitTradeChainSelect(selectedChain)}
+          disabled={entry.added}
         >
-          {selectedChain || "no chain"}
+          {entry.added ? "✓" : "+"}
         </button>
-        {showMenu && (
-          <HyperliquidChainMenu
-            side={side}
-            selectedChain={selectedChain}
-            addedChains={addedChains}
-            allChains={allChains}
-            bridgeE={bridgeE}
-            onSelect={onSelect}
-            onRetry={onRetry}
-          />
-        )}
-      </div>
-    </div>
+      ),
+      getSortValue: (entry) => (entry.added ? 1 : 0),
+    },
+  ];
+
+  return (
+    <TradeSelectionPicker
+      selectedValue={selectedChain}
+      selectedLabel={selectedChain || "no chain"}
+      historyOptions={historyChains.map(localChainOption)}
+      allOptions={addedChains.map(localChainOption)}
+      extraSections={[
+        {
+          section: "discovery",
+          title: "discovery",
+          options: discoveryChainOptions,
+          optionColumns: discoveryChainColumns,
+          getOptionValue: (entry) => entry.chain,
+          getOptionLabel: (entry) => entry.chain,
+          getOptionTitle: (entry) => entry.chain,
+          onSelect: (chain) => onSelect(chain),
+          renderBody: ({ columns, renderRows }) => {
+            if (bridgeE.loading) {
+              return (
+                <tr>
+                  <td colSpan={columns.length} className="gray">
+                    loading Hyperliquid...
+                  </td>
+                </tr>
+              );
+            }
+            if (bridgeE.error) {
+              return (
+                <tr>
+                  <td>
+                    <span className="red">{bridgeE.error}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={onRetry}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+            if (!discoveryChainOptions.length) {
+              return (
+                <tr>
+                  <td className="gray">-</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn small bgGray"
+                      onClick={onRetry}
+                    >
+                      retry
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+            return renderRows();
+          },
+        },
+      ]}
+      showMenu={showMenu}
+      setShowMenu={setShowMenu}
+      pickerRef={pickerRef}
+      sortKeyPrefix={`yieldHyperliquid${side}Chain`}
+      header="chain"
+      className="tradeChainCycle"
+      menuClassName="tradeChainMenu"
+      disabled={!addedChains.length && !allChains.length}
+      cycleDisabled={cycleDisabled}
+      getOptionValue={(entry) => entry.value}
+      getOptionLabel={(entry) => entry.label}
+      getOptionTitle={(entry) => entry.label}
+      optionColumns={chainColumns}
+      isOptionDisabled={(entry) => !entry.supported}
+      onSelect={onSelect}
+      onRemoveHistory={onRemoveHistory}
+      onPrev={onPrev}
+      onNext={onNext}
+      onOpen={() => selectedChain && emitTradeChainSelect(selectedChain)}
+      onFocus={() => selectedChain && emitTradeChainSelect(selectedChain)}
+    />
   );
 }
 

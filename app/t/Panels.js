@@ -39,6 +39,7 @@ import {
   getWalletOptions,
   getTokenAddressKey,
   sameAddress,
+  tradeInputMaxOffCookie,
   tradeRightPaneCookie,
   tradeLeftPaneCookie,
   tradePaneOrderCookie,
@@ -312,6 +313,7 @@ function Panels({
   requestedWallet = "",
   walletType = "evm",
   initialCookieM = {},
+  initialTradePickerData = {},
 }) {
   const router = useRouter();
   const tradeTypes = ["Swap", "Lend", "Yield", "Send"];
@@ -551,6 +553,10 @@ function Panels({
   ]);
   const [show, setShow] = useState(
     () => getInitialCookie(initialCookieM, tradeShowCookie) == "1",
+  );
+  const [showTradeSettings, setShowTradeSettings] = useState(false);
+  const [inputMaxOff, setInputMaxOff] = useState(
+    () => getInitialCookie(initialCookieM, tradeInputMaxOffCookie) == "1",
   );
   const [tradeType, setTradeType] = useState(() =>
     tradeTypes.includes(initialLeftPane) ? initialLeftPane : tradeTypes[0],
@@ -854,6 +860,13 @@ function Panels({
     });
   }
 
+  function toggleInputMaxOff(checked) {
+    setInputMaxOff(checked);
+    setCookie(tradeInputMaxOffCookie, checked ? "1" : "0", {
+      maxAge: cookieMaxAge,
+    });
+  }
+
   function toggleRightPane(checked) {
     setShowRightPane(checked);
     setCookie(tradeRightPaneCookie, checked ? "1" : "0", {
@@ -962,6 +975,7 @@ function Panels({
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
+        inputMaxOff={inputMaxOff}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
@@ -981,8 +995,10 @@ function Panels({
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
+        inputMaxOff={inputMaxOff}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
+        initialTradePickerData={initialTradePickerData}
         onTxComplete={refreshWalletBalances}
       />
     ) : panelType == "Yield" ? (
@@ -1000,6 +1016,7 @@ function Panels({
         onPrevTradeType={() => cyclePanelType(-1)}
         onCycleTradeType={() => cyclePanelType(1)}
         showGasAutoLabel={showGasAutoLabel}
+        inputMaxOff={inputMaxOff}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
@@ -1023,6 +1040,7 @@ function Panels({
         onCycleTradeType={() => cyclePanelType(1)}
         onFromWalletChange={setWallet}
         showGasAutoLabel={showGasAutoLabel}
+        inputMaxOff={inputMaxOff}
         loopWallets={loopWallets}
         getLoopWalletEntries={getLoopWalletEntries}
         onTxComplete={refreshWalletBalances}
@@ -1042,7 +1060,37 @@ function Panels({
             />
             <span className="slider"></span>
           </label>
-          <span className="gray">Trade</span>
+          <span
+            className={`infoHover clickInfo tradeSettingsInfo ${
+              showTradeSettings ? "infoOpen" : ""
+            }`}
+            onMouseLeave={() => setShowTradeSettings(false)}
+          >
+            <button
+              type="button"
+              className="tradeSettingsLabel"
+              onClick={() => setShowTradeSettings((prev) => !prev)}
+            >
+              Trade
+            </button>
+            <span className="infoCard tradeSettingsCard">
+              <span className="infoCardTitle">Trade</span>
+              <span className="tradeSettingRow">
+                <span>input max off</span>
+                <label
+                  className="switch small tradeSettingSwitch"
+                  title="Allow typed qty/end inputs above wallet balance"
+                >
+                  <input
+                    type="checkbox"
+                    checked={inputMaxOff}
+                    onChange={(e) => toggleInputMaxOff(e.target.checked)}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </span>
+            </span>
+          </span>
           <label htmlFor="tradeWallet">
             {wallets.length != 1 && (
               <CycleButtonPair
