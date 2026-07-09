@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
@@ -27,6 +34,7 @@ import {
 
 const aaveStakingTokenMetaTimeoutMs = 8000;
 const aaveStakingFallbackGasLimit = 450000n;
+const aaveStakingMarketCacheM = {};
 const erc20MetaAbi = [
   "function name() view returns (string)",
   "function symbol() view returns (string)",
@@ -81,6 +89,12 @@ function getAaveStakingMarkets(chain = "") {
   return Object.entries(coinM?.[chain] || {}).filter(([coin, coinE]) =>
     isAaveStakingCoin(coin, coinE),
   );
+}
+
+export async function clearAaveStakingRuntimeCache() {
+  clearDiscoveryCacheMap(aaveStakingMarketCacheM);
+
+  return { ok: true };
 }
 
 function getFallbackUnderlyingCoin(_chain = "", lendCoin = "") {
@@ -366,13 +380,61 @@ async function buildAaveStakingMarketEntry({
   );
 }
 
-export async function getAaveStakingAllMarkets({ chain = "" } = {}) {
+function returnAaveStakingMarkets({
+  chain = "",
+  markets = [],
+  at = Date.now(),
+} = {}) {
+  const sortedMarkets = [...markets].sort((a, b) =>
+    a.underlyingCoin.localeCompare(b.underlyingCoin),
+  );
+  setDiscoveryCacheMapEntry(aaveStakingMarketCacheM, String(chain || ""), {
+    at,
+    markets: sortedMarkets,
+  });
+
+  return {
+    ok: true,
+    chain,
+    markets: sortedMarkets,
+    cache: makeDiscoveryCacheMeta({
+      source: "api",
+      at,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
+}
+
+export async function getAaveStakingAllMarkets({
+  chain = "",
+  refresh = false,
+} = {}) {
   if (chain == "Solana" || chain == "Hyperliquid") {
     return { ok: true, chain, markets: [] };
   }
 
+  const cacheKey = String(chain || "");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(aaveStakingMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
+
+  const now = Date.now();
   const savedMarkets = getAaveStakingMarkets(chain);
-  if (!savedMarkets.length) return { ok: true, chain, markets: [] };
+  if (!savedMarkets.length) {
+    return returnAaveStakingMarkets({ chain, markets: [], at: now });
+  }
 
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
@@ -399,13 +461,11 @@ export async function getAaveStakingAllMarkets({ chain = "" } = {}) {
       );
     }
 
-    return {
-      ok: true,
+    return returnAaveStakingMarkets({
       chain,
-      markets: [...marketM.values()].sort((a, b) =>
-        a.underlyingCoin.localeCompare(b.underlyingCoin),
-      ),
-    };
+      markets: [...marketM.values()],
+      at: now,
+    });
   } finally {
     provider.destroy?.();
   }

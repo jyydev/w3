@@ -5,6 +5,13 @@ import coinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
@@ -56,6 +63,7 @@ const sparkSavingsRateTimeoutMs = 8000;
 const sparkTokenMetaTimeoutMs = 8000;
 const sparkSavingsRateCacheMs = 10 * 60 * 1000;
 let sparkSavingsRateCache = { ts: 0, rates: null };
+const sparkMarketCacheM = {};
 const sparkPsm3AddressM = {
   Arbitrum: "0x2B05F8e1cACC6974fD79A673a341Fe1f58d27266",
   Base: "0x1601843c5E9bC251A3272907010AFa41Fa18347E",
@@ -64,6 +72,7 @@ const sparkPsm3AddressM = {
 
 export async function clearSparkRuntimeCache() {
   sparkSavingsRateCache = { ts: 0, rates: null };
+  clearDiscoveryCacheMap(sparkMarketCacheM);
 
   return { ok: true };
 }
@@ -668,12 +677,59 @@ function buildSparkKnownMarketEntries(
   ].filter(Boolean);
 }
 
-export async function getSparkAllMarkets({ chain = "" } = {}) {
+function returnSparkMarkets({
+  chain = "",
+  markets = [],
+  rpc = "",
+  at = Date.now(),
+} = {}) {
+  const sortedMarkets = [...markets].sort((a, b) =>
+    a.underlyingCoin.localeCompare(b.underlyingCoin),
+  );
+  setDiscoveryCacheMapEntry(sparkMarketCacheM, String(chain || ""), {
+    at,
+    rpc,
+    markets: sortedMarkets,
+  });
+
+  return {
+    ok: true,
+    chain,
+    rpc,
+    markets: sortedMarkets,
+    cache: makeDiscoveryCacheMeta({
+      source: "api",
+      at,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
+}
+
+export async function getSparkAllMarkets({ chain = "", refresh = false } = {}) {
   if (chain == "Solana") return { ok: true, chain, markets: [] };
 
+  const cacheKey = String(chain || "");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(sparkMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      rpc: cached.rpc,
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
+
+  const now = Date.now();
   const savedMarkets = getSparkMarkets(chain);
   if (!savedMarkets.length) {
-    return { ok: true, chain, markets: [] };
+    return returnSparkMarkets({ chain, markets: [], at: now });
   }
   const savingsRates = await getSparkSavingsRates();
   const knownMarkets = savedMarkets
@@ -689,24 +745,20 @@ export async function getSparkAllMarkets({ chain = "" } = {}) {
       !knownAddressM.has(String(savedCoinE?.address || "").toLowerCase()),
   );
   if (!rpcSavedMarkets.length) {
-    return {
-      ok: true,
+    return returnSparkMarkets({
       chain,
-      markets: knownMarkets.sort((a, b) =>
-        a.underlyingCoin.localeCompare(b.underlyingCoin),
-      ),
-    };
+      markets: knownMarkets,
+      at: now,
+    });
   }
 
   const rpcList = getUsableChainRpcs(chain);
   if (!rpcList.length) {
-    return {
-      ok: true,
+    return returnSparkMarkets({
       chain,
-      markets: knownMarkets.sort((a, b) =>
-        a.underlyingCoin.localeCompare(b.underlyingCoin),
-      ),
-    };
+      markets: knownMarkets,
+      at: now,
+    });
   }
 
   let bestResult = null;
@@ -842,13 +894,11 @@ export async function getSparkAllMarkets({ chain = "" } = {}) {
   }
 
   if (!bestResult) {
-    return {
-      ok: true,
+    return returnSparkMarkets({
       chain,
-      markets: knownMarkets.sort((a, b) =>
-        a.underlyingCoin.localeCompare(b.underlyingCoin),
-      ),
-    };
+      markets: knownMarkets,
+      at: now,
+    });
   }
 
   const marketM = {};
@@ -857,14 +907,12 @@ export async function getSparkAllMarkets({ chain = "" } = {}) {
     marketM[key] = entry;
   }
 
-  return {
-    ok: true,
+  return returnSparkMarkets({
     chain,
     rpc: bestResult.rpc,
-    markets: Object.values(marketM).sort((a, b) =>
-      a.underlyingCoin.localeCompare(b.underlyingCoin),
-    ),
-  };
+    markets: Object.values(marketM),
+    at: now,
+  });
 }
 
 export async function getSparkMarketBalance({

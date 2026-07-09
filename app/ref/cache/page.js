@@ -47,6 +47,14 @@ const serverCacheRows = [
     "server discovery cache map in app/t/_lend/jupiter/sv.js; keyed by chain.",
   ],
   [
+    "Aave Staking markets",
+    "server discovery cache map in app/t/_yield/aaveStaking/sv.js; keyed by chain.",
+  ],
+  [
+    "Spark markets",
+    "server discovery cache map in app/t/_yield/spark/sv.js; keyed by chain. Spark savings-rate data is also cached server-side for 10 minutes.",
+  ],
+  [
     "Venus Flux markets",
     "server discovery cache map in app/t/_yield/venusFlux/sv.js; keyed by chain.",
   ],
@@ -66,16 +74,12 @@ const serverCacheRows = [
     "Hyperliquid bridge discovery",
     "single server module cache in app/t/_yield/hyperliquid/sv.js; cached for 1 hour.",
   ],
-  [
-    "Spark savings rates",
-    "server module memory in app/t/_yield/spark/sv.js; cached for 10 minutes.",
-  ],
 ];
 
 const clientCacheRows = [
   [
     "Trade all-market lists",
-    "client module memory in app/t/clientShared.js; caches fetched market lists by cacheKey for 1 hour while the browser tab/module stays loaded.",
+    "client module memory in app/t/clientShared.js; keeps a browser-tab copy of fetched market lists by cacheKey for 1 hour. Server-cached protocols still return server cache metadata.",
   ],
   [
     "Swap protocol support",
@@ -153,7 +157,7 @@ const cacheNotes = [
   "When the global server discovery cache exceeds 100 entries, expired entries are removed first, then the oldest remaining entries are removed.",
   "The wallet settings Etc tab can clear ALL, client, or server runtime cache.",
   "client clear affects the current browser tab's loaded client module caches.",
-  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
+  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, Aave Staking, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
   "Local npm run dev cache resets on server restart and may reset on hot reload.",
   "On Vercel, memory cache is per warm runtime instance. Cold starts, different instances, and deployments start empty.",
   "Runtime cache should be treated as a speed helper. It must be safe for the app to refetch when empty.",
