@@ -783,8 +783,12 @@ function Wallet({
   );
   let [walletHistoryOrder, setWalletHistoryOrder] = useState(() =>
     parseSelectionOrder(
-      getInitialCookie(initialCookieM, getWalletHistoryCookie(walletType)) ||
+      [
+        getInitialCookie(initialCookieM, getWalletHistoryCookie(walletType)),
         readBrowserStorage(getWalletHistoryStorageKey(walletType)),
+      ]
+        .filter(Boolean)
+        .join("|"),
     ).slice(0, walletHistoryCap),
   );
   const walletHistorySkipRef = useRef("");
@@ -1334,9 +1338,12 @@ function Wallet({
   ]);
 
   useEffect(() => {
-    const saved =
-      getCookie(getWalletHistoryCookie(walletType)) ||
-      readBrowserStorage(getWalletHistoryStorageKey(walletType));
+    const saved = [
+      getCookie(getWalletHistoryCookie(walletType)),
+      readBrowserStorage(getWalletHistoryStorageKey(walletType)),
+    ]
+      .filter(Boolean)
+      .join("|");
     setWalletHistoryOrder(
       parseSelectionOrder(saved).slice(0, walletHistoryCap),
     );
@@ -2605,6 +2612,7 @@ function Wallet({
 
   function goWalletType(nextType) {
     if (nextType == walletType) return;
+    saveWalletHistoryOrder(walletType, walletHistoryOrder);
     saveCurrentWalletSelection();
 
     const nextSelection = getLastWalletSelection(nextType);
