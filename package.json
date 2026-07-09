@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--disable-warning=MaxListenersExceededWarning next dev -p 6",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 6",
     "lint": "next lint"
   },
   "dependencies": {
