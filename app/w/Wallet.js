@@ -502,6 +502,8 @@ const allChainSortValue = "__all__";
 const chainSortCap = 10;
 const lastWalletCookiePrefix = `${ckPrefix ?? ""}lastWallet_`;
 const walletHistoryCookiePrefix = `${ckPrefix ?? ""}walletHistory_`;
+const lastWalletStoragePrefix = `${ckPrefix ?? ""}lastWalletStorage_`;
+const walletHistoryStoragePrefix = `${ckPrefix ?? ""}walletHistoryStorage_`;
 const walletHistorySkipStorageKey = `${ckPrefix ?? ""}walletHistorySkip`;
 const walletHistoryCap = 10;
 const cookieMaxAge = 365 * 24 * 60 * 60;
@@ -525,6 +527,33 @@ function getInitialActiveChain({ data, initialCookieM = {} } = {}) {
 
 function getWalletHistoryCookie(type = "evm") {
   return `${walletHistoryCookiePrefix}${type}`;
+}
+
+function getWalletHistoryStorageKey(type = "evm") {
+  return `${walletHistoryStoragePrefix}${type}`;
+}
+
+function getLastWalletStorageKey(type = "evm") {
+  return `${lastWalletStoragePrefix}${type}`;
+}
+
+function readBrowserStorage(key = "") {
+  if (typeof window == "undefined" || !key) return "";
+
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeBrowserStorage(key = "", value = "") {
+  if (typeof window == "undefined" || !key) return;
+
+  try {
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  } catch {}
 }
 
 function getWalletHistoryValue(value = "") {
@@ -754,7 +783,8 @@ function Wallet({
   );
   let [walletHistoryOrder, setWalletHistoryOrder] = useState(() =>
     parseSelectionOrder(
-      getInitialCookie(initialCookieM, getWalletHistoryCookie(walletType)),
+      getInitialCookie(initialCookieM, getWalletHistoryCookie(walletType)) ||
+        readBrowserStorage(getWalletHistoryStorageKey(walletType)),
     ).slice(0, walletHistoryCap),
   );
   const walletHistorySkipRef = useRef("");
@@ -1304,11 +1334,11 @@ function Wallet({
   ]);
 
   useEffect(() => {
+    const saved =
+      getCookie(getWalletHistoryCookie(walletType)) ||
+      readBrowserStorage(getWalletHistoryStorageKey(walletType));
     setWalletHistoryOrder(
-      parseSelectionOrder(getCookie(getWalletHistoryCookie(walletType))).slice(
-        0,
-        walletHistoryCap,
-      ),
+      parseSelectionOrder(saved).slice(0, walletHistoryCap),
     );
   }, [walletType]);
 
@@ -2022,6 +2052,23 @@ function Wallet({
     return `${lastWalletCookiePrefix}${type}`;
   }
 
+  function saveLastWalletSelection(type, selection) {
+    setCookie(getLastWalletCookie(type), selection, {
+      maxAge: cookieMaxAge,
+      path: "/",
+    });
+    writeBrowserStorage(getLastWalletStorageKey(type), selection);
+  }
+
+  function saveWalletHistoryOrder(type, order = []) {
+    const encoded = encodeSelectionOrder(order);
+    setCookie(getWalletHistoryCookie(type), encoded, {
+      maxAge: cookieMaxAge,
+      path: "/",
+    });
+    writeBrowserStorage(getWalletHistoryStorageKey(type), encoded);
+  }
+
   function encodeSelectionValue(value) {
     return encodeURIComponent(value);
   }
@@ -2050,13 +2097,14 @@ function Wallet({
     const selection = getCurrentWalletSelection();
     if (!selection) return;
 
-    setCookie(getLastWalletCookie(walletType), selection, {
-      maxAge: cookieMaxAge,
-    });
+    saveLastWalletSelection(walletType, selection);
   }
 
   function getLastWalletSelection(type) {
-    const selection = String(getCookie(getLastWalletCookie(type)) || "").trim();
+    const selection = String(
+      getCookie(getLastWalletCookie(type)) ||
+        readBrowserStorage(getLastWalletStorageKey(type)),
+    ).trim();
     if (!selection || selection == "favs") return { type: "favs" };
     if (selection == "all") return { type: "all" };
 
@@ -2479,10 +2527,7 @@ function Wallet({
         walletHistoryCap,
       );
       if (encodeSelectionOrder(next) == encodeSelectionOrder(prev)) return prev;
-      setCookie(getWalletHistoryCookie(walletType), encodeSelectionOrder(next), {
-        maxAge: cookieMaxAge,
-        path: "/",
-      });
+      saveWalletHistoryOrder(walletType, next);
       return next;
     });
   }
@@ -2543,10 +2588,7 @@ function Wallet({
     setWalletHistoryOrder((prev) => {
       const next = prev.filter((entry) => entry != historyValue);
       if (encodeSelectionOrder(next) == encodeSelectionOrder(prev)) return prev;
-      setCookie(getWalletHistoryCookie(walletType), encodeSelectionOrder(next), {
-        maxAge: cookieMaxAge,
-        path: "/",
-      });
+      saveWalletHistoryOrder(walletType, next);
       return next;
     });
   }
