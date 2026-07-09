@@ -50,6 +50,7 @@ function getStoredRow(row = {}) {
   const next = clone(row) || {};
   delete next.clientCached;
   delete next.clientReloaded;
+  delete next.clientFresh;
   delete next.clientCacheSource;
   return next;
 }
@@ -257,6 +258,20 @@ export function mergeWalletBalanceData(...dataLists) {
   return [...chainM.values()];
 }
 
+export function markWalletBalanceDataFresh(data = []) {
+  const chainList = Array.isArray(data) ? data : data ? [data] : [];
+
+  return chainList.map((chainE) => ({
+    ...chainE,
+    rows: (chainE.rows || []).map((row) => ({
+      ...row,
+      clientCached: false,
+      clientReloaded: false,
+      clientFresh: true,
+    })),
+  }));
+}
+
 export function applyWalletBalanceClientCache(
   data = [],
   { walletType = "evm" } = {},
@@ -273,6 +288,7 @@ export function applyWalletBalanceClientCache(
       rows: chainE.rows.map((row) => {
         const key = getCacheKey({ walletType, chain, address: row?.address });
         const cached = key ? walletBalanceClientCacheM.get(key)?.row : null;
+        if (row?.clientFresh || row?.clientReloaded) return row;
         if (!cached || !hasBalances(cached)) return row;
 
         return {

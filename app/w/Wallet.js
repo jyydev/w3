@@ -67,6 +67,7 @@ import {
   getWalletBalanceClientCacheData,
   getWalletBalanceClientCacheMeta,
   isWalletBalanceAddressCached,
+  markWalletBalanceDataFresh,
   mergeWalletBalanceData,
   patchWalletBalanceClientCache,
   writeWalletBalanceClientCache,
@@ -1528,8 +1529,9 @@ function Wallet({
     })
       .then((nextData) => {
         if (!cancelled) {
-          writeWalletBalanceClientCache(nextData, { walletType });
-          setLocalWalletData(mergeWalletBalanceData(cachedData, nextData));
+          const freshData = markWalletBalanceDataFresh(nextData);
+          writeWalletBalanceClientCache(freshData, { walletType });
+          setLocalWalletData(mergeWalletBalanceData(cachedData, freshData));
         }
       })
       .catch((e) => {
@@ -3747,7 +3749,10 @@ function Wallet({
     const displayUsesReload = displayChainRows.some(
       (chainRow) => chainRow.clientReloaded,
     );
-    const displayUsesFresh = displayChainRows.length > 0 && !displayUsesCache;
+    const displayUsesFresh =
+      displayChainRows.length > 0 &&
+      (!displayUsesCache ||
+        displayChainRows.some((chainRow) => chainRow.clientFresh));
     const displayCacheMeta = {
       ...cacheMeta,
       source: displayUsesReload

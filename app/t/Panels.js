@@ -15,6 +15,7 @@ import { getLocalWalletBalanceData } from "../w/localWalletActions";
 import {
   getWalletBalanceClientCacheData,
   isWalletBalanceAddressCached,
+  markWalletBalanceDataFresh,
   mergeWalletBalanceData,
   writeWalletBalanceClientCache,
 } from "../w/walletBalanceClientCache";
@@ -721,8 +722,9 @@ function Panels({
     })
       .then((nextData) => {
         if (!cancelled) {
-          writeWalletBalanceClientCache(nextData, { walletType });
-          setLocalWalletData(mergeWalletBalanceData(cachedData, nextData));
+          const freshData = markWalletBalanceDataFresh(nextData);
+          writeWalletBalanceClientCache(freshData, { walletType });
+          setLocalWalletData(mergeWalletBalanceData(cachedData, freshData));
         }
       })
       .catch((e) => {
