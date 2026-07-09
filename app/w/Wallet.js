@@ -25,6 +25,7 @@ import {
   TableSortHeader,
   TrashIcon,
 } from "@/components/Shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -4775,7 +4776,7 @@ function Wallet({
                     {fav ? "★" : "☆"}
                   </button>
                 )}
-                <a href={rowNameUrl}>{rowName}</a>
+                <Link href={rowNameUrl}>{rowName}</Link>
                 {show && walletNote && (
                   <>
                     <br />
