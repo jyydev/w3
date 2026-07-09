@@ -10,6 +10,13 @@ import { ed25519 } from "@noble/curves/ed25519";
 import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   assertWhitelistedRecipient,
   createJsonRpcProvider,
   erc20Abi,
@@ -30,6 +37,7 @@ import {
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
 const relayApiBase = "https://api.relay.link";
+const relayDiscoveryCacheM = {};
 const nativeSolanaAddress = "11111111111111111111111111111111";
 const relayChainNameM = {
   "arbitrum one": "Arbitrum",
@@ -361,7 +369,43 @@ function normalizeRelayChain(entry = {}) {
   };
 }
 
-export async function getRelaySupportedBridge() {
+function getRelayDiscoveryCache(key = "") {
+  const cached = getDiscoveryCacheMapEntry(relayDiscoveryCacheM, key);
+  if (!cached) return null;
+
+  return {
+    ...(cached.data || {}),
+    cache: makeDiscoveryCacheMeta({
+      source: "cache",
+      at: cached.at,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
+}
+
+function setRelayDiscoveryCache(key = "", data = {}) {
+  const at = Date.now();
+  setDiscoveryCacheMapEntry(relayDiscoveryCacheM, key, { at, data });
+
+  return {
+    ...data,
+    cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
+  };
+}
+
+export async function clearRelayRuntimeCache() {
+  clearDiscoveryCacheMap(relayDiscoveryCacheM);
+
+  return { ok: true };
+}
+
+export async function getRelaySupportedBridge({ refresh = false } = {}) {
+  const cacheKey = "support";
+  if (!refresh) {
+    const cached = getRelayDiscoveryCache(cacheKey);
+    if (cached) return cached;
+  }
+
   const data = await relayFetch("/chains", {
     timeoutMs: 10000,
     timeoutMessage: "Relay discovery timeout",
@@ -384,17 +428,25 @@ export async function getRelaySupportedBridge() {
     return tokenRows.map((token) => normalizeRelayToken(token, chain, chainId));
   });
 
-  return { chains, tokens };
+  return setRelayDiscoveryCache(cacheKey, { chains, tokens });
 }
 
 export async function getRelayCurrencyDiscovery({
   chain = "",
   term = "",
+  refresh = false,
 } = {}) {
   const chainId = chainIds[chain];
   if (!chainId) throw new Error(`Relay chain missing: ${chain}`);
 
   const cleanTerm = String(term || "").trim();
+  const cacheKey = `currency:${chain}:${cleanTerm.toLowerCase()}`;
+  const useServerCache = !cleanTerm;
+  if (useServerCache && !refresh) {
+    const cached = getRelayDiscoveryCache(cacheKey);
+    if (cached) return cached;
+  }
+
   const body = {
     chainIds: [chainId],
     verified: true,
@@ -421,7 +473,9 @@ export async function getRelayCurrencyDiscovery({
     .map(normalizeRelayCurrency)
     .filter((entry) => entry.chain == chain && (entry.symbol || entry.address));
 
-  return { chain, term: cleanTerm, tokens };
+  if (!useServerCache) return { chain, term: cleanTerm, tokens };
+
+  return setRelayDiscoveryCache(cacheKey, { chain, term: cleanTerm, tokens });
 }
 
 async function postRelaySignature(post = {}, signature = "") {

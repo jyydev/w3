@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { pc } from "@/fn/basic";
+import {
+  discoveryCacheMs,
+  isDiscoveryCacheFresh,
+  makeDiscoveryCacheMeta,
+} from "@/fn/discoveryCache";
+import { DiscoveryCacheInfo } from "@/components/Shared";
 import { isAcrossSupportedForChain } from "./across/Client";
 import { isJumperSupportedForChain } from "./jumper/Client";
 import { isJupiterSwapSupportedForChain } from "./jupiter/Client";
@@ -27,6 +33,7 @@ export const emptySwapSupportE = {
   loading: false,
   loaded: false,
   error: "",
+  cache: null,
 };
 const swapSupportTimeoutMs = 12000;
 const swapSupportCacheM = {};
@@ -36,6 +43,7 @@ export const emptyTokenDiscoveryE = {
   loading: false,
   loaded: false,
   error: "",
+  cache: null,
 };
 export const tokenDiscoveryCacheM = {};
 export const tokenDiscoveryPromiseM = {};
@@ -144,6 +152,8 @@ function normalizeSwapSupport(res = {}) {
     loading: false,
     loaded: true,
     error: "",
+    cache:
+      res?.cache || makeDiscoveryCacheMeta({ source: "api", location: "client" }),
   };
 }
 
@@ -160,10 +170,17 @@ export function useSwapSupport({
     const current = supportM[value] || emptySwapSupportE;
     if (!force && (current.loading || current.loaded)) return;
 
-    if (!force && swapSupportCacheM[value]) {
+    if (!force && isDiscoveryCacheFresh(swapSupportCacheM[value], discoveryCacheMs)) {
       setSupportM((currentM) => ({
         ...currentM,
-        [value]: swapSupportCacheM[value],
+        [value]: {
+          ...swapSupportCacheM[value],
+          cache: makeDiscoveryCacheMeta({
+            ...(swapSupportCacheM[value].cache || {}),
+            source: "cache",
+            location: "client",
+          }),
+        },
       }));
       return;
     }
@@ -180,13 +197,16 @@ export function useSwapSupport({
 
     if (!swapSupportPromiseM[value] || force) {
       swapSupportPromiseM[value] = withClientTimeout(
-        getSupport?.(value) || Promise.resolve(emptySwapSupportE),
+        getSupport?.(value, { refresh: force }) || Promise.resolve(emptySwapSupportE),
         swapSupportTimeoutMs,
         `${getDexLabel(value)} discovery timeout`,
       )
         .then((res) => {
           const nextSupport = normalizeSwapSupport(res);
-          swapSupportCacheM[value] = nextSupport;
+          swapSupportCacheM[value] = {
+            ...nextSupport,
+            at: Number(nextSupport.cache?.at || Date.now()),
+          };
           return nextSupport;
         })
         .catch((e) => {
@@ -371,6 +391,12 @@ export function SwapChainSelect({
                 title: "discovery",
                 options: discoveryChainOptions,
                 emptyText: "-",
+                info: (
+                  <DiscoveryCacheInfo
+                    cacheMeta={swapSupportE.cache}
+                    onReload={retrySwapSupport}
+                  />
+                ),
                 optionColumns: discoveryChainColumns,
                 getOptionValue: (entry) => entry.value,
                 getOptionLabel: (entry) => entry.label,
@@ -627,6 +653,12 @@ export function SwapCoinSelect({
                 title: "discovery",
                 options: discoveryCoinOptions,
                 emptyText: "-",
+                info: (
+                  <DiscoveryCacheInfo
+                    cacheMeta={tokenDiscoveryE.cache}
+                    onReload={onRetryTokens}
+                  />
+                ),
                 optionColumns: discoveryCoinColumns,
                 getOptionValue: (entry) => entry.value,
                 getOptionLabel: (entry) => entry.label,

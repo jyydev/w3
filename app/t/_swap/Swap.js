@@ -18,6 +18,11 @@ import {
   sortBySelectionOrder,
 } from "@/fn/selectionOrder";
 import {
+  discoveryCacheMs,
+  isDiscoveryCacheFresh,
+  makeDiscoveryCacheMeta,
+} from "@/fn/discoveryCache";
+import {
   SwapChainSelect,
   SwapCoinSelect,
   emptyTokenDiscoveryE,
@@ -140,10 +145,10 @@ import {
   walletBalancePatchEvent,
 } from "../clientShared";
 
-function getSwapSupport(defi = "") {
-  if (defi == "relay") return getRelaySupportedBridge();
-  if (defi == "jumper") return getJumperSupportedBridge();
-  if (defi == "across") return getAcrossSupportedBridge();
+function getSwapSupport(defi = "", options = {}) {
+  if (defi == "relay") return getRelaySupportedBridge(options);
+  if (defi == "jumper") return getJumperSupportedBridge(options);
+  if (defi == "across") return getAcrossSupportedBridge(options);
   return Promise.resolve(emptySwapSupportE);
 }
 
@@ -2000,10 +2005,17 @@ export default function SwapPanel({
     const current = tokenDiscoveryM[key] || emptyTokenDiscoveryE;
     if (!force && (current.loading || current.loaded)) return;
 
-    if (!force && tokenDiscoveryCacheM[key]) {
+    if (!force && isDiscoveryCacheFresh(tokenDiscoveryCacheM[key], discoveryCacheMs)) {
       setTokenDiscoveryM((discoveryM) => ({
         ...discoveryM,
-        [key]: tokenDiscoveryCacheM[key],
+        [key]: {
+          ...tokenDiscoveryCacheM[key],
+          cache: makeDiscoveryCacheMeta({
+            ...(tokenDiscoveryCacheM[key].cache || {}),
+            source: "cache",
+            location: "client",
+          }),
+        },
       }));
       return;
     }
@@ -2044,20 +2056,27 @@ export default function SwapPanel({
 
     const discoveryRequest =
       currentDefi == "jupiter"
-        ? getJupiterTokenDiscovery({ chain, term })
+        ? getJupiterTokenDiscovery({ chain, term, refresh: force })
         : currentDefi == "jumper"
-          ? getJumperTokenDiscovery({ chain, term })
-        : getRelayCurrencyDiscovery({ chain, term });
+          ? getJumperTokenDiscovery({ chain, term, refresh: force })
+        : getRelayCurrencyDiscovery({ chain, term, refresh: force });
 
     tokenDiscoveryPromiseM[key] = discoveryRequest
       .then((res) => {
+        const cache =
+          res?.cache ||
+          makeDiscoveryCacheMeta({ source: "api", location: "client" });
         const entry = {
           tokens: Array.isArray(res?.tokens) ? res.tokens : [],
           loading: false,
           loaded: true,
           error: "",
+          cache,
         };
-        tokenDiscoveryCacheM[key] = entry;
+        tokenDiscoveryCacheM[key] = {
+          ...entry,
+          at: Number(cache.at || Date.now()),
+        };
         setTokenDiscoveryM((discoveryM) => ({
           ...discoveryM,
           [key]: entry,

@@ -869,6 +869,7 @@ export default function YieldPanel({
     loaded: allMarketsLoaded,
     error: allMarketsError,
     retry: retryAllMarkets,
+    cacheMeta: allCacheMeta,
   } = useYieldAllMarkets({
     enabled: isErc4626Yield,
     cacheKey: allMarketCacheKey,
@@ -3813,6 +3814,7 @@ export default function YieldPanel({
             allLoading={allLoading}
             allError={allError}
             allProtocolLabel={allProtocolLabel}
+            allCacheMeta={allCacheMeta}
             retryAllMarkets={retryAllMarkets}
             addedMarketSort={addedMarketSort}
             setAddedMarketSort={setAddedMarketSort}

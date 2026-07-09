@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
@@ -123,6 +130,7 @@ const aaveMarketFetchTimeoutMs = 20000;
 const aaveTokenMetaTimeoutMs = 10000;
 const aaveMarketFetchConcurrency = 3;
 const venusTokenMetaTimeoutMs = 8000;
+const aaveMarketCacheM = {};
 
 function getAaveSupportedChainRows() {
   const skipAliases = new Set(["BNB", "ZkSync"]);
@@ -239,8 +247,33 @@ function formatAaveMarket({
   };
 }
 
-export async function getAaveAllMarkets({ chain = "" } = {}) {
+export async function clearAaveRuntimeCache() {
+  clearDiscoveryCacheMap(aaveMarketCacheM);
+
+  return { ok: true };
+}
+
+export async function getAaveAllMarkets({ chain = "", refresh = false } = {}) {
   if (chain == "Solana") return { ok: true, chain, markets: [] };
+
+  const cacheKey = String(chain || "");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(aaveMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      pool: cached.pool,
+      rpc: cached.rpc,
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
 
   const pool = getAavePool(chain);
   const rpcList = getUsableChainRpcs(chain);
@@ -409,14 +442,24 @@ export async function getAaveAllMarkets({ chain = "" } = {}) {
     );
   }
 
+  const markets = bestResult.markets.sort((a, b) =>
+    a.underlyingCoin.localeCompare(b.underlyingCoin),
+  );
+  const at = Date.now();
+  setDiscoveryCacheMapEntry(aaveMarketCacheM, cacheKey, {
+    at,
+    pool,
+    rpc: bestResult.rpc,
+    markets,
+  });
+
   return {
     ok: true,
     chain,
     pool,
     rpc: bestResult.rpc,
-    markets: bestResult.markets.sort((a, b) =>
-      a.underlyingCoin.localeCompare(b.underlyingCoin),
-    ),
+    markets,
+    cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
   };
 }
 

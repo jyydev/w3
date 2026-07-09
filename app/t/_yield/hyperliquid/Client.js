@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
+import {
+  discoveryCacheMs,
+  isDiscoveryCacheFresh,
+  makeDiscoveryCacheMeta,
+} from "@/fn/discoveryCache";
+import { DiscoveryCacheInfo } from "@/components/Shared";
 import { getHyperliquidSpotBridgeDiscovery } from "./sv";
 import {
   emitTradeChainSelect,
@@ -22,6 +28,7 @@ export const emptyHyperliquidBridgeE = {
   loading: false,
   loaded: false,
   error: "",
+  cache: null,
 };
 let hyperliquidBridgeCache = null;
 let hyperliquidBridgePromise = null;
@@ -308,20 +315,36 @@ export function useHyperliquidBridgeDiscovery({ enabled = false } = {}) {
 
   useEffect(() => {
     if (!enabled) return;
-    if (hyperliquidBridgeCache && !retryTick) {
-      setBridgeE(hyperliquidBridgeCache);
+    if (
+      hyperliquidBridgeCache &&
+      !retryTick &&
+      isDiscoveryCacheFresh(hyperliquidBridgeCache, discoveryCacheMs)
+    ) {
+      setBridgeE({
+        ...hyperliquidBridgeCache,
+        cache: makeDiscoveryCacheMeta({
+          ...(hyperliquidBridgeCache.cache || {}),
+          source: "cache",
+          location: "client",
+        }),
+      });
       return;
     }
 
     let cancelled = false;
     if (!hyperliquidBridgePromise || retryTick) {
       if (retryTick) hyperliquidBridgeCache = null;
-      hyperliquidBridgePromise = getHyperliquidSpotBridgeDiscovery()
+      hyperliquidBridgePromise = getHyperliquidSpotBridgeDiscovery({
+        refresh: !!retryTick,
+      })
         .then((res) => ({
           ...(res || {}),
           loading: false,
           loaded: true,
           error: res?.ok ? "" : res?.msg || "Hyperliquid routes failed",
+          cache:
+            res?.cache ||
+            makeDiscoveryCacheMeta({ source: "api", location: "client" }),
         }))
         .catch((e) => ({
           ...emptyHyperliquidBridgeE,
@@ -330,7 +353,10 @@ export function useHyperliquidBridgeDiscovery({ enabled = false } = {}) {
           error: e?.message || "Hyperliquid routes failed",
         }))
         .then((res) => {
-          hyperliquidBridgeCache = res;
+          hyperliquidBridgeCache = {
+            ...res,
+            at: Number(res.cache?.at || Date.now()),
+          };
           return res;
         })
         .finally(() => {
@@ -670,6 +696,9 @@ export function HyperliquidCoinSelect({
           section: "discovery",
           title: "discovery",
           options: discoveryCoinOptions,
+          info: (
+            <DiscoveryCacheInfo cacheMeta={bridgeE.cache} onReload={onRetry} />
+          ),
           optionColumns: discoveryCoinColumns,
           getOptionValue: (entry) => entry.coin,
           getOptionLabel: (entry) => entry.coin,
@@ -834,6 +863,9 @@ export function HyperliquidChainSelect({
           section: "discovery",
           title: "discovery",
           options: discoveryChainOptions,
+          info: (
+            <DiscoveryCacheInfo cacheMeta={bridgeE.cache} onReload={onRetry} />
+          ),
           optionColumns: discoveryChainColumns,
           getOptionValue: (entry) => entry.chain,
           getOptionLabel: (entry) => entry.chain,

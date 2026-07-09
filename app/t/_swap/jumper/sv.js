@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   assertWhitelistedRecipient,
   createJsonRpcProvider,
   erc20Abi,
@@ -28,6 +35,7 @@ const jumperApiBase =
   "https://li.quest/v1";
 const defaultSlippage = "0.005";
 const nativeSolanaAddress = "11111111111111111111111111111111";
+const jumperDiscoveryCacheM = {};
 const jumperChainIds = {
   ...chainIds,
   Solana: 1151111081099710,
@@ -229,6 +237,36 @@ function filterJumperTokens(tokens = [], term = "") {
     .slice(0, 150);
 }
 
+function getJumperDiscoveryCache(key = "") {
+  const cached = getDiscoveryCacheMapEntry(jumperDiscoveryCacheM, key);
+  if (!cached) return null;
+
+  return {
+    ...(cached.data || {}),
+    cache: makeDiscoveryCacheMeta({
+      source: "cache",
+      at: cached.at,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
+}
+
+function setJumperDiscoveryCache(key = "", data = {}) {
+  const at = Date.now();
+  setDiscoveryCacheMapEntry(jumperDiscoveryCacheM, key, { at, data });
+
+  return {
+    ...data,
+    cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
+  };
+}
+
+export async function clearJumperRuntimeCache() {
+  clearDiscoveryCacheMap(jumperDiscoveryCacheM);
+
+  return { ok: true };
+}
+
 function getJumperToken(chain = "", coin = "") {
   const coinE = getTradeCoinEntry(chain, coin);
   if (chain == "Solana") {
@@ -421,7 +459,13 @@ function getJumperQuoteDetails({ amountIn = 0n, quote = {} } = {}) {
   };
 }
 
-export async function getJumperSupportedBridge() {
+export async function getJumperSupportedBridge({ refresh = false } = {}) {
+  const cacheKey = "support";
+  if (!refresh) {
+    const cached = getJumperDiscoveryCache(cacheKey);
+    if (cached) return cached;
+  }
+
   const data = await jumperFetch("/chains", {}, {
     timeoutMs: 10000,
     timeoutMessage: "Jumper chain discovery timeout",
@@ -442,17 +486,25 @@ export async function getJumperSupportedBridge() {
     });
   }
 
-  return { chains, tokens: [] };
+  return setJumperDiscoveryCache(cacheKey, { chains, tokens: [] });
 }
 
 export async function getJumperTokenDiscovery({
   chain = "",
   term = "",
+  refresh = false,
 } = {}) {
   const chainId = jumperChainIds[chain];
   if (!chainId) throw new Error(`Jumper chain unsupported: ${chain}`);
 
   const cleanTerm = String(term || "").trim();
+  const cacheKey = `token:${chain}:${cleanTerm.toLowerCase()}`;
+  const useServerCache = !cleanTerm;
+  if (useServerCache && !refresh) {
+    const cached = getJumperDiscoveryCache(cacheKey);
+    if (cached) return cached;
+  }
+
   const data = await jumperFetch("/tokens", { chains: chainId }, {
     timeoutMs: 10000,
     timeoutMessage: "Jumper token discovery timeout",
@@ -465,7 +517,9 @@ export async function getJumperTokenDiscovery({
     cleanTerm,
   );
 
-  return { chain, term: cleanTerm, tokens };
+  if (!useServerCache) return { chain, term: cleanTerm, tokens };
+
+  return setJumperDiscoveryCache(cacheKey, { chain, term: cleanTerm, tokens });
 }
 
 export async function getJumperSwapPreview({

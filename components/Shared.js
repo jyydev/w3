@@ -1,6 +1,12 @@
 "use client";
 
 import { forwardRef, useEffect, useRef, useState } from "react";
+import {
+  discoveryCacheMs,
+  formatDiscoveryCacheDuration,
+  getDiscoveryCacheAgeMs,
+  getDiscoveryCacheRemainingMs,
+} from "@/fn/discoveryCache";
 
 export function CycleButton({
   direction = "next",
@@ -171,6 +177,59 @@ export function CustomPickerColumn({
       </span>
       {children}
     </div>
+  );
+}
+
+function formatCacheTime(ts = 0) {
+  const at = Number(ts || 0);
+  if (!at) return "-";
+
+  return new Date(at).toLocaleString(undefined, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function DiscoveryCacheInfo({
+  cacheMeta = null,
+  onReload,
+  ttlMs = discoveryCacheMs,
+} = {}) {
+  const meta = cacheMeta || {};
+  const source = meta.source == "cache" ? "cache" : meta.source ? "fresh api" : "-";
+  const location = meta.location || meta.cacheLocation || "-";
+  const finalTtlMs = Number(meta.ttlMs || ttlMs || discoveryCacheMs);
+  const ageText = meta.at ? formatDiscoveryCacheDuration(getDiscoveryCacheAgeMs(meta)) : "-";
+  const remainingText = meta.at
+    ? formatDiscoveryCacheDuration(getDiscoveryCacheRemainingMs(meta))
+    : "-";
+
+  return (
+    <span className="customPickerCacheInfo">
+      <span>Dynamically loaded protocol/API options.</span>
+      <span>source: {source}</span>
+      <span>cache type: {location}</span>
+      <span>cache: {formatDiscoveryCacheDuration(finalTtlMs)}</span>
+      <span>cached: {formatCacheTime(meta.at)}</span>
+      <span>age: {ageText}</span>
+      <span>expires: {remainingText}</span>
+      {onReload && (
+        <button
+          type="button"
+          className="btn small bgGray"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onReload(e);
+          }}
+        >
+          reload
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -465,9 +524,21 @@ export function CustomHistoryPicker({
       );
     }
 
-    return rows.map((option) => {
+    return rows.map((option, rowIndex) => {
       const value = sectionGetOptionValue(option);
       const label = sectionGetOptionLabel(option);
+      const rowKey = [
+        section,
+        value,
+        option?.chain,
+        option?.address,
+        option?.underlyingAddress,
+        option?.lendAddress,
+        option?.market,
+        rowIndex,
+      ]
+        .filter((part) => part !== undefined && part !== null && part !== "")
+        .join("_");
       const optionLink = sectionGetOptionLink(option);
       const linkHref =
         typeof optionLink == "string" ? optionLink : optionLink?.href || "";
@@ -481,7 +552,7 @@ export function CustomHistoryPicker({
         sectionConfig.showRemoveHistory ?? section == "history";
       return (
         <CustomPickerRow
-          key={`${section}_${value}`}
+          key={rowKey}
           active={value == selectedValue}
           unsupported={sectionIsOptionDisabled(option)}
           onClick={() => selectOption(option, sectionConfig)}
@@ -489,7 +560,7 @@ export function CustomHistoryPicker({
         >
           {sectionColumns.map((column, index) => (
             <CustomPickerCell
-              key={`${section}_${value}_${column.key}`}
+              key={`${rowKey}_${column.key}`}
               className={column.className || ""}
             >
               {column.getValue(option)}
@@ -547,6 +618,7 @@ export function CustomHistoryPicker({
     isOptionDisabled: sectionIsOptionDisabled = isOptionDisabled,
     onSelect: sectionOnSelect = onSelect,
     showRemoveHistory,
+    info,
     beforeTable = null,
     renderBody,
   }) {
@@ -563,7 +635,12 @@ export function CustomHistoryPicker({
     );
 
     return (
-      <CustomPickerColumn key={section} title={title} historyLimit={historyLimit}>
+      <CustomPickerColumn
+        key={section}
+        title={title}
+        historyLimit={historyLimit}
+        info={info}
+      >
         {beforeTable}
         <CustomPickerTable
           className={cn(sectionTableClassName, tableClassName)}

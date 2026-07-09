@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import { DiscoveryCacheInfo } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -139,6 +140,8 @@ const emptyChainDiscovery = {
   loading: false,
   loaded: false,
   error: "",
+  cacheMeta: null,
+  refresh: false,
 };
 const aaveMarketNameM = {
   Ethereum: "proto_mainnet_v3",
@@ -198,6 +201,8 @@ function getInitialLendChainDiscoveryM(initialTradePickerData = {}) {
           loading: false,
           loaded: !!entry?.loaded,
           error: entry?.error || "",
+          cacheMeta: entry?.cache || entry?.cacheMeta || null,
+          refresh: false,
         },
       ],
     ),
@@ -561,6 +566,7 @@ export default function LendPanel({
     loaded: allLoaded,
     error: allError,
     retry: retryAllMarkets,
+    cacheMeta: allCacheMeta,
   } = useLendAllMarkets({
     enabled: hasProtocolAllMarkets,
     cacheKey: `${defi}:${allMarketKey}`,
@@ -740,8 +746,20 @@ export default function LendPanel({
     marketOrder,
     protocolMarketRows,
   ]);
+  const selectedMarketE = useMemo(
+    () =>
+      visibleAddedMarkets.find((entry) => entry.value == market) ||
+      allMarkets.find(
+        (entry) =>
+          entry.value == market || getAllMarketSelectValue(entry) == market,
+      ),
+    [allMarkets, market, visibleAddedMarkets],
+  );
   const fallbackMarketE = useMemo(() => {
     const fallback = getFallbackTradeMarketEntry(market);
+    if (hasProtocolAllMarkets && !selectedMarketE && !fallback?.lendAddress) {
+      return null;
+    }
     if (defi != "morpho" || !fallback || fallback.underlyingCoin) {
       return fallback;
     }
@@ -759,12 +777,18 @@ export default function LendPanel({
           underlyingName: underlyingCoin,
         }
       : fallback;
-  }, [chainE?.coinInfoM, defi, market]);
-  const marketE =
-    visibleAddedMarkets.find((entry) => entry.value == market) ||
-    allMarkets.find((entry) => entry.value == market) ||
-    fallbackMarketE ||
-    visibleAddedMarkets[0];
+  }, [
+    chainE?.coinInfoM,
+    defi,
+    hasProtocolAllMarkets,
+    market,
+    selectedMarketE,
+  ]);
+  const waitsForSelectedProtocolMarket =
+    hasProtocolAllMarkets && !!market && !selectedMarketE && !fallbackMarketE;
+  const marketE = waitsForSelectedProtocolMarket
+    ? null
+    : selectedMarketE || fallbackMarketE || visibleAddedMarkets[0];
   const fallbackMarketHistoryOptions = useMemo(() => {
     const values = getGroupedSelectionItems(marketOrder, chainE?.chain);
     return values
@@ -1194,12 +1218,13 @@ export default function LendPanel({
         error: "",
       },
     }));
+    const forceRefresh = !!chainDiscovery.refresh;
     const request =
       defi == "aave"
-        ? getAaveSupportedChains()
+        ? getAaveSupportedChains({ refresh: forceRefresh })
         : defi == "venus"
-          ? getVenusSupportedChains()
-          : getMorphoSupportedChains();
+          ? getVenusSupportedChains({ refresh: forceRefresh })
+          : getMorphoSupportedChains({ refresh: forceRefresh });
 
     request
       .then((res) => {
@@ -1211,6 +1236,8 @@ export default function LendPanel({
             loading: false,
             loaded: true,
             error: "",
+            cacheMeta: res?.cache || null,
+            refresh: false,
           },
         }));
       })
@@ -1225,6 +1252,8 @@ export default function LendPanel({
             error:
               e?.message ||
               `${getLendProtocolLabel(defi)} chain discovery failed`,
+            cacheMeta: null,
+            refresh: false,
           },
         }));
       });
@@ -1232,7 +1261,7 @@ export default function LendPanel({
     return () => {
       cancelled = true;
     };
-  }, [chainDiscovery.loaded, defi]);
+  }, [chainDiscovery.loaded, chainDiscovery.refresh, defi]);
 
   useEffect(() => {
     const savedDefi = getCookie(
@@ -1719,7 +1748,7 @@ export default function LendPanel({
   function retryChainDiscovery() {
     setChainDiscoveryM((discoveryM) => ({
       ...discoveryM,
-      [defi]: emptyChainDiscovery,
+      [defi]: { ...emptyChainDiscovery, refresh: true },
     }));
   }
 
@@ -1857,6 +1886,12 @@ export default function LendPanel({
             title: "discovery",
             options: discoveryChainOptions,
             emptyText: "-",
+            info: (
+              <DiscoveryCacheInfo
+                cacheMeta={chainDiscovery.cacheMeta}
+                onReload={retryChainDiscovery}
+              />
+            ),
             optionColumns: discoveryChainColumns,
             getOptionValue: (entry) => entry.chain,
             getOptionLabel: (entry) => entry.chain,
@@ -2507,6 +2542,7 @@ export default function LendPanel({
               allLoading={allLoading}
               allError={allError}
               allProtocolLabel={allProtocolLabel}
+              allCacheMeta={allCacheMeta}
               retryAllMarkets={retryAllMarkets}
               jupiterAllKey={jupiterAllKey}
               addedMarketSort={addedMarketSort}

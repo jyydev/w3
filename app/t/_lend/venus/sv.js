@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
@@ -44,6 +51,7 @@ const venusMarketFetchTimeoutMs = 15000;
 const venusTokenMetaTimeoutMs = 8000;
 const venusMarketFetchConcurrency = 8;
 const venusGoodMarketRatio = 0.8;
+const venusMarketCacheM = {};
 const venusBlocksPerYearM = {
   Arbitrum: 126144000,
   Base: 15768000,
@@ -137,8 +145,32 @@ export async function getVenusSupportedChains() {
   };
 }
 
-export async function getVenusAllMarkets({ chain = "" } = {}) {
+export async function clearVenusRuntimeCache() {
+  clearDiscoveryCacheMap(venusMarketCacheM);
+
+  return { ok: true };
+}
+
+export async function getVenusAllMarkets({ chain = "", refresh = false } = {}) {
   if (chain == "Solana") return { ok: true, chain, markets: [] };
+
+  const cacheKey = String(chain || "");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(venusMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      rpc: cached.rpc || "",
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
 
   const rpcList = getUsableChainRpcs(chain);
   if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
@@ -146,7 +178,18 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
   const savedMarkets = getSavedVenusMarkets(chain);
   const seedComptrollers = getVenusComptrollerSeeds(chain);
   if (!savedMarkets.length && !seedComptrollers.length) {
-    return { ok: true, chain, markets: [] };
+    const at = Date.now();
+    setDiscoveryCacheMapEntry(venusMarketCacheM, cacheKey, {
+      at,
+      rpc: "",
+      markets: [],
+    });
+    return {
+      ok: true,
+      chain,
+      markets: [],
+      cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
+    };
   }
 
   let bestResult = null;
@@ -303,13 +346,22 @@ export async function getVenusAllMarkets({ chain = "" } = {}) {
     );
   }
 
+  const markets = bestResult.markets.sort((a, b) =>
+    a.underlyingCoin.localeCompare(b.underlyingCoin),
+  );
+  const at = Date.now();
+  setDiscoveryCacheMapEntry(venusMarketCacheM, cacheKey, {
+    at,
+    rpc: bestResult.rpc,
+    markets,
+  });
+
   return {
     ok: true,
     chain,
     rpc: bestResult.rpc,
-    markets: bestResult.markets.sort((a, b) =>
-      a.underlyingCoin.localeCompare(b.underlyingCoin),
-    ),
+    markets,
+    cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
   };
 }
 

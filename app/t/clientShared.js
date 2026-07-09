@@ -5,12 +5,18 @@ import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { VersionedTransaction } from "@solana/web3.js";
 import toast from "react-hot-toast";
+import {
+  discoveryCacheMs,
+  isDiscoveryCacheFresh,
+  makeDiscoveryCacheMeta,
+} from "@/fn/discoveryCache";
 import { pc } from "@/fn/basic";
 import {
   CustomPicker,
   CustomPickerButton,
   CustomPickerCell,
   CustomPickerColumn,
+  DiscoveryCacheInfo,
   CustomHistoryPicker,
   CustomPickerMenu,
   CustomPickerRow,
@@ -196,6 +202,33 @@ export function withClientTimeout(promise, ms, message) {
   ]).finally(() => clearTimeout(timer));
 }
 
+const tradeAllMarketCacheM = {};
+const tradeAllMarketPromiseM = {};
+
+function normalizeTradeAllMarketsResult(res = {}, source = "api") {
+  const now = Date.now();
+  const cacheMeta =
+    res?.cache ||
+    makeDiscoveryCacheMeta({
+      source,
+      location: "client",
+      at: now,
+      ttlMs: discoveryCacheMs,
+    });
+
+  return {
+    markets: Array.isArray(res?.markets) ? res.markets : [],
+    cache: {
+      ...cacheMeta,
+      source: cacheMeta.source || source,
+      ttlMs: cacheMeta.ttlMs || discoveryCacheMs,
+      expiresAt:
+        cacheMeta.expiresAt ||
+        Number(cacheMeta.at || now) + Number(cacheMeta.ttlMs || discoveryCacheMs),
+    },
+  };
+}
+
 export function useTradeAllMarkets({
   enabled = false,
   cacheKey = "",
@@ -205,10 +238,13 @@ export function useTradeAllMarkets({
   timeoutMs = 25000,
 } = {}) {
   const [marketM, setMarketM] = useState({});
+  const [cacheMetaM, setCacheMetaM] = useState({});
   const [loadingM, setLoadingM] = useState({});
   const [errorM, setErrorM] = useState({});
   const [retryTick, setRetryTick] = useState(0);
+  const [refreshKey, setRefreshKey] = useState("");
   const markets = marketM[cacheKey] || [];
+  const cacheMeta = cacheMetaM[cacheKey] || null;
   const loading = !!loadingM[cacheKey];
   const error = errorM[cacheKey] || "";
   const loaded = marketM[cacheKey] !== undefined;
@@ -217,19 +253,54 @@ export function useTradeAllMarkets({
     if (!enabled || !cacheKey || !chain || !getAllMarkets) return;
     if (marketM[cacheKey] !== undefined || loadingM[cacheKey]) return;
 
+    const forceRefresh = refreshKey == cacheKey;
+    const cached = tradeAllMarketCacheM[cacheKey];
+    if (!forceRefresh && isDiscoveryCacheFresh(cached, discoveryCacheMs)) {
+      setMarketM((current) => ({ ...current, [cacheKey]: cached.markets }));
+      setCacheMetaM((current) => ({
+        ...current,
+        [cacheKey]: makeDiscoveryCacheMeta({
+          ...(cached.cache || {}),
+          source: "cache",
+          location: "client",
+        }),
+      }));
+      return;
+    }
+
     let cancelled = false;
     setLoadingM((current) => ({ ...current, [cacheKey]: true }));
     setErrorM((current) => ({ ...current, [cacheKey]: "" }));
-    withClientTimeout(
-      getAllMarkets({ chain }),
-      timeoutMs,
-      `${chain} ${protocolLabel} loading timeout`,
-    )
+
+    if (!tradeAllMarketPromiseM[cacheKey] || forceRefresh) {
+      tradeAllMarketPromiseM[cacheKey] = withClientTimeout(
+        getAllMarkets({ chain, refresh: forceRefresh }),
+        timeoutMs,
+        `${chain} ${protocolLabel} loading timeout`,
+      )
+        .then((res) => normalizeTradeAllMarketsResult(res, "api"))
+        .then((entry) => {
+          tradeAllMarketCacheM[cacheKey] = {
+            ...entry,
+            at: Number(entry.cache?.at || Date.now()),
+          };
+          return entry;
+        })
+        .finally(() => {
+          delete tradeAllMarketPromiseM[cacheKey];
+        });
+    }
+
+    tradeAllMarketPromiseM[cacheKey]
       .then((res) => {
         if (cancelled) return;
         setMarketM((current) => ({
           ...current,
-          [cacheKey]: Array.isArray(res?.markets) ? res.markets : [],
+          [cacheKey]: res.markets,
+        }));
+        setCacheMetaM((current) => ({
+          ...current,
+          [cacheKey]: res.cache,
         }));
       })
       .catch((e) => {
@@ -243,6 +314,7 @@ export function useTradeAllMarkets({
       .finally(() => {
         if (cancelled) return;
         setLoadingM((current) => ({ ...current, [cacheKey]: false }));
+        setRefreshKey((key) => (key == cacheKey ? "" : key));
       });
 
     return () => {
@@ -253,6 +325,7 @@ export function useTradeAllMarkets({
     chain,
     enabled,
     getAllMarkets,
+    refreshKey,
     protocolLabel,
     retryTick,
     timeoutMs,
@@ -266,12 +339,20 @@ export function useTradeAllMarkets({
       delete next[cacheKey];
       return next;
     });
+    setCacheMetaM((current) => {
+      const next = { ...current };
+      delete next[cacheKey];
+      return next;
+    });
+    delete tradeAllMarketCacheM[cacheKey];
+    delete tradeAllMarketPromiseM[cacheKey];
+    setRefreshKey(cacheKey);
     setErrorM((current) => ({ ...current, [cacheKey]: "" }));
     setLoadingM((current) => ({ ...current, [cacheKey]: false }));
     setRetryTick((tick) => tick + 1);
   }
 
-  return { markets, loading, loaded, error, retry };
+  return { markets, loading, loaded, error, retry, cacheMeta };
 }
 
 export function useTradeDirectMarketBalance({
@@ -389,6 +470,12 @@ function getTradeCoinEKey(coinE = null) {
 }
 
 export function clearTradeClientRuntimeCache() {
+  for (const key of Object.keys(tradeAllMarketCacheM)) {
+    delete tradeAllMarketCacheM[key];
+  }
+  for (const key of Object.keys(tradeAllMarketPromiseM)) {
+    delete tradeAllMarketPromiseM[key];
+  }
   for (const key of Object.keys(tradeFallbackPriceCacheM)) {
     delete tradeFallbackPriceCacheM[key];
   }
@@ -902,9 +989,14 @@ export function TradePickerMenu({ className = "", children }) {
   return <CustomPickerMenu className={className}>{children}</CustomPickerMenu>;
 }
 
-export function TradePickerColumn({ title = "", historyLimit = 5, children }) {
+export function TradePickerColumn({
+  title = "",
+  historyLimit = 5,
+  info,
+  children,
+}) {
   return (
-    <CustomPickerColumn title={title} historyLimit={historyLimit}>
+    <CustomPickerColumn title={title} historyLimit={historyLimit} info={info}>
       {children}
     </CustomPickerColumn>
   );
@@ -1411,6 +1503,7 @@ export function TradeMarketPicker({
   allError = "",
   allProtocolLabel = "",
   allColumnTitle = "all",
+  allCacheMeta = null,
   retryAllMarkets = () => {},
   addedMarketSort = "",
   setAddedMarketSort = () => {},
@@ -1626,7 +1719,17 @@ export function TradeMarketPicker({
           <TradePickerMenu className="tradeMarketMenu">
             {renderLocalMarketColumn("history", historyRows)}
             {renderLocalMarketColumn("all", addedRows)}
-            <TradePickerColumn title={allColumnTitle}>
+            <TradePickerColumn
+              title={allColumnTitle}
+              info={
+                allColumnTitle == "discovery" ? (
+                  <DiscoveryCacheInfo
+                    cacheMeta={allCacheMeta}
+                    onReload={retryAllMarkets}
+                  />
+                ) : undefined
+              }
+            >
               <TradePickerTable
                 className="customPickerAllTable"
                 headers={[

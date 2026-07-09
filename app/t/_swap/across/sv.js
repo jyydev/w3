@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   assertWhitelistedRecipient,
@@ -25,7 +32,9 @@ import {
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
-const acrossApiBase = "https://app.across.to/api";const nativeSolanaAddress = "11111111111111111111111111111111";
+const acrossApiBase = "https://app.across.to/api";
+const acrossDiscoveryCacheM = {};
+const nativeSolanaAddress = "11111111111111111111111111111111";
 const acrossEvmChains = [
   "Ethereum",
   "Optimism",
@@ -206,7 +215,43 @@ function normalizeAcrossToken(entry = {}, chainByIdM = {}) {
   };
 }
 
-export async function getAcrossSupportedBridge() {
+function getAcrossDiscoveryCache(key = "") {
+  const cached = getDiscoveryCacheMapEntry(acrossDiscoveryCacheM, key);
+  if (!cached) return null;
+
+  return {
+    ...(cached.data || {}),
+    cache: makeDiscoveryCacheMeta({
+      source: "cache",
+      at: cached.at,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
+}
+
+function setAcrossDiscoveryCache(key = "", data = {}) {
+  const at = Date.now();
+  setDiscoveryCacheMapEntry(acrossDiscoveryCacheM, key, { at, data });
+
+  return {
+    ...data,
+    cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
+  };
+}
+
+export async function clearAcrossRuntimeCache() {
+  clearDiscoveryCacheMap(acrossDiscoveryCacheM);
+
+  return { ok: true };
+}
+
+export async function getAcrossSupportedBridge({ refresh = false } = {}) {
+  const cacheKey = "support";
+  if (!refresh) {
+    const cached = getAcrossDiscoveryCache(cacheKey);
+    if (cached) return cached;
+  }
+
   const chainsData = await acrossFetch("/swap/chains", {}, {
     requireApiKey: false,
     timeoutMs: 10000,
@@ -234,7 +279,7 @@ export async function getAcrossSupportedBridge() {
     .map((entry) => normalizeAcrossToken(entry, chainByIdM))
     .filter((entry) => entry.chainId || entry.symbol || entry.address);
 
-  return { chains, tokens };
+  return setAcrossDiscoveryCache(cacheKey, { chains, tokens });
 }
 
 function getAcrossAmountIn({ chain, fromCoin, amount }) {

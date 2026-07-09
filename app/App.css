@@ -1465,6 +1465,15 @@ img.assetIcon {
   min-width: 210px;
   white-space: normal;
 }
+.customPickerCacheInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.customPickerCacheInfo .btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
 .tradeMarketMenu {
   grid-template-columns: max-content max-content;
   min-width: 0;

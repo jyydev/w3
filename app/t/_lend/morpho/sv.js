@@ -3,6 +3,14 @@
 import { ethers } from "ethers";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  isDiscoveryCacheFresh,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
@@ -47,11 +55,11 @@ const morphoNetworkNameM = {
 const morphoKnownChainIdM = {
   ...chainIds,
 };
-const morphoSupportedChainCacheMs = 5 * 60 * 1000;
 let morphoSupportedChainCache = {
   at: 0,
   chains: [],
 };
+const morphoMarketCacheM = {};
 const erc4626Abi = [
   "function asset() view returns (address)",
   "function convertToShares(uint256 assets) view returns (uint256)",
@@ -122,9 +130,16 @@ async function getMorphoSupportedChainRows({ refresh = false } = {}) {
   if (
     !refresh &&
     morphoSupportedChainCache.chains.length &&
-    now - morphoSupportedChainCache.at < morphoSupportedChainCacheMs
+    isDiscoveryCacheFresh(morphoSupportedChainCache, discoveryCacheMs)
   ) {
-    return morphoSupportedChainCache.chains;
+    return {
+      chains: morphoSupportedChainCache.chains,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: morphoSupportedChainCache.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
   }
 
   const data = await morphoFetch(
@@ -175,13 +190,20 @@ async function getMorphoSupportedChainRows({ refresh = false } = {}) {
     chains,
   };
 
-  return chains;
+  return {
+    chains,
+    cache: makeDiscoveryCacheMeta({
+      source: "api",
+      at: now,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
 }
 
 async function getMorphoChainId(chain = "") {
   if (morphoKnownChainIdM[chain]) return morphoKnownChainIdM[chain];
 
-  const chains = await getMorphoSupportedChainRows();
+  const { chains } = await getMorphoSupportedChainRows();
   return chains.find((entry) => entry.chain == chain)?.chainId || 0;
 }
 
@@ -190,6 +212,7 @@ export async function clearMorphoRuntimeCache() {
     at: 0,
     chains: [],
   };
+  clearDiscoveryCacheMap(morphoMarketCacheM);
   for (const chain of Object.keys(morphoKnownChainIdM)) {
     if (!chainIds[chain]) delete morphoKnownChainIdM[chain];
   }
@@ -197,10 +220,13 @@ export async function clearMorphoRuntimeCache() {
   return { ok: true };
 }
 
-export async function getMorphoSupportedChains() {
+export async function getMorphoSupportedChains({ refresh = false } = {}) {
+  const { chains, cache } = await getMorphoSupportedChainRows({ refresh });
+
   return {
     ok: true,
-    chains: await getMorphoSupportedChainRows(),
+    chains,
+    cache,
   };
 }
 
@@ -359,9 +385,28 @@ async function assertMorphoMarket({
   };
 }
 
-export async function getMorphoAllMarkets({ chain = "" } = {}) {
+export async function getMorphoAllMarkets({ chain = "", refresh = false } = {}) {
   if (chain == "Solana") return { ok: true, chain, markets: [] };
 
+  const cacheKey = String(chain || "");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(morphoMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      chainId: cached.chainId || 0,
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
+
+  const now = Date.now();
   const chainId = await getMorphoChainId(chain);
   if (!chainId) return { ok: true, chain, markets: [] };
 
@@ -477,16 +522,28 @@ export async function getMorphoAllMarkets({ chain = "" } = {}) {
       )
     ).filter(Boolean);
 
+    const sortedMarkets = markets.sort((a, b) => {
+      if (b.totalAssetsUsd != a.totalAssetsUsd) {
+        return b.totalAssetsUsd - a.totalAssetsUsd;
+      }
+
+      return a.underlyingCoin.localeCompare(b.underlyingCoin);
+    });
+    setDiscoveryCacheMapEntry(morphoMarketCacheM, cacheKey, {
+      at: now,
+      chainId,
+      markets: sortedMarkets,
+    });
+
     return {
       ok: true,
       chain,
       chainId,
-      markets: markets.sort((a, b) => {
-        if (b.totalAssetsUsd != a.totalAssetsUsd) {
-          return b.totalAssetsUsd - a.totalAssetsUsd;
-        }
-
-        return a.underlyingCoin.localeCompare(b.underlyingCoin);
+      markets: sortedMarkets,
+      cache: makeDiscoveryCacheMeta({
+        source: "api",
+        at: now,
+        ttlMs: discoveryCacheMs,
       }),
     };
   } finally {

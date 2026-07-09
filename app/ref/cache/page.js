@@ -25,46 +25,92 @@ const cacheTypeRows = [
   ],
 ];
 
-const cachedRows = [
+const serverCacheRows = [
+  [
+    "Discovery cache maps",
+    "Server module memory registered through fn/discoveryCache.js. TTL is 1 hour and the shared global limit is 100 entries across wired server discovery maps.",
+  ],
+  [
+    "Aave markets",
+    "server discovery cache map in app/t/_lend/aave/sv.js; keyed by chain. One chain is one cache entry, regardless of how many markets it returns.",
+  ],
+  [
+    "Venus markets",
+    "server discovery cache map in app/t/_lend/venus/sv.js; keyed by chain.",
+  ],
+  [
+    "Morpho markets",
+    "server discovery cache map in app/t/_lend/morpho/sv.js; keyed by chain.",
+  ],
+  [
+    "Jupiter Lend markets",
+    "server discovery cache map in app/t/_lend/jupiter/sv.js; keyed by chain.",
+  ],
+  [
+    "Venus Flux markets",
+    "server discovery cache map in app/t/_yield/venusFlux/sv.js; keyed by chain.",
+  ],
+  [
+    "Relay/Jumper/Across discovery",
+    "server discovery cache maps for supported chains and default token lists. Search-term token discovery is client cache only.",
+  ],
+  [
+    "Jupiter Swap default tokens",
+    "server discovery cache map for the default Solana token list. Search-term token discovery is client cache only.",
+  ],
   [
     "Morpho supported chains",
-    "server module memory in app/t/_lend/morpho/sv.js; cached for 5 minutes.",
+    "single server module cache in app/t/_lend/morpho/sv.js; cached for 1 hour. It is one value, so it is not part of the 100-entry map limit.",
+  ],
+  [
+    "Hyperliquid bridge discovery",
+    "single server module cache in app/t/_yield/hyperliquid/sv.js; cached for 1 hour.",
   ],
   [
     "Spark savings rates",
     "server module memory in app/t/_yield/spark/sv.js; cached for 10 minutes.",
   ],
+];
+
+const clientCacheRows = [
+  [
+    "Trade all-market lists",
+    "client module memory in app/t/clientShared.js; caches fetched market lists by cacheKey for 1 hour while the browser tab/module stays loaded.",
+  ],
   [
     "Swap protocol support",
-    "client module memory in app/t/_swap/Client.js; cached by DEX while the client module stays loaded.",
+    "client module memory in app/t/_swap/Client.js; cached by DEX for 1 hour while the client module stays loaded.",
   ],
   [
     "Swap token discovery",
-    "client module memory in app/t/_swap/Client.js; cached by DEX, chain, and search term.",
+    "client module memory in app/t/_swap/Client.js and app/t/_swap/Swap.js; cached by DEX, chain, and search term for 1 hour.",
   ],
   [
     "Hyperliquid bridge discovery",
-    "client module memory in app/t/_yield/hyperliquid/Client.js; cached until retry or page/module reset.",
+    "client module memory in app/t/_yield/hyperliquid/Client.js; caches the bridge discovery wrapper for 1 hour.",
   ],
   [
     "Trade fallback prices",
-    "client module memory in app/t/clientShared.js; cached by price key after first fallback price query.",
-  ],
-  [
-    "Trade all-market lists",
-    "component state in app/t/clientShared.js useTradeAllMarkets; cached by cacheKey while the panel stays mounted.",
-  ],
-  [
-    "Trade direct market balances",
-    "component state in app/t/clientShared.js useTradeDirectMarketBalance; cached by cacheKey while the panel stays mounted.",
+    "client module memory in app/t/clientShared.js; cached by price key after the first fallback price query until clear/reload.",
   ],
 ];
 
-const notCachedRows = [
+const temporaryRows = [
+  [
+    "Wallet balances",
+    "held in page/component state after load so the UI can render them, but not saved as shared server runtime cache.",
+  ],
+  [
+    "Trade direct market balances",
+    "component state in app/t/clientShared.js useTradeDirectMarketBalance; cached by cacheKey only while the panel stays mounted.",
+  ],
   [
     "Alchemy Portfolio batch",
     "request scoped in app/w/walletData.js. It batches wallet/network tokens for one wallet page render but is not saved as module cache.",
   ],
+];
+
+const notCachedRows = [
   [
     "Alchemy token fetch",
     "uses cache: no-store, so browser/server HTTP cache is not used.",
@@ -74,12 +120,16 @@ const notCachedRows = [
     "not cached as balances. RPC failures have a short cooldown/log suppression, but balances are fetched fresh.",
   ],
   [
-    "Hyperliquid server API reads",
-    "server fetches use no-store for live account, bridge, and vault data.",
+    "Transaction previews",
+    "not saved in server runtime cache. Preview actions may remain in component/client state while the current panel stays mounted, but submit-time checks are fresh.",
   ],
   [
-    "Venus Flux API reads",
-    "server fetches use no-store for live protocol data.",
+    "Transaction execution",
+    "not cached. Swap, lend, yield, send, approve, claim, and staking execution paths run fresh.",
+  ],
+  [
+    "Live account/API reads",
+    "Hyperliquid account, vault, wallet balance, and similar live reads are fetched fresh unless listed above as discovery/rate cache.",
   ],
   [
     "Cookies",
@@ -98,9 +148,12 @@ const notCachedRows = [
 const cacheNotes = [
   "Module memory cache is created by declaring a variable at the top level of a module, outside the exported function.",
   "The cache key names and object fields are normal JavaScript. A key named at is only a timestamp convention, not special behavior.",
+  "The server discovery cache map limit is global across registered server discovery maps, not per protocol.",
+  "The global limit counts cache entries such as Aave Ethereum or Relay support. It does not count each market/token inside one cached result.",
+  "When the global server discovery cache exceeds 100 entries, expired entries are removed first, then the oldest remaining entries are removed.",
   "The wallet settings Etc tab can clear ALL, client, or server runtime cache.",
   "client clear affects the current browser tab's loaded client module caches.",
-  "server clear calls server actions for warm module caches such as Morpho and Spark.",
+  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
   "Local npm run dev cache resets on server restart and may reset on hot reload.",
   "On Vercel, memory cache is per warm runtime instance. Cold starts, different instances, and deployments start empty.",
   "Runtime cache should be treated as a speed helper. It must be safe for the app to refetch when empty.",
@@ -113,16 +166,24 @@ function CacheRefPage() {
       <Logo page="ref" />
       <h1 className="refTitle">Runtime cache</h1>
       <p className="refIntro">
-        What the app caches in memory, what is fetched fresh, and what is
-        persistent storage instead of cache.
+        What the app caches in server memory, what it caches in the browser
+        tab, what is temporary state, and what is fetched fresh.
       </p>
 
       <Section title="cache types">
         <Table rows={cacheTypeRows} />
       </Section>
 
-      <Section title="cached">
-        <Table rows={cachedRows} />
+      <Section title="server cache">
+        <Table rows={serverCacheRows} />
+      </Section>
+
+      <Section title="client cache">
+        <Table rows={clientCacheRows} />
+      </Section>
+
+      <Section title="temporary state">
+        <Table rows={temporaryRows} />
       </Section>
 
       <Section title="not cached">

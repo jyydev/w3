@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   executeSolanaTx,
   getCoinDecimals,
   getSolanaKeypair,
@@ -21,6 +28,7 @@ const jupiterTokenApiBase =
   "https://lite-api.jup.ag/tokens/v2";
 const jupiterNativeSolAddress = "So11111111111111111111111111111111111111112";
 const defaultSlippageBps = 50n;
+const jupiterSwapDiscoveryCacheM = {};
 
 function getJupiterToken(coin = "") {
   const coinE = coinM?.Solana?.[coin];
@@ -103,13 +111,51 @@ async function jupiterTokenFetch(endpoint, options = {}) {
   }
 }
 
+function getJupiterSwapDiscoveryCache(key = "") {
+  const cached = getDiscoveryCacheMapEntry(jupiterSwapDiscoveryCacheM, key);
+  if (!cached) return null;
+
+  return {
+    ...(cached.data || {}),
+    cache: makeDiscoveryCacheMeta({
+      source: "cache",
+      at: cached.at,
+      ttlMs: discoveryCacheMs,
+    }),
+  };
+}
+
+function setJupiterSwapDiscoveryCache(key = "", data = {}) {
+  const at = Date.now();
+  setDiscoveryCacheMapEntry(jupiterSwapDiscoveryCacheM, key, { at, data });
+
+  return {
+    ...data,
+    cache: makeDiscoveryCacheMeta({ source: "api", at, ttlMs: discoveryCacheMs }),
+  };
+}
+
+export async function clearJupiterSwapRuntimeCache() {
+  clearDiscoveryCacheMap(jupiterSwapDiscoveryCacheM);
+
+  return { ok: true };
+}
+
 export async function getJupiterTokenDiscovery({
   chain = "Solana",
   term = "",
+  refresh = false,
 } = {}) {
   if (chain != "Solana") throw new Error("Jupiter is Solana-only");
 
   const cleanTerm = String(term || "").trim();
+  const cacheKey = `token:${chain}:${cleanTerm.toLowerCase()}`;
+  const useServerCache = !cleanTerm;
+  if (useServerCache && !refresh) {
+    const cached = getJupiterSwapDiscoveryCache(cacheKey);
+    if (cached) return cached;
+  }
+
   const endpoint = cleanTerm
     ? `/search?${new URLSearchParams({ query: cleanTerm })}`
     : "/toptraded/1h";
@@ -128,7 +174,13 @@ export async function getJupiterTokenDiscovery({
       return true;
     });
 
-  return { chain, term: cleanTerm, tokens };
+  if (!useServerCache) return { chain, term: cleanTerm, tokens };
+
+  return setJupiterSwapDiscoveryCache(cacheKey, {
+    chain,
+    term: cleanTerm,
+    tokens,
+  });
 }
 
 async function jupiterFetch(endpoint, options = {}) {

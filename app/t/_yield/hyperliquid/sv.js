@@ -4,6 +4,11 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
+  discoveryCacheMs,
+  isDiscoveryCacheFresh,
+  makeDiscoveryCacheMeta,
+} from "@/fn/discoveryCache";
+import {
   assertWalletMatches,
   erc20Interface,
   executeRawEvmTx,
@@ -100,6 +105,10 @@ const hyperliquidStaticRouteFeeM = {
     "arbitrum:usdc": { fee: "1", eta: "5m" },
     "arbitrum_cctp:usdc": { fee: "1", eta: "5m" },
   },
+};
+let hyperliquidSpotBridgeCache = {
+  at: 0,
+  data: null,
 };
 
 function getHyperliquidUnitFeeGroup(route = "", asset = "") {
@@ -597,7 +606,32 @@ async function postHyperliquidExchange({
   return data;
 }
 
-export async function getHyperliquidSpotBridgeDiscovery() {
+export async function clearHyperliquidServerRuntimeCache() {
+  hyperliquidSpotBridgeCache = {
+    at: 0,
+    data: null,
+  };
+
+  return { ok: true };
+}
+
+export async function getHyperliquidSpotBridgeDiscovery({ refresh = false } = {}) {
+  if (
+    !refresh &&
+    hyperliquidSpotBridgeCache.data &&
+    isDiscoveryCacheFresh(hyperliquidSpotBridgeCache, discoveryCacheMs)
+  ) {
+    return {
+      ...hyperliquidSpotBridgeCache.data,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: hyperliquidSpotBridgeCache.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
+
+  const now = Date.now();
   let fees = {};
   let feeError = "";
 
@@ -616,12 +650,25 @@ export async function getHyperliquidSpotBridgeDiscovery() {
     feeError = e?.message || "Hyperliquid route fees unavailable";
   }
 
-  return {
+  const data = {
     ok: true,
     deposit: buildHyperliquidUnitDiscovery({ action: "deposit", fees }),
     withdraw: buildHyperliquidUnitDiscovery({ action: "withdraw", fees }),
     feesLoaded: !feeError,
     feeError,
+  };
+  hyperliquidSpotBridgeCache = {
+    at: now,
+    data,
+  };
+
+  return {
+    ...data,
+    cache: makeDiscoveryCacheMeta({
+      source: "api",
+      at: now,
+      ttlMs: discoveryCacheMs,
+    }),
   };
 }
 

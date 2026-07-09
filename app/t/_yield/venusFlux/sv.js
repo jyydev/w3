@@ -4,6 +4,13 @@ import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   approveExactIfNeeded,
   assertWalletMatches,
   erc20Abi,
@@ -41,6 +48,7 @@ const erc4626Abi = [
 const erc4626Interface = new ethers.Interface(erc4626Abi);
 const venusFluxApiBase = "https://api.fluid.instadapp.io";
 const venusFluxMarketFetchTimeoutMs = 12000;
+const venusFluxMarketCacheM = {};
 const venusFluxTokenMetaTimeoutMs = 8000;
 
 function getCoinByAddress(chain = "", address = "") {
@@ -403,11 +411,35 @@ async function fetchVenusFluxApiMarkets(chain = "") {
   return Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
 }
 
-export async function getVenusFluxAllMarkets({ chain = "" } = {}) {
+export async function clearVenusFluxRuntimeCache() {
+  clearDiscoveryCacheMap(venusFluxMarketCacheM);
+
+  return { ok: true };
+}
+
+export async function getVenusFluxAllMarkets({ chain = "", refresh = false } = {}) {
   if (chain == "Solana" || chain == "Hyperliquid") {
     return { ok: true, chain, markets: [] };
   }
 
+  const cacheKey = String(chain || "");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(venusFluxMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
+
+  const now = Date.now();
   const savedMarkets = getVenusFluxMarkets(chain);
   const rpc = getUsableChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
@@ -444,11 +476,20 @@ export async function getVenusFluxAllMarkets({ chain = "" } = {}) {
     const uniqueMarkets = [...marketM.values()].sort((a, b) =>
       a.underlyingCoin.localeCompare(b.underlyingCoin),
     );
+    setDiscoveryCacheMapEntry(venusFluxMarketCacheM, cacheKey, {
+      at: now,
+      markets: uniqueMarkets,
+    });
 
     return {
       ok: true,
       chain,
       markets: uniqueMarkets,
+      cache: makeDiscoveryCacheMeta({
+        source: "api",
+        at: now,
+        ttlMs: discoveryCacheMs,
+      }),
     };
   } finally {
     provider.destroy?.();

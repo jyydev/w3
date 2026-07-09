@@ -15,6 +15,13 @@ import {
 } from "@solana/spl-token";
 import coinM from "@/fn/coinM";
 import {
+  clearDiscoveryCacheMap,
+  discoveryCacheMs,
+  getDiscoveryCacheMapEntry,
+  makeDiscoveryCacheMeta,
+  setDiscoveryCacheMapEntry,
+} from "@/fn/discoveryCache";
+import {
   executeSolanaTx,
   createSolanaConnection,
   getCoinDecimals,
@@ -50,6 +57,7 @@ const jupiterRedeemDiscriminator = Buffer.from([
 const jupiterLendingAccountDiscriminator = Buffer.from([
   135, 199, 82, 16, 249, 131, 182, 241,
 ]);
+const jupiterAllMarketCacheM = {};
 const jupiterTokenSearchUrl = "https://lite-api.jup.ag/tokens/v2/search";
 const jupiterLendTokenQueries = ["jl", "JUICED"];
 const jupiterUnderlyingTokenM = {
@@ -883,17 +891,50 @@ function mergeJupiterMarkets(...groups) {
   );
 }
 
-export async function getJupiterAllMarkets({ chain = "" } = {}) {
+export async function clearJupiterRuntimeCache() {
+  clearDiscoveryCacheMap(jupiterAllMarketCacheM);
+
+  return { ok: true };
+}
+
+export async function getJupiterAllMarkets({ chain = "", refresh = false } = {}) {
   if (chain != "Solana") return { ok: true, chain, markets: [] };
 
+  const cacheKey = String(chain || "Solana");
+  const cached = !refresh
+    ? getDiscoveryCacheMapEntry(jupiterAllMarketCacheM, cacheKey)
+    : null;
+  if (cached?.markets) {
+    return {
+      ok: true,
+      chain,
+      markets: cached.markets,
+      cache: makeDiscoveryCacheMeta({
+        source: "cache",
+        at: cached.at,
+        ttlMs: discoveryCacheMs,
+      }),
+    };
+  }
+
+  const now = Date.now();
   const apiMarkets = await getJupiterApiMarkets(chain).catch(() => []);
   const localMarkets = await getJupiterLocalPdaMarkets(chain).catch(() => []);
   const markets = mergeJupiterMarkets(apiMarkets, localMarkets);
+  setDiscoveryCacheMapEntry(jupiterAllMarketCacheM, cacheKey, {
+    at: now,
+    markets,
+  });
 
   return {
     ok: true,
     chain,
     markets,
+    cache: makeDiscoveryCacheMeta({
+      source: "api",
+      at: now,
+      ttlMs: discoveryCacheMs,
+    }),
   };
 }
 
