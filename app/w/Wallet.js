@@ -791,6 +791,7 @@ function Wallet({
         .join("|"),
     ).slice(0, walletHistoryCap),
   );
+  const walletHistoryByTypeRef = useRef({});
   const walletHistorySkipRef = useRef("");
   let [loadingWallet, setLoadingWallet] = useState(false);
   let [coinLimit, setCoinLimit] = useState(() => {
@@ -1338,21 +1339,22 @@ function Wallet({
   ]);
 
   useEffect(() => {
-    const saved = [
-      getCookie(getWalletHistoryCookie(walletType)),
-      readBrowserStorage(getWalletHistoryStorageKey(walletType)),
-    ]
-      .filter(Boolean)
-      .join("|");
-    setWalletHistoryOrder(
-      parseSelectionOrder(saved).slice(0, walletHistoryCap),
+    const saved = getSavedWalletHistoryOrder(walletType);
+    const cached = walletHistoryByTypeRef.current[walletType] || [];
+    const next = normalizeSelectionOrder(
+      [...saved, ...cached],
+      [],
+      walletHistoryCap,
     );
+    walletHistoryByTypeRef.current[walletType] = next;
+    setWalletHistoryOrder(next);
   }, [walletType]);
 
   useEffect(() => {
     if (!localEditorStoreChecked || checkingLocalWallet) return;
     if (selectedAddress && !connectedWalletChecked) return;
     if (consumeWalletHistorySkip(walletSelectValue)) return;
+    if (!shouldAutoRememberWalletHistory(walletSelectValue)) return;
     rememberWalletHistory(walletSelectValue);
   }, [
     checkingLocalWallet,
@@ -2068,12 +2070,25 @@ function Wallet({
   }
 
   function saveWalletHistoryOrder(type, order = []) {
-    const encoded = encodeSelectionOrder(order);
+    const normalizedOrder = normalizeSelectionOrder(order, [], walletHistoryCap);
+    walletHistoryByTypeRef.current[type] = normalizedOrder;
+    const encoded = encodeSelectionOrder(normalizedOrder);
     setCookie(getWalletHistoryCookie(type), encoded, {
       maxAge: cookieMaxAge,
       path: "/",
     });
     writeBrowserStorage(getWalletHistoryStorageKey(type), encoded);
+  }
+
+  function getSavedWalletHistoryOrder(type = walletType) {
+    return parseSelectionOrder(
+      [
+        getCookie(getWalletHistoryCookie(type)),
+        readBrowserStorage(getWalletHistoryStorageKey(type)),
+      ]
+        .filter(Boolean)
+        .join("|"),
+    ).slice(0, walletHistoryCap);
   }
 
   function encodeSelectionValue(value) {
@@ -2513,16 +2528,17 @@ function Wallet({
       getStoredWalletHistoryOption(value);
     if (!option) return;
 
-    const validValues = [
-      ...walletHistoryOptionValues,
-      ...walletHistoryOrder,
-      getWalletHistoryValue(value),
-      connectedWalletValue,
-    ];
     const historyValue = getCanonicalWalletHistoryValue(value);
     const resolvedHistoryPath = getWalletHistoryValue(value).replace(/\/+$/, "");
     setWalletHistoryOrder((prev) => {
-      const nextPrev = prev.filter(
+      const basePrev = walletHistoryByTypeRef.current[walletType] || prev;
+      const validValues = [
+        ...walletHistoryOptionValues,
+        ...basePrev,
+        getWalletHistoryValue(value),
+        connectedWalletValue,
+      ];
+      const nextPrev = basePrev.filter(
         (entry) =>
           !isSameCanonicalWalletHistoryValue(entry, historyValue) &&
           getWalletNotFoundPath(entry) != resolvedHistoryPath,
@@ -2533,10 +2549,22 @@ function Wallet({
         validValues,
         walletHistoryCap,
       );
-      if (encodeSelectionOrder(next) == encodeSelectionOrder(prev)) return prev;
+      if (encodeSelectionOrder(next) == encodeSelectionOrder(prev)) {
+        walletHistoryByTypeRef.current[walletType] = next;
+        return prev;
+      }
       saveWalletHistoryOrder(walletType, next);
       return next;
     });
+  }
+
+  function shouldAutoRememberWalletHistory(value) {
+    const historyValue = getWalletHistoryValue(value);
+    return (
+      historyValue &&
+      historyValue != favWalletHistoryValue &&
+      value != "all"
+    );
   }
 
   function getWalletHistorySkipToken(value) {
@@ -2612,7 +2640,10 @@ function Wallet({
 
   function goWalletType(nextType) {
     if (nextType == walletType) return;
-    saveWalletHistoryOrder(walletType, walletHistoryOrder);
+    saveWalletHistoryOrder(
+      walletType,
+      walletHistoryByTypeRef.current[walletType] || walletHistoryOrder,
+    );
     saveCurrentWalletSelection();
 
     const nextSelection = getLastWalletSelection(nextType);
