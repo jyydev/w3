@@ -197,9 +197,22 @@ export function DiscoveryCacheInfo({
   cacheMeta = null,
   onReload,
   ttlMs = discoveryCacheMs,
+  description = "Dynamically loaded protocol/API options.",
+  cacheText = "",
+  expiresText = "",
+  extraRows = [],
+  showCache = true,
+  showAge = true,
 } = {}) {
   const meta = cacheMeta || {};
-  const source = meta.source == "cache" ? "cache" : meta.source ? "fresh api" : "-";
+  const source =
+    meta.source == "cache"
+      ? "cache"
+      : meta.source == "mixed"
+        ? "cache + fresh api"
+        : meta.source
+          ? "fresh api"
+          : "-";
   const location = meta.location || meta.cacheLocation || "-";
   const finalTtlMs = Number(meta.ttlMs || ttlMs || discoveryCacheMs);
   const ageText = meta.at ? formatDiscoveryCacheDuration(getDiscoveryCacheAgeMs(meta)) : "-";
@@ -209,26 +222,33 @@ export function DiscoveryCacheInfo({
 
   return (
     <span className="customPickerCacheInfo">
-      <span>Dynamically loaded protocol/API options.</span>
-      <span>source: {source}</span>
+      <span>{description}</span>
+      <span className="customPickerCacheSourceRow">
+        <span>source: {source}</span>
+        {onReload && (
+          <button
+            type="button"
+            className="btn small bgGray"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onReload(e);
+            }}
+          >
+            reload
+          </button>
+        )}
+      </span>
       <span>cache type: {location}</span>
-      <span>cache: {formatDiscoveryCacheDuration(finalTtlMs)}</span>
-      <span>cached: {formatCacheTime(meta.at)}</span>
-      <span>age: {ageText}</span>
-      <span>expires: {remainingText}</span>
-      {onReload && (
-        <button
-          type="button"
-          className="btn small bgGray"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onReload(e);
-          }}
-        >
-          reload
-        </button>
+      {showCache && (
+        <span>cache: {cacheText || formatDiscoveryCacheDuration(finalTtlMs)}</span>
       )}
+      <span>cached: {formatCacheTime(meta.at)}</span>
+      {showAge && <span>age: {ageText}</span>}
+      <span>expires: {expiresText || remainingText}</span>
+      {extraRows.map((row, index) => (
+        <span key={index}>{row}</span>
+      ))}
     </span>
   );
 }

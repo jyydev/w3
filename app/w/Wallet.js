@@ -20,12 +20,13 @@ import { ckPrefix, scanners, walletChainFilterPriority } from "@/sets";
 import {
   CustomHistoryPicker,
   CycleButtonPair,
+  DiscoveryCacheInfo,
   getCustomPickerHistoryCycleValues,
   TableSortHeader,
   TrashIcon,
 } from "@/components/Shared";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   addLocalCustomCoin,
   addLocalWalletEntry,
@@ -60,6 +61,16 @@ import {
   parseFavAddrs,
 } from "./favAddrs";
 import { readStoredWallet, walletConnectEvent } from "./browserWalletStorage";
+import {
+  applyWalletBalanceClientCache,
+  clearWalletBalanceClientCache,
+  getWalletBalanceClientCacheData,
+  getWalletBalanceClientCacheMeta,
+  isWalletBalanceAddressCached,
+  mergeWalletBalanceData,
+  patchWalletBalanceClientCache,
+  writeWalletBalanceClientCache,
+} from "./walletBalanceClientCache";
 import {
   disabledCoinsCookie,
   disabledWalletsCookie,
@@ -254,6 +265,82 @@ function applyBalancePatches(data = [], patchM = {}) {
       }),
     };
   });
+}
+
+function getWalletAddressReloadKey(walletType = "evm", address = "") {
+  const cleanAddress = String(address || "").trim().toLowerCase();
+  return cleanAddress ? `${walletType}:${cleanAddress}` : "";
+}
+
+function applyWalletAddressReloadData(
+  data = [],
+  reloadM = {},
+  walletType = "evm",
+) {
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+  const reloadData = Object.entries(reloadM || {})
+    .filter(([key]) => key.startsWith(`${walletType}:`))
+    .flatMap(([, value]) =>
+      Array.isArray(value) ? value : value ? [value] : [],
+    );
+  if (!list.length || !reloadData.length) return data;
+
+  const reloadByChainM = {};
+  for (const chainE of reloadData) {
+    const chain = String(chainE?.chain || "");
+    if (!chain) continue;
+    reloadByChainM[chain] ??= [];
+    reloadByChainM[chain].push(chainE);
+  }
+
+  const merged = list.map((chainE) => {
+    const reloadChains = reloadByChainM[chainE?.chain] || [];
+    if (!reloadChains.length) return chainE;
+
+    const rows = [...(chainE.rows || [])];
+    const allCoins = [...(chainE.allCoins || [])];
+    const coins = [...(chainE.coins || [])];
+    const coinInfoM = { ...(chainE.coinInfoM || {}) };
+
+    for (const reloadChain of reloadChains) {
+      Object.assign(coinInfoM, reloadChain.coinInfoM || {});
+      for (const coin of reloadChain.allCoins || []) {
+        if (!allCoins.includes(coin)) allCoins.push(coin);
+      }
+      for (const coin of reloadChain.coins || []) {
+        if (!coins.includes(coin)) coins.push(coin);
+      }
+      for (const reloadRow of reloadChain.rows || []) {
+        const index = rows.findIndex((row) =>
+          sameWalletAddress(row.address, reloadRow.address),
+        );
+        if (index >= 0) {
+          rows[index] = {
+            ...rows[index],
+            ...reloadRow,
+            clientCached: false,
+            clientReloaded: true,
+          };
+        } else {
+          rows.push({
+            ...reloadRow,
+            clientCached: false,
+            clientReloaded: true,
+          });
+        }
+      }
+    }
+
+    return {
+      ...chainE,
+      allCoins,
+      coins,
+      coinInfoM,
+      rows,
+    };
+  });
+
+  return Array.isArray(data) ? merged : merged[0] || data;
 }
 
 function shortContract(address) {
@@ -728,6 +815,9 @@ function Wallet({
   let [localWalletFiles, setLocalWalletFiles] = useState([]);
   let [localWalletData, setLocalWalletData] = useState(null);
   let [balancePatchM, setBalancePatchM] = useState({});
+  let [walletAddressReloadM, setWalletAddressReloadM] = useState({});
+  let [reloadingWalletAddressKey, setReloadingWalletAddressKey] = useState("");
+  let [walletBalanceCacheVersion, setWalletBalanceCacheVersion] = useState(0);
   let [localWalletVersion, setLocalWalletVersion] = useState(0);
   let [localCustomCoinM, setLocalCustomCoinM] = useState({});
   let [loadingLocalWallet, setLoadingLocalWallet] = useState(false);
@@ -801,9 +891,27 @@ function Wallet({
   const serverChainNameKey = serverChainList
     .map((chainE) => chainE.chain)
     .join("|");
-  const activeData = applyBalancePatches(
-    normalizeWalletCoinAliases(localWalletData || data),
-    balancePatchM,
+  const walletSourceData = localWalletData || data;
+  const cachedWalletSourceData = useMemo(
+    () => applyWalletBalanceClientCache(walletSourceData, { walletType }),
+    [walletSourceData, walletType, walletBalanceCacheVersion],
+  );
+  const reloadedWalletSourceData = useMemo(
+    () =>
+      applyWalletAddressReloadData(
+        cachedWalletSourceData,
+        walletAddressReloadM,
+        walletType,
+      ),
+    [cachedWalletSourceData, walletAddressReloadM, walletType],
+  );
+  const activeData = useMemo(
+    () =>
+      applyBalancePatches(
+        normalizeWalletCoinAliases(reloadedWalletSourceData),
+        balancePatchM,
+      ),
+    [balancePatchM, reloadedWalletSourceData],
   );
   const chainList = Array.isArray(activeData)
     ? activeData
@@ -814,6 +922,24 @@ function Wallet({
     .map(
       (chainE) =>
         `${chainE.chain}:${chainE.rows?.length ?? 0}:${chainE.error ?? ""}`,
+    )
+    .join("|");
+  const walletBalanceCacheDataKey = chainList
+    .map(
+      (chainE) =>
+        `${chainE.chain}:${(chainE.rows || [])
+          .map(
+            (row) =>
+              `${row.address || ""}:${row.error || ""}:${Object.entries(
+                row.balances || {},
+              )
+                .map(
+                  ([coin, bal]) =>
+                    `${coin}:${bal?.raw ?? bal?.balance ?? ""}:${bal?.usd ?? ""}`,
+                )
+                .join(",")}`,
+          )
+          .join(";")}`,
     )
     .join("|");
   const chainNameKey = chainList.map((chainE) => chainE.chain).join("|");
@@ -903,7 +1029,6 @@ function Wallet({
     chainSelectOptionValues,
     chainSortCap,
   );
-
   function getAllCoins(chainE) {
     return chainE?.allCoins?.length ? chainE.allCoins : chainE?.coins || [];
   }
@@ -1208,6 +1333,29 @@ function Wallet({
         : [];
       if (!patches.length) return;
 
+      let patchedCache = false;
+      for (const patch of patches) {
+        if (
+          !patch?.chain ||
+          !patch?.coin ||
+          !patch?.address ||
+          !patch?.balance
+        ) {
+          continue;
+        }
+        patchWalletBalanceClientCache({
+          walletType,
+          chain: patch.chain,
+          address: patch.address,
+          coin: patch.coin,
+          balance: patch.balance,
+        });
+        patchedCache = true;
+      }
+      if (patchedCache) {
+        setWalletBalanceCacheVersion((version) => version + 1);
+      }
+
       setBalancePatchM((patchM) => {
         const next = { ...patchM };
         for (const patch of patches) {
@@ -1229,7 +1377,11 @@ function Wallet({
     return () => {
       window.removeEventListener(walletBalancePatchEvent, handleBalancePatch);
     };
-  }, []);
+  }, [walletType]);
+
+  useEffect(() => {
+    writeWalletBalanceClientCache(activeData, { walletType });
+  }, [activeData, walletBalanceCacheDataKey, walletType]);
 
   useEffect(() => {
     setCheckingLocalWallet(
@@ -1238,6 +1390,17 @@ function Wallet({
       ) && !selectedAddress,
     );
     setLocalEditorStoreChecked(false);
+  }, [
+    requestedWallet,
+    selectedWallet,
+    selectedAddress,
+    selectedWalletName,
+    walletType,
+  ]);
+
+  useEffect(() => {
+    setWalletAddressReloadM({});
+    setReloadingWalletAddressKey("");
   }, [
     requestedWallet,
     selectedWallet,
@@ -1309,13 +1472,44 @@ function Wallet({
       return;
     }
 
+    const balanceChains = serverChainList
+      .map((chainE) => chainE.chain)
+      .filter((chain) => chain && chain != "Claim");
+    const cachedEntries = entries.filter((entry) =>
+      isWalletBalanceAddressCached({
+        walletType,
+        address: entry.address,
+        chains: balanceChains,
+        requireAllChains: false,
+      }),
+    );
+    const cachedAddressSet = new Set(
+      cachedEntries.map((entry) => String(entry.address || "").toLowerCase()),
+    );
+    const fetchEntries = entries.filter(
+      (entry) => !cachedAddressSet.has(String(entry.address || "").toLowerCase()),
+    );
+    const cachedData = getWalletBalanceClientCacheData({
+      walletType,
+      addresses: cachedEntries.map((entry) => entry.address),
+      chains: balanceChains,
+    });
+
     let cancelled = false;
     setCheckingLocalWallet(false);
+    if (cachedData.length) setLocalWalletData(cachedData);
+    if (!fetchEntries.length) {
+      setLoadingLocalWallet(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setLoadingLocalWallet(true);
     getLocalWalletBalanceData({
       walletType,
-      walletEntries: entries,
-      chains: serverChainList.map((chainE) => chainE.chain),
+      walletEntries: fetchEntries,
+      chains: balanceChains,
       disabledCoinM: {
         ...disabledCoinsM,
         ...Object.fromEntries(
@@ -1333,7 +1527,10 @@ function Wallet({
       usdPriceQuery,
     })
       .then((nextData) => {
-        if (!cancelled) setLocalWalletData(nextData);
+        if (!cancelled) {
+          writeWalletBalanceClientCache(nextData, { walletType });
+          setLocalWalletData(mergeWalletBalanceData(cachedData, nextData));
+        }
       })
       .catch((e) => {
         if (!cancelled) toast.error(e.message || "local wallet load failed");
@@ -2548,6 +2745,75 @@ function Wallet({
     );
   }
 
+  function getEffectiveDisabledCoinM() {
+    return {
+      ...disabledCoinsM,
+      ...Object.fromEntries(
+        Object.entries(offCoinsM).map(([chain, coins]) => [
+          chain,
+          [...new Set([...(disabledCoinsM[chain] || []), ...(coins || [])])],
+        ]),
+      ),
+    };
+  }
+
+  async function reloadWalletAddressBalance(event, row = {}) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
+    const address = String(row?.address || "").trim();
+    const reloadKey = getWalletAddressReloadKey(walletType, address);
+    if (!address || !reloadKey || reloadingWalletAddressKey == reloadKey) return;
+
+    const knownEntry = getKnownWalletEntry(row) || row;
+    const walletEntry = {
+      name:
+        String(knownEntry.name || row.name || "").trim() ||
+        getDefaultWalletName(address),
+      address,
+      source: String(knownEntry.source || "").trim(),
+      label: String(knownEntry.label || knownEntry.name || row.name || "").trim(),
+    };
+
+    clearWalletBalanceClientCache({ walletType, address });
+    setWalletBalanceCacheVersion((version) => version + 1);
+    setReloadingWalletAddressKey(reloadKey);
+
+    try {
+      const nextData = await getLocalWalletBalanceData({
+        walletType,
+        walletEntries: [walletEntry],
+        chains: serverChainList.map((chainE) => chainE.chain),
+        disabledCoinM: getEffectiveDisabledCoinM(),
+        disabledWallets: disabledWalletList,
+        disabledWalletNames: offAddrList,
+        customCoinM: editableCustomCoinM,
+        useAlchemy,
+        alchemyMinUsd,
+        usdPriceQuery,
+      });
+
+      writeWalletBalanceClientCache(nextData, { walletType });
+      setWalletAddressReloadM((prev) => ({
+        ...prev,
+        [reloadKey]: nextData,
+      }));
+      setBalancePatchM((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          if (sameWalletAddress(next[key]?.address, address)) delete next[key];
+        }
+        return next;
+      });
+      setWalletBalanceCacheVersion((version) => version + 1);
+      toast.success(`reloaded ${walletEntry.label || walletEntry.name}`);
+    } catch (e) {
+      toast.error(e?.message || "wallet reload failed");
+    } finally {
+      setReloadingWalletAddressKey("");
+    }
+  }
+
   function getClaimWalletEntry(row) {
     const knownEntry = getKnownWalletEntry(row) || {};
     const name = String(knownEntry.name || row?.name || "").trim();
@@ -3462,6 +3728,36 @@ function Wallet({
         url: getScannerAccountUrl(chainE, row.address),
       }))
       .filter((e) => e.url);
+    const cacheMeta = getWalletBalanceClientCacheMeta({
+      walletType,
+      address: row.address,
+    });
+    const reloadKey = getWalletAddressReloadKey(walletType, row.address);
+    const reloading = reloadingWalletAddressKey == reloadKey;
+    const cacheChains = cacheMeta.chains?.length
+      ? cacheMeta.chains.join(", ")
+      : "-";
+    const displayChainRows = Object.entries(row.chainM || {})
+      .filter(([chain]) => chain != "Claim")
+      .map(([, chainRow]) => chainRow)
+      .filter(Boolean);
+    const displayUsesCache = displayChainRows.some(
+      (chainRow) => chainRow.clientCached && !chainRow.clientReloaded,
+    );
+    const displayUsesReload = displayChainRows.some(
+      (chainRow) => chainRow.clientReloaded,
+    );
+    const displayUsesFresh = displayChainRows.length > 0 && !displayUsesCache;
+    const displayCacheMeta = {
+      ...cacheMeta,
+      source: displayUsesReload
+        ? "fresh"
+        : displayUsesCache
+        ? "cache"
+        : displayUsesFresh
+          ? "fresh"
+          : cacheMeta.source,
+    };
 
     return (
       <td>
@@ -3474,9 +3770,28 @@ function Wallet({
         >
           <span>{show ? row.address : shortAddr(row.address)}</span>
           <span className="infoCard">
-            <span>
+            <span className="walletAddressCardTitle">
               {row.name}
               {walletNote && <span className="gray">: {walletNote}</span>}
+              <span className="infoHover hoverOnlyInfo customPickerColumnInfo walletBalanceCacheInfo walletAddressCacheInfo">
+                <span className="infoIcon">i</span>
+                <span className="infoCard">
+                  <DiscoveryCacheInfo
+                    cacheMeta={displayCacheMeta}
+                    description="Wallet balances cached for this address in this browser tab."
+                    cacheText="browser tab"
+                    expiresText="browser refresh or clear client cache"
+                    showCache={false}
+                    showAge={false}
+                    extraRows={[
+                      `entries: ${cacheMeta.entries || 0}`,
+                      `chains: ${cacheChains}`,
+                      ...(reloading ? ["reloading..."] : []),
+                    ]}
+                    onReload={(event) => reloadWalletAddressBalance(event, row)}
+                  />
+                </span>
+              </span>
             </span>
             <CopyAddressRow address={row.address} />
             {walletRefEntries.length > 0 && (

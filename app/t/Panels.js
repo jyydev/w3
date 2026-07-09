@@ -13,6 +13,12 @@ import {
 } from "../_editorData/browserEditorStorage";
 import { getLocalWalletBalanceData } from "../w/localWalletActions";
 import {
+  getWalletBalanceClientCacheData,
+  isWalletBalanceAddressCached,
+  mergeWalletBalanceData,
+  writeWalletBalanceClientCache,
+} from "../w/walletBalanceClientCache";
+import {
   readStoredWallet,
   walletConnectEvent,
 } from "../w/browserWalletStorage";
@@ -659,12 +665,43 @@ function Panels({
       return;
     }
 
+    const cacheableChains = balanceChainNames.filter(
+      (chain) => chain && chain != "Claim",
+    );
+    const cachedEntries = localSelectedWalletEntries.filter((entry) =>
+      isWalletBalanceAddressCached({
+        walletType,
+        address: entry.address,
+        chains: cacheableChains,
+        requireAllChains: false,
+      }),
+    );
+    const cachedAddressSet = new Set(
+      cachedEntries.map((entry) => String(entry.address || "").toLowerCase()),
+    );
+    const fetchEntries = localSelectedWalletEntries.filter(
+      (entry) => !cachedAddressSet.has(String(entry.address || "").toLowerCase()),
+    );
+    const cachedData = getWalletBalanceClientCacheData({
+      walletType,
+      addresses: cachedEntries.map((entry) => entry.address),
+      chains: cacheableChains,
+    });
+
     let cancelled = false;
+    if (cachedData.length) setLocalWalletData(cachedData);
+    if (!fetchEntries.length) {
+      setLoadingLocalWalletData(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setLoadingLocalWalletData(true);
     getLocalWalletBalanceData({
       walletType,
-      walletEntries: localSelectedWalletEntries,
-      chains: balanceChainNames,
+      walletEntries: fetchEntries,
+      chains: cacheableChains,
       customCoinM: effectiveCustomCoinM,
       disabledCoinM: Object.fromEntries(
         balanceChainNames.map((chain) => [
@@ -683,7 +720,10 @@ function Panels({
       usdPriceQuery,
     })
       .then((nextData) => {
-        if (!cancelled) setLocalWalletData(nextData);
+        if (!cancelled) {
+          writeWalletBalanceClientCache(nextData, { walletType });
+          setLocalWalletData(mergeWalletBalanceData(cachedData, nextData));
+        }
       })
       .catch((e) => {
         if (!cancelled) console.error(e);

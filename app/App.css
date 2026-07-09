@@ -889,6 +889,18 @@ img.assetIcon {
   max-height: 60vh;
   overflow: auto;
 }
+.walletBalanceCacheInfo .infoCard {
+  min-width: 230px;
+  white-space: normal;
+}
+.walletAddressCardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.walletAddressCacheInfo {
+  margin-left: 4px;
+}
 .chainCoinSettingsCard {
   min-width: 340px;
   max-height: 60vh;
@@ -1470,9 +1482,14 @@ img.assetIcon {
   flex-direction: column;
   gap: 2px;
 }
-.customPickerCacheInfo .btn {
-  align-self: flex-start;
-  margin-top: 4px;
+.customPickerCacheSourceRow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+}
+.customPickerCacheSourceRow .btn {
+  flex: 0 0 auto;
 }
 .tradeMarketMenu {
   grid-template-columns: max-content max-content;

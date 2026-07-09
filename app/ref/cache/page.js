@@ -78,6 +78,10 @@ const serverCacheRows = [
 
 const clientCacheRows = [
   [
+    "Wallet balance rows",
+    "client module memory in app/w/walletBalanceClientCache.js; cached by wallet type, chain, and address while the browser tab stays loaded. A browser refresh clears it.",
+  ],
+  [
     "Trade all-market lists",
     "client module memory in app/t/clientShared.js; keeps a browser-tab copy of fetched market lists by cacheKey for 1 hour. Server-cached protocols still return server cache metadata.",
   ],
@@ -156,7 +160,7 @@ const cacheNotes = [
   "The global limit counts cache entries such as Aave Ethereum or Relay support. It does not count each market/token inside one cached result.",
   "When the global server discovery cache exceeds 100 entries, expired entries are removed first, then the oldest remaining entries are removed.",
   "The wallet settings Etc tab can clear ALL, client, or server runtime cache.",
-  "client clear affects the current browser tab's loaded client module caches.",
+  "client clear affects the current browser tab's loaded client module caches, including wallet balance rows.",
   "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, Aave Staking, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
   "Local npm run dev cache resets on server restart and may reset on hot reload.",
   "On Vercel, memory cache is per warm runtime instance. Cold starts, different instances, and deployments start empty.",
