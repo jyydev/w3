@@ -203,7 +203,9 @@ export async function executeSend({
     });
   } else {
     const privateKey = getPrivateKey(walletName);
-    if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+    if (!privateKey) {
+      throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
+    }
 
     sent = await executeRawEvmTx({
       privateKey,

@@ -855,7 +855,7 @@ export async function executeAaveStakingClaim({
   if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
 
   const privateKey = getPrivateKey(walletName);
-  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+  if (!privateKey) throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
 
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);
@@ -1386,7 +1386,7 @@ export async function executeAaveStakingLend({
   if (!ethers.isAddress(walletAddress)) throw new Error("EVM wallet address required");
 
   const privateKey = getPrivateKey(walletName);
-  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+  if (!privateKey) throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
 
   const rpc = getChainRpc(chain);
   if (!rpc) throw new Error(`rpc not configured: ${chain}`);

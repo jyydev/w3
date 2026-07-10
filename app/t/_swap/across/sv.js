@@ -591,7 +591,7 @@ export async function executeAcrossSwap({
   const solanaKeypair =
     fromChain == "Solana" ? getSolanaKeypair(walletName) : null;
   if (fromChain != "Solana" && !privateKey) {
-    throw new Error(`private key missing: pk_${walletName}`);
+    throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
   }
   try {
     assertWhitelistedRecipient({ address: recipient || walletAddress });

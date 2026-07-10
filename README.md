@@ -53,9 +53,9 @@ Coin files under `data/coins` and `data/editor/coins` use array entries:
     decimals: 6,
     name: "USD Coin",
     type: "stable",
-    ref: "optional note"
-  }
-]
+    ref: "optional note",
+  },
+];
 ```
 
 Common coin `type` values are `stable`, `lend`, `yield`, and `vault`.
@@ -124,13 +124,13 @@ Pane, protocol, chain, coin, approval, and visibility selections are remembered 
 
 Private-key based trading is for local `npm run dev` only.
 
-Do not commit private keys. Do not configure `pk_*` or `pk_sol_*` private keys in public deployments. Public/deployed usage should rely on connected browser wallets for signing.
+Do not commit private keys. Do not configure `pk_raw_*`, or `pk_sol_raw_*` private keys in public deployments. Public/deployed usage should rely on connected browser wallets for signing.
 
 Optional local-only private key env names:
 
 ```txt
-pk_walletName=
-pk_sol_walletName=
+pk_raw_walletName=
+pk_sol_raw_walletName=
 ```
 
 If `onWhitelist` is enabled in private local settings, private-key sends and bridge recipient addresses are restricted to configured whitelist addresses. Connected browser-wallet signing is not restricted by that local private-key whitelist.

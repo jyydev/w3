@@ -1225,8 +1225,12 @@ export default function SwapPanel({
         );
         return;
       }
-      const keyPrefix = walletEntry?.type == "solana" ? "pk_sol" : "pk";
-      tradeToast.error(`private key missing: ${keyPrefix}_${walletEntry?.name || ""}`);
+      const walletName = walletEntry?.name || "";
+      const keyLabel =
+        walletEntry?.type == "solana"
+          ? `pk_sol_raw_${walletName} or pk_sol_${walletName}`
+          : `pk_raw_${walletName} or pk_${walletName}`;
+      tradeToast.error(`private key missing: ${keyLabel}`);
       return;
     }
     const getSwapRouteError = () => {

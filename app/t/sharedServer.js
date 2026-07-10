@@ -343,14 +343,18 @@ function decodeEnvPrivateKey(value = "") {
 }
 
 export function getPrivateKey(walletName = "") {
-  const key = decodeEnvPrivateKey(process.env[`pk_${walletName}`]);
+  const rawKey = String(process.env[`pk_raw_${walletName}`] || "").trim();
+  const key = rawKey || decodeEnvPrivateKey(process.env[`pk_${walletName}`]);
   if (!key) return "";
 
   return key.startsWith("0x") ? key : `0x${key}`;
 }
 
 export function getSolanaPrivateKey(walletName = "") {
-  return decodeEnvPrivateKey(process.env[`pk_sol_${walletName}`]);
+  return (
+    String(process.env[`pk_sol_raw_${walletName}`] || "").trim() ||
+    decodeEnvPrivateKey(process.env[`pk_sol_${walletName}`])
+  );
 }
 
 function base58ToBytes(text = "") {
@@ -423,7 +427,11 @@ function parseSolanaSecretKey(secret = "") {
 
 export function getSolanaKeypair(walletName = "") {
   const secret = getSolanaPrivateKey(walletName);
-  if (!secret) throw new Error(`private key missing: pk_sol_${walletName}`);
+  if (!secret) {
+    throw new Error(
+      `private key missing: pk_sol_raw_${walletName} or pk_sol_${walletName}`,
+    );
+  }
 
   return parseSolanaSecretKey(secret);
 }

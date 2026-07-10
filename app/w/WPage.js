@@ -97,8 +97,8 @@ function hasWalletPrivateKey(name = "", walletType = defaultWalletType) {
   if (!name) return false;
 
   return walletType == "solana"
-    ? !!process.env[`pk_sol_${name}`]
-    : !!process.env[`pk_${name}`];
+    ? !!process.env[`pk_sol_raw_${name}`] || !!process.env[`pk_sol_${name}`]
+    : !!process.env[`pk_raw_${name}`] || !!process.env[`pk_${name}`];
 }
 
 function getWalletPrivateKeyM(...entryGroups) {

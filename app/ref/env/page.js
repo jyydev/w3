@@ -50,16 +50,16 @@ const protocolApiRows = [
 
 const privateKeyRows = [
   [
-    "pk_walletName",
-    "Optional EVM private key for local/server private-key mode. The walletName must match the wallet entry name.",
+    "pk_raw_walletName",
+    "Optional raw EVM private key for local/server private-key mode. This is the normal format for users. The walletName must match the wallet entry name.",
   ],
   [
-    "pk_sol_walletName",
-    "Optional Solana private key for local/server private-key mode. Accepts supported secret-key formats.",
+    "pk_sol_raw_walletName",
+    "Optional raw Solana private key for local/server private-key mode. Accepts supported secret-key formats.",
   ],
   [
-    "encoding",
-    "Stored private-key values are decoded by swapping the 4th and 6th characters back before use.",
+    "pk_walletName / pk_sol_walletName",
+    "Legacy encoded private-key values. These are decoded by swapping the 4th and 6th characters back before use.",
   ],
   [
     "scope",

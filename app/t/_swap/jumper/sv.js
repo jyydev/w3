@@ -653,7 +653,7 @@ export async function executeJumperSwap({
   const solanaKeypair =
     fromChain == "Solana" ? getSolanaKeypair(walletName) : null;
   if (fromChain != "Solana" && !privateKey) {
-    throw new Error(`private key missing: pk_${walletName}`);
+    throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
   }
   try {
     assertWhitelistedRecipient({ address: recipient || walletAddress });
@@ -681,7 +681,7 @@ export async function executeJumperSwap({
   for (const tx of built.txs || []) {
     if (tx.chain == "Solana" || tx.format?.startsWith("solana:")) {
       if (!solanaKeypair) {
-        throw new Error(`private key missing: pk_sol_${walletName}`);
+        throw new Error(`private key missing: pk_sol_raw_${walletName} or pk_sol_${walletName}`);
       }
       txs.push(
         await executeSolanaTx({

@@ -808,7 +808,7 @@ export async function executeHyperliquidSpotDeposit({
     amount,
   });
   const privateKey = getPrivateKey(walletName);
-  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+  if (!privateKey) throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
 
   const sent = await executeRawEvmTx({
     privateKey,
@@ -917,7 +917,7 @@ export async function executeHyperliquidSpotWithdraw({
   amount = "",
 } = {}) {
   const privateKey = getPrivateKey(walletName);
-  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+  if (!privateKey) throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
 
   const wallet = getWallet(privateKey);
   assertWalletMatches(wallet, walletAddress);
@@ -1095,7 +1095,7 @@ export async function executeHyperliquidLend({
   }
 
   const privateKey = getPrivateKey(walletName);
-  if (!privateKey) throw new Error(`private key missing: pk_${walletName}`);
+  if (!privateKey) throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
 
   const wallet = getWallet(privateKey);
   assertWalletMatches(wallet, walletAddress);
