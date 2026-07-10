@@ -21,6 +21,7 @@ import {
   CustomHistoryPicker,
   CycleButtonPair,
   DiscoveryCacheInfo,
+  getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
   TableSortHeader,
   TrashIcon,
@@ -1226,6 +1227,17 @@ function Wallet({
       chainHistoryValues,
       chainSelectOptions.map((option) => option.value),
     );
+  }
+
+  function getChainCycleTarget(direction = "next") {
+    const target = getCycleTargetValue(
+      getChainCycleValues(),
+      activeChain,
+      direction,
+    );
+    const option = chainSelectOptions.find((entry) => entry.value == target);
+
+    return option?.label || target;
   }
 
   function cycleActiveChain(direction = 1) {
@@ -2926,6 +2938,19 @@ function Wallet({
       : getValues(getWalletOptionValues());
   }
 
+  function getWalletCycleTarget(direction = "next") {
+    const target = getCycleTargetValue(
+      getWalletCycleValues(),
+      walletSelectValue,
+      direction,
+    );
+    const option =
+      walletSelectOptions.find((entry) => entry.value == target) ||
+      getStoredWalletHistoryOption(target);
+
+    return option?.label || target;
+  }
+
   function nextWallet() {
     const wallets = getWalletCycleValues();
     if (!wallets.length) return;
@@ -2951,6 +2976,14 @@ function Wallet({
     const index = types.indexOf(walletType);
     const next = types[(index + direction + types.length) % types.length];
     goWalletType(next);
+  }
+
+  function getWalletTypeCycleTarget(direction = "next") {
+    const values = walletTypeOptions.map(([value]) => value);
+    const target = getCycleTargetValue(values, walletType, direction);
+    const option = walletTypeOptions.find(([value]) => value == target);
+
+    return option?.[1] || target;
   }
 
   function nextWalletType() {
@@ -4686,6 +4719,8 @@ function Wallet({
             <CycleButtonPair
               onPrev={prevWalletType}
               onNext={nextWalletType}
+              prevTarget={getWalletTypeCycleTarget("prev")}
+              nextTarget={getWalletTypeCycleTarget("next")}
               disabled={loadingWallet || !canCycleWalletType}
             />
             <select
@@ -4708,6 +4743,8 @@ function Wallet({
             <CycleButtonPair
               onPrev={prevWallet}
               onNext={nextWallet}
+              prevTarget={getWalletCycleTarget("prev")}
+              nextTarget={getWalletCycleTarget("next")}
               disabled={loadingWallet || getWalletCycleValues().length < 2}
             />
             <WalletSelectPicker
@@ -4722,6 +4759,8 @@ function Wallet({
             <CycleButtonPair
               onPrev={() => cycleActiveChain(-1)}
               onNext={() => cycleActiveChain(1)}
+              prevTarget={getChainCycleTarget("prev")}
+              nextTarget={getChainCycleTarget("next")}
               disabled={loadingWallet || getChainCycleValues().length < 2}
             />
             <ChainSelectPicker

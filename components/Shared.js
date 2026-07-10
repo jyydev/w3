@@ -13,22 +13,36 @@ export function CycleButton({
   children,
   className = "",
   size = "small",
+  target,
   type = "button",
+  disabled,
   ...props
 }) {
   const label = children ?? (direction == "prev" ? "<" : ">");
   const sizeClass = size ? String(size) : "small";
+  const targetText =
+    target === undefined || target === null ? "" : String(target);
 
-  return (
+  const button = (
     <button
       type={type}
       className={["btn", sizeClass, "bgGray", className]
         .filter(Boolean)
         .join(" ")}
+      disabled={disabled}
       {...props}
     >
       {label}
     </button>
+  );
+
+  if (disabled || !targetText) return button;
+
+  return (
+    <span className="cycleButtonHover">
+      {button}
+      <span className="cycleButtonInfoCard">{targetText}</span>
+    </span>
   );
 }
 
@@ -40,23 +54,31 @@ export function CycleButtonPair({
   disabled = false,
   size = "small",
   className = "",
+  prevTarget,
+  nextTarget,
   prevProps = {},
   nextProps = {},
 }) {
+  const finalPrevDisabled = disabled || prevDisabled || prevProps.disabled;
+  const finalNextDisabled = disabled || nextDisabled || nextProps.disabled;
+
   return (
     <span className={["cycleButtonPair", className].filter(Boolean).join(" ")}>
       <CycleButton
         {...prevProps}
         size={size}
         direction="prev"
+        target={prevProps.target ?? prevTarget}
         onClick={onPrev}
-        disabled={disabled || prevDisabled || prevProps.disabled}
+        disabled={finalPrevDisabled}
       />
       <CycleButton
         {...nextProps}
         size={size}
+        direction="next"
+        target={nextProps.target ?? nextTarget}
         onClick={onNext}
-        disabled={disabled || nextDisabled || nextProps.disabled}
+        disabled={finalNextDisabled}
       />
     </span>
   );
@@ -367,6 +389,17 @@ export function getCustomPickerHistoryCycleValues(
   const historyValues = getValues(historyOptions);
 
   return historyValues.length ? historyValues : getValues(allOptions);
+}
+
+export function getCycleTargetValue(list = [], value = "", direction = "next") {
+  if (!list.length) return "";
+  const index = list.indexOf(value);
+  if (direction == "prev") {
+    if (index < 0) return list[list.length - 1];
+    return list[(index - 1 + list.length) % list.length];
+  }
+
+  return list[(index + 1) % list.length];
 }
 
 export function CustomHistoryPicker({
@@ -731,6 +764,15 @@ export function CustomHistoryPicker({
     ) ||
     selectedValue ||
     header;
+  function getCycleTarget(direction = "next") {
+    if (cycleValues.length < 2) return "";
+    const targetValue = getCycleTargetValue(cycleValues, selectedValue, direction);
+    const targetOption = buttonOptions.find(
+      (option) => getOptionValue(option) == targetValue,
+    );
+
+    return getOptionLabel(targetOption) || targetValue;
+  }
   const picker = (
     <CustomPicker className={pickerClassName} ref={effectiveRef}>
       <CustomPickerButton
@@ -778,6 +820,8 @@ export function CustomHistoryPicker({
         size={cycleSize}
         onPrev={onPrev}
         onNext={onNext}
+        prevTarget={getCycleTarget("prev")}
+        nextTarget={getCycleTarget("next")}
         disabled={cycleDisabled ?? cycleValues.length < 2}
       />
       {picker}

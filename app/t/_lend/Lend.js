@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { DiscoveryCacheInfo } from "@/components/Shared";
+import { chainIds } from "@/data/basic";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -172,7 +173,6 @@ const venusInitialSupportedChainSet = new Set([
   "Base",
   "BSC",
   "Ethereum",
-  "Optimism",
   "zkSyncEra",
 ]);
 
@@ -209,8 +209,25 @@ function getInitialLendChainDiscoveryM(initialTradePickerData = {}) {
   );
 }
 
+function getInitialLendDiscoveryChains(
+  initialTradePickerData = {},
+  defi = "",
+  chainList = [],
+) {
+  const validChains = new Set(chainList.map((entry) => entry.chain));
+  const discovery = initialTradePickerData?.lendChainDiscoveryM?.[defi];
+
+  return (Array.isArray(discovery?.chains) ? discovery.chains : [])
+    .map((entry) => entry?.chain)
+    .filter((chain) => chain && validChains.has(chain));
+}
+
 function isInitialLendChainSupported(defi = "", chain = "", marketChains = []) {
-  if (defi == "venus") return venusInitialSupportedChainSet.has(chain);
+  if (defi == "venus") {
+    return (
+      marketChains.includes(chain) || venusInitialSupportedChainSet.has(chain)
+    );
+  }
 
   return marketChains.includes(chain);
 }
@@ -235,11 +252,12 @@ function getLendProtocolChainUrl(defi = "", entry = {}) {
   if (defi == "morpho" && entry.chainId) {
     return `https://app.morpho.org/vaults?chains=${encodeURIComponent(entry.chainId)}`;
   }
-  if (defi == "venus" && entry.chainId) {
-    // return `https://app.venus.io/#/core-pool/market?chainId=${encodeURIComponent(entry.chainId)}`;
-    return `https://venus.io/#/markets/any?chainId=${encodeURIComponent(entry.chainId)}`;
+  if (defi == "venus") {
+    const chainId = entry.chainId || chainIds[entry.chain];
+    return chainId
+      ? `https://venus.io/#/markets/any?chainId=${encodeURIComponent(chainId)}`
+      : "https://venus.io/#/markets";
   }
-  if (defi == "venus") return "https://app.venus.io/#/core-pool/market";
   return "";
 }
 
@@ -305,9 +323,25 @@ export default function LendPanel({
       ]),
     );
   }, [chainList, initialDefi]);
-  const initialMarketChains = useMemo(
+  const initialLocalMarketChains = useMemo(
     () => getLendMarketChains(chainList, initialChainMarketsM, initialDefi),
     [chainList, initialChainMarketsM, initialDefi],
+  );
+  const initialDiscoveryChains = useMemo(
+    () =>
+      getInitialLendDiscoveryChains(
+        initialTradePickerData,
+        initialDefi,
+        chainList,
+      ),
+    [chainList, initialDefi, initialTradePickerData],
+  );
+  const initialMarketChains = useMemo(
+    () =>
+      hasLendChainDiscovery(initialDefi)
+        ? [...new Set([...initialLocalMarketChains, ...initialDiscoveryChains])]
+        : initialLocalMarketChains,
+    [initialDefi, initialDiscoveryChains, initialLocalMarketChains],
   );
   const initialDefiOrder = normalizeSelectionOrder(
     parseSelectionOrder(
@@ -746,16 +780,46 @@ export default function LendPanel({
     marketOrder,
     protocolMarketRows,
   ]);
+  const marketCookieValues = useMemo(() => {
+    const values = hasProtocolAllMarkets
+      ? [
+          ...visibleAddedMarkets.map((entry) => entry.value),
+          ...allMarkets.map((entry) => getAllMarketSelectValue(entry)),
+        ]
+      : markets.map((entry) => entry.value);
+
+    return [...new Set(values.filter(Boolean))];
+  }, [allMarkets, hasProtocolAllMarkets, markets, visibleAddedMarkets]);
+  const savedMarketForActiveChain = getInitialCookie(
+    initialCookieM,
+    getProtocolCookie(
+      tradeLendMarketCookie,
+      walletType,
+      defi,
+      chainE?.chain,
+    ),
+  );
+  const marketExistsForActiveChain = marketCookieValues.includes(market);
+  const savedMarketPending =
+    hasProtocolAllMarkets &&
+    !allLoaded &&
+    savedMarketForActiveChain &&
+    savedMarketForActiveChain == market;
+  const marketBelongsToActiveChain =
+    !market || marketExistsForActiveChain || savedMarketPending;
   const selectedMarketE = useMemo(
     () =>
-      visibleAddedMarkets.find((entry) => entry.value == market) ||
-      allMarkets.find(
-        (entry) =>
-          entry.value == market || getAllMarketSelectValue(entry) == market,
-      ),
-    [allMarkets, market, visibleAddedMarkets],
+      marketBelongsToActiveChain
+        ? visibleAddedMarkets.find((entry) => entry.value == market) ||
+          allMarkets.find(
+            (entry) =>
+              entry.value == market || getAllMarketSelectValue(entry) == market,
+          )
+        : null,
+    [allMarkets, market, marketBelongsToActiveChain, visibleAddedMarkets],
   );
   const fallbackMarketE = useMemo(() => {
+    if (!marketBelongsToActiveChain) return null;
     const fallback = getFallbackTradeMarketEntry(market);
     if (hasProtocolAllMarkets && !selectedMarketE && !fallback?.lendAddress) {
       return null;
@@ -782,11 +846,18 @@ export default function LendPanel({
     defi,
     hasProtocolAllMarkets,
     market,
+    marketBelongsToActiveChain,
     selectedMarketE,
   ]);
   const waitsForSelectedProtocolMarket =
-    hasProtocolAllMarkets && !!market && !selectedMarketE && !fallbackMarketE;
-  const marketE = waitsForSelectedProtocolMarket
+    marketBelongsToActiveChain &&
+    hasProtocolAllMarkets &&
+    !!market &&
+    !selectedMarketE &&
+    !fallbackMarketE;
+  const marketE = !marketBelongsToActiveChain
+    ? null
+    : waitsForSelectedProtocolMarket
     ? null
     : selectedMarketE || fallbackMarketE || visibleAddedMarkets[0];
   const fallbackMarketHistoryOptions = useMemo(() => {
@@ -1193,17 +1264,6 @@ export default function LendPanel({
     underlyingLabel: underlyingCoin,
     receiptLabel: lendCoin,
   });
-  const marketCookieValues = useMemo(() => {
-    const values = hasProtocolAllMarkets
-      ? [
-          ...visibleAddedMarkets.map((entry) => entry.value),
-          ...allMarkets.map((entry) => getAllMarketSelectValue(entry)),
-        ]
-      : markets.map((entry) => entry.value);
-
-    return [...new Set(values.filter(Boolean))];
-  }, [allMarkets, hasProtocolAllMarkets, markets, visibleAddedMarkets]);
-
   useEffect(() => {
     if (!hasLendChainDiscovery(defi) || chainDiscovery.loaded) {
       return;
@@ -1328,7 +1388,6 @@ export default function LendPanel({
   }, [chain, defi, selectableChains, walletType]);
 
   useEffect(() => {
-    const marketExists = marketCookieValues.includes(market);
     const savedMarket = getCookie(
       getProtocolCookie(
         tradeLendMarketCookie,
@@ -1337,13 +1396,11 @@ export default function LendPanel({
         chainE?.chain,
       ),
     );
-    const savedMarketPending =
-      hasProtocolAllMarkets &&
-      !allLoaded &&
-      savedMarket &&
-      savedMarket == market;
-
-    if (marketCookieValues.length && !marketExists && !savedMarketPending) {
+    if (
+      marketCookieValues.length &&
+      !marketExistsForActiveChain &&
+      !savedMarketPending
+    ) {
       const nextMarket = marketCookieValues.includes(savedMarket)
         ? savedMarket
         : marketCookieValues[0];
@@ -1352,14 +1409,15 @@ export default function LendPanel({
       setMarket("");
     }
   }, [
-    allLoaded,
-    chainE?.chain,
-    defi,
-    hasProtocolAllMarkets,
+    allMarkets.length,
     market,
+    marketExistsForActiveChain,
     marketCookieValues,
     markets,
+    savedMarketPending,
     walletType,
+    chainE?.chain,
+    defi,
   ]);
 
   useEffect(() => {
@@ -1400,6 +1458,7 @@ export default function LendPanel({
     if (
       (defi != "venus" && defi != "jupiter" && defi != "morpho") ||
       !chainE?.chain ||
+      !marketBelongsToActiveChain ||
       !underlyingCoin ||
       !lendCoin ||
       !selectedWalletEntry?.address
@@ -1431,6 +1490,7 @@ export default function LendPanel({
             underlyingDecimals: marketE.underlyingDecimals,
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
+            exchangeRateRaw: marketE.exchangeRateRaw,
             marketName: marketE.market,
           }
         : {}),
@@ -1465,6 +1525,7 @@ export default function LendPanel({
     chainE?.chain,
     defi,
     lendCoin,
+    marketBelongsToActiveChain,
     marketPreviewLoaded,
     marketPreviewKey,
     marketE?.lendAddress,
@@ -2270,6 +2331,7 @@ export default function LendPanel({
             underlyingDecimals: marketE.underlyingDecimals,
             lendAddress: marketE.lendAddress,
             lendDecimals: marketE.lendDecimals,
+            exchangeRateRaw: marketE.exchangeRateRaw,
             marketName: marketE.market,
           }
         : {};

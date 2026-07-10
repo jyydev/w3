@@ -23,6 +23,7 @@ import {
   CustomPickerSortHeader,
   CustomPickerTable,
   CycleButtonPair,
+  getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
 } from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
@@ -1700,12 +1701,22 @@ export function TradeMarketPicker({
     addedRows,
     (entry) => entry.value,
   );
+  function getLocalMarketCycleTarget(direction = "next") {
+    const target = getCycleTargetValue(localMarketCycleValues, market, direction);
+    const entry = [...historyRows, ...addedRows].find(
+      (row) => row.value == target,
+    );
+
+    return entry ? getMarketLabel(entry) : target;
+  }
 
   return (
     <div className="selectCycle walletCycle tradeMarketCycle">
       <CycleButtonPair
         onPrev={prevMarket}
         onNext={nextMarket}
+        prevTarget={getLocalMarketCycleTarget("prev")}
+        nextTarget={getLocalMarketCycleTarget("next")}
         disabled={cycleDisabled ?? localMarketCycleValues.length < 2}
       />
       <CustomPicker ref={marketPickerRef}>

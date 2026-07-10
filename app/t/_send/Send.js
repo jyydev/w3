@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButtonPair } from "@/components/Shared";
+import { CycleButtonPair, getCycleTargetValue } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -706,6 +706,14 @@ export default function SendPanel({
     if (prev) selectCoin(prev, { rememberOrder: false });
   }
 
+  function getCoinCycleTarget(direction = "next") {
+    return getCycleTargetValue(
+      getHistoryCycleValues(coinHistoryOptions, coins),
+      coin,
+      direction,
+    );
+  }
+
   function selectCoin(coin, options = {}) {
     setCoin(coin);
     saveSendCoinCookie(coin, options);
@@ -769,6 +777,13 @@ export default function SendPanel({
   function cycleToWallet(direction) {
     const next = cycleWalletSelection(currentToWallets, toWallet, direction);
     if (next) selectToWallet(next, { rememberOrder: false });
+  }
+
+  function getWalletCycleTarget(list = [], value = "", direction = "next") {
+    const target = cycleWalletSelection(list, value, direction);
+    const entry = list.find((item) => item.value == target);
+
+    return entry?.label || target;
   }
 
   function selectFromWallet(value, syncParent = true) {
@@ -1349,6 +1364,8 @@ export default function SendPanel({
           <CycleButtonPair
             onPrev={prevCoin}
             onNext={nextCoin}
+            prevTarget={getCoinCycleTarget("prev")}
+            nextTarget={getCoinCycleTarget("next")}
             disabled={getHistoryCycleValues(coinHistoryOptions, coins).length < 2}
           />
           <div className="customPicker" ref={coinPickerRef}>
@@ -1428,6 +1445,16 @@ export default function SendPanel({
               <CycleButtonPair
                 onPrev={() => cycleFromWallet("prev")}
                 onNext={() => cycleFromWallet("next")}
+                prevTarget={getWalletCycleTarget(
+                  fromWallets,
+                  fromWallet,
+                  "prev",
+                )}
+                nextTarget={getWalletCycleTarget(
+                  fromWallets,
+                  fromWallet,
+                  "next",
+                )}
                 disabled={fromWallets.length < 2}
               />
               <select
@@ -1521,6 +1548,16 @@ export default function SendPanel({
               <CycleButtonPair
                 onPrev={() => cycleToWallet("prev")}
                 onNext={() => cycleToWallet("next")}
+                prevTarget={getWalletCycleTarget(
+                  currentToWallets,
+                  toWallet,
+                  "prev",
+                )}
+                nextTarget={getWalletCycleTarget(
+                  currentToWallets,
+                  toWallet,
+                  "next",
+                )}
                 disabled={currentToWallets.length < 2}
               />
               <TradeSelectionPicker

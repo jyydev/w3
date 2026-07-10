@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
-import { CycleButtonPair } from "@/components/Shared";
+import { CycleButtonPair, getCycleTargetValue } from "@/components/Shared";
 import {
   getAllLocalCustomCoinM,
   localEditorStorageEvent,
@@ -850,6 +850,17 @@ function Panels({
     setWallet(wallets[nextIndex].value);
   }
 
+  function getWalletCycleTarget(direction = "next") {
+    const target = getCycleTargetValue(
+      wallets.map((entry) => entry.value),
+      wallet,
+      direction,
+    );
+    const entry = wallets.find((item) => item.value == target);
+
+    return entry?.label || target;
+  }
+
   function rememberPaneOrder(value) {
     if (!value || !tradeTypes.includes(value)) return;
     const nextOrder = rememberSelectionValue(paneOrder, value, tradeTypes);
@@ -1138,6 +1149,8 @@ function Panels({
               <CycleButtonPair
                 onPrev={() => cycleWallet("prev")}
                 onNext={() => cycleWallet("next")}
+                prevTarget={getWalletCycleTarget("prev")}
+                nextTarget={getWalletCycleTarget("next")}
               />
             )}
             <select

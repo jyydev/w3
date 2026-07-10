@@ -35,7 +35,6 @@ import {
 } from "../shared";
 
 const venusTokenAbi = [
-  "function comptroller() view returns (address)",
   "function underlying() view returns (address)",
   "function exchangeRateStored() view returns (uint256)",
   "function supplyRatePerBlock() view returns (uint256)",
@@ -57,11 +56,14 @@ const venusBlocksPerYearM = {
   Base: 15768000,
   BSC: 10512000,
   Ethereum: 2628000,
-  Optimism: 15768000,
   zkSyncEra: 31536000,
 };
 const venusComptrollerSeedsM = {
+  Arbitrum: ["0x317c1a5739f39046e20b08ac9beea3f10fd43326"],
   Base: ["0x0C7973F9598AA62f9e03B94E92C967fD5437426C"],
+  BSC: ["0xfd36e2c2a6789db23113685031d7f16329158384"],
+  Ethereum: ["0x687a01ecF6d3907658f7A7c714749fAC32336D1B"],
+  zkSyncEra: ["0xdde4d098d9995b659724ae6d5e3fb9681ac941b1"],
 };
 
 function getVenusRateApr(rate = 0n, multiplier = 0) {
@@ -72,6 +74,40 @@ function getVenusRateApr(rate = 0n, multiplier = 0) {
     return Number.isFinite(apr) ? apr : 0;
   } catch {
     return 0;
+  }
+}
+
+async function getVenusTokenBalance({
+  provider,
+  address = "",
+  owner = "",
+  chain = "",
+  rpc = "",
+  label = "token",
+}) {
+  try {
+    return await new ethers.Contract(
+      address,
+      erc20Abi,
+      provider,
+    ).balanceOf(owner);
+  } catch (e) {
+    logRpcFailure({
+      scope: `Venus ${label} balance`,
+      chain,
+      rpc,
+      error: e,
+    });
+    return 0n;
+  }
+}
+
+function getVenusFallbackExchangeRateRaw(value) {
+  try {
+    const raw = BigInt(value || 0);
+    return raw >= 0n ? raw : 0n;
+  } catch {
+    return 0n;
   }
 }
 
@@ -98,17 +134,6 @@ function getVenusToken(chain = "", lendCoin = "") {
   return getEvmTokenAddress(chain, lendCoin, "Venus token");
 }
 
-function getSavedVenusMarkets(chain = "") {
-  return Object.entries(coinM?.[chain] || {}).filter(([coin, coinE]) => {
-    const text = `${coin} ${coinE?.name || ""}`.toLowerCase();
-    return (
-      coinE?.type == "lend" &&
-      ethers.isAddress(coinE?.address || "") &&
-      (/^v[A-Z]/.test(coin) || (text.includes("venus") && !/^f[A-Z]/.test(coin)))
-    );
-  });
-}
-
 function getVenusComptrollerSeeds(chain = "") {
   return [
     ...new Set(
@@ -120,14 +145,7 @@ function getVenusComptrollerSeeds(chain = "") {
 }
 
 function getVenusSupportedChainRows() {
-  const chains = new Set([
-    ...Object.keys(venusBlocksPerYearM),
-    ...Object.keys(venusComptrollerSeedsM),
-  ]);
-
-  for (const chain of Object.keys(coinM || {})) {
-    if (getSavedVenusMarkets(chain).length) chains.add(chain);
-  }
+  const chains = new Set(Object.keys(venusComptrollerSeedsM));
 
   return [...chains]
     .filter((chain) => chainIds[chain])
@@ -172,12 +190,8 @@ export async function getVenusAllMarkets({ chain = "", refresh = false } = {}) {
     };
   }
 
-  const rpcList = getUsableChainRpcs(chain);
-  if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
-
-  const savedMarkets = getSavedVenusMarkets(chain);
   const seedComptrollers = getVenusComptrollerSeeds(chain);
-  if (!savedMarkets.length && !seedComptrollers.length) {
+  if (!seedComptrollers.length) {
     const at = Date.now();
     setDiscoveryCacheMapEntry(venusMarketCacheM, cacheKey, {
       at,
@@ -192,6 +206,9 @@ export async function getVenusAllMarkets({ chain = "", refresh = false } = {}) {
     };
   }
 
+  const rpcList = getUsableChainRpcs(chain);
+  if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
+
   let bestResult = null;
   let lastError = null;
 
@@ -202,22 +219,9 @@ export async function getVenusAllMarkets({ chain = "", refresh = false } = {}) {
     });
 
     try {
-      const savedComptrollers = await Promise.all(
-        savedMarkets.map(async ([, coinE]) =>
-          withTimeout(
-            new ethers.Contract(
-              coinE.address,
-              venusTokenAbi,
-              provider,
-            ).comptroller(),
-            venusTokenMetaTimeoutMs,
-            `${chain} Venus comptroller timeout`,
-          ).catch(() => ""),
-        ),
-      );
       const comptrollers = [
         ...new Set(
-          [...seedComptrollers, ...savedComptrollers]
+          seedComptrollers
             .filter((address) => ethers.isAddress(address))
             .map((address) => ethers.getAddress(address)),
         ),
@@ -389,8 +393,22 @@ export async function getVenusMarketBalance({
   try {
     const owner = ethers.getAddress(walletAddress);
     const [underlyingRaw, lendRaw] = await Promise.all([
-      new ethers.Contract(underlyingAddress, erc20Abi, provider).balanceOf(owner),
-      new ethers.Contract(lendAddress, erc20Abi, provider).balanceOf(owner),
+      getVenusTokenBalance({
+        provider,
+        address: underlyingAddress,
+        owner,
+        chain,
+        rpc,
+        label: "underlying",
+      }),
+      getVenusTokenBalance({
+        provider,
+        address: lendAddress,
+        owner,
+        chain,
+        rpc,
+        label: "receipt",
+      }),
     ]);
 
     return {
@@ -487,6 +505,7 @@ async function resolveVenusMarket({
 
 async function assertVenusMarket({
   provider,
+  rpc = "",
   chain = "",
   underlyingCoin = "",
   lendCoin = "",
@@ -494,18 +513,30 @@ async function assertVenusMarket({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  exchangeRateRaw,
 } = {}) {
-  const resolvedMarket =
-    (!ethers.isAddress(underlyingAddress) ||
-      !ethers.isAddress(lendAddress) ||
-      !Number.isInteger(underlyingDecimals) ||
-      !Number.isInteger(lendDecimals)) &&
-    (await resolveVenusMarket({
+  const needsResolvedMarket =
+    !ethers.isAddress(underlyingAddress) ||
+    !ethers.isAddress(lendAddress) ||
+    !Number.isInteger(underlyingDecimals) ||
+    !Number.isInteger(lendDecimals);
+  const resolvedMarket = needsResolvedMarket
+    ? await resolveVenusMarket({
       chain,
       underlyingCoin,
       lendCoin,
       lendAddress,
-    }));
+    })
+    : null;
+  if (
+    needsResolvedMarket &&
+    !resolvedMarket &&
+    (!coinM?.[chain]?.[underlyingCoin] || !coinM?.[chain]?.[lendCoin])
+  ) {
+    throw new Error(
+      `${chain} Venus market not found: ${underlyingCoin}-${lendCoin}`,
+    );
+  }
   const resolvedUnderlyingAddress = ethers.isAddress(underlyingAddress)
     ? underlyingAddress
     : resolvedMarket?.underlyingAddress;
@@ -525,17 +556,37 @@ async function assertVenusMarket({
     ? ethers.getAddress(resolvedLendAddress)
     : getVenusToken(chain, lendCoin);
   const vToken = new ethers.Contract(vTokenAddress, venusTokenAbi, provider);
-  const [actualUnderlying, exchangeRateRaw] = await Promise.all([
-    vToken.underlying(),
-    vToken.exchangeRateStored(),
-  ]);
+  const [actualUnderlyingResult, exchangeRateResult] =
+    await Promise.allSettled([
+      vToken.underlying(),
+      vToken.exchangeRateStored(),
+    ]);
+  const finalExchangeRateRaw =
+    exchangeRateResult.status == "fulfilled"
+      ? BigInt(exchangeRateResult.value)
+      : getVenusFallbackExchangeRateRaw(
+          exchangeRateRaw ?? resolvedMarket?.exchangeRateRaw,
+        );
+  if (exchangeRateResult.status != "fulfilled") {
+    logRpcFailure({
+      scope: "Venus exchange rate",
+      chain,
+      rpc,
+      error: exchangeRateResult.reason,
+    });
+  }
+  const actualUnderlying =
+    actualUnderlyingResult.status == "fulfilled" &&
+    ethers.isAddress(actualUnderlyingResult.value)
+      ? ethers.getAddress(actualUnderlyingResult.value)
+      : underlying;
 
-  if (ethers.getAddress(actualUnderlying) != underlying) {
+  if (actualUnderlying != underlying) {
     throw new Error(`${lendCoin} underlying does not match ${underlyingCoin}`);
   }
 
   const underlyingPerReceipt = getVenusExchangeRate({
-    rateRaw: BigInt(exchangeRateRaw),
+    rateRaw: finalExchangeRateRaw,
     underlyingDecimals: Number.isInteger(finalUnderlyingDecimals)
       ? finalUnderlyingDecimals
       : getCoinDecimals(chain, underlyingCoin),
@@ -549,7 +600,7 @@ async function assertVenusMarket({
     vTokenAddress,
     underlyingDecimals: finalUnderlyingDecimals,
     lendDecimals: finalLendDecimals,
-    exchangeRateRaw: BigInt(exchangeRateRaw),
+    exchangeRateRaw: finalExchangeRateRaw,
     underlyingPerReceipt,
     receiptPerUnderlying: underlyingPerReceipt ? 1 / underlyingPerReceipt : 0,
   };
@@ -565,6 +616,7 @@ export async function getVenusLendPreview({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  exchangeRateRaw,
   amount = "",
 } = {}) {
   if (chain == "Solana") throw new Error("Venus is EVM-only here");
@@ -588,6 +640,8 @@ export async function getVenusLendPreview({
       underlyingDecimals,
       lendAddress,
       lendDecimals,
+      exchangeRateRaw,
+      rpc,
     });
     const amountIn = getVenusAmount({
       chain,
@@ -606,7 +660,17 @@ export async function getVenusLendPreview({
               market.underlying,
               erc20Abi,
               provider,
-            ).allowance(walletAddress, market.vTokenAddress),
+            )
+              .allowance(walletAddress, market.vTokenAddress)
+              .catch((e) => {
+                logRpcFailure({
+                  scope: "Venus allowance",
+                  chain,
+                  rpc,
+                  error: e,
+                });
+                return 0n;
+              }),
           );
 
     return {
@@ -637,6 +701,7 @@ export async function buildVenusLendTxs({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  exchangeRateRaw,
   amount = "",
   approvalAmount = "",
 } = {}) {
@@ -664,6 +729,8 @@ export async function buildVenusLendTxs({
       underlyingDecimals,
       lendAddress,
       lendDecimals,
+      exchangeRateRaw,
+      rpc,
     });
     const amountIn = getVenusAmount({
       chain,
@@ -771,6 +838,7 @@ export async function executeVenusLend({
   underlyingDecimals,
   lendAddress = "",
   lendDecimals,
+  exchangeRateRaw,
   amount = "",
   approvalAmount = "",
 } = {}) {
@@ -800,6 +868,8 @@ export async function executeVenusLend({
       underlyingDecimals,
       lendAddress,
       lendDecimals,
+      exchangeRateRaw,
+      rpc,
     });
     const amountIn = getVenusAmount({
       chain,

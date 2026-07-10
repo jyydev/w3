@@ -309,7 +309,15 @@ export async function getTradeCoinBalance({
           throw new Error(`coin address missing: ${chain} ${coin}`);
         }
         const token = new ethers.Contract(coinE.address, erc20Abi, provider);
-        raw = await token.balanceOf(owner);
+        raw = await token.balanceOf(owner).catch((e) => {
+          logRpcFailure({
+            scope: "trade balance",
+            chain,
+            rpc,
+            error: e,
+          });
+          return 0n;
+        });
       }
     } finally {
       provider.destroy?.();

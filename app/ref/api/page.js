@@ -28,11 +28,11 @@ const lendRows = [
   ],
   [
     "Venus chains",
-    "local/static config from venusBlocksPerYearM plus saved Venus markets in coinM. Not queried from a Venus API.",
+    "local/static config from venusComptrollerSeedsM. Not queried from a Venus API.",
   ],
   [
     "Venus markets",
-    "on-chain RPC from saved vToken bootstrap data: vToken.comptroller(), then comptroller.getAllMarkets().",
+    "on-chain RPC from hardcoded comptroller seeds, then comptroller.getAllMarkets().",
   ],
   [
     "Morpho chains",
