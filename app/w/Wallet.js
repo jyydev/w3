@@ -1521,14 +1521,14 @@ function Wallet({
         walletType,
         address: entry.address,
         chains: balanceChains,
-        requireAllChains: false,
+        requireAllChains: true,
       }),
     );
     const cachedAddressSet = new Set(
-      cachedEntries.map((entry) => String(entry.address || "").toLowerCase()),
+      cachedEntries.map((entry) => getFavAddrKey(walletType, entry.address)),
     );
     const fetchEntries = entries.filter(
-      (entry) => !cachedAddressSet.has(String(entry.address || "").toLowerCase()),
+      (entry) => !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
     );
     const cachedData = getWalletBalanceClientCacheData({
       walletType,
@@ -3871,7 +3871,7 @@ function Wallet({
                     showCache={false}
                     showAge={false}
                     extraRows={[
-                      `entries: ${cacheMeta.entries || 0}`,
+                      `chain rows: ${cacheMeta.chainEntries || 0}`,
                       `chains: ${cacheChains}`,
                       ...(reloading ? ["reloading..."] : []),
                     ]}

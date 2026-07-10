@@ -674,14 +674,14 @@ function Panels({
         walletType,
         address: entry.address,
         chains: cacheableChains,
-        requireAllChains: false,
+        requireAllChains: true,
       }),
     );
     const cachedAddressSet = new Set(
-      cachedEntries.map((entry) => String(entry.address || "").toLowerCase()),
+      cachedEntries.map((entry) => getFavAddrKey(walletType, entry.address)),
     );
     const fetchEntries = localSelectedWalletEntries.filter(
-      (entry) => !cachedAddressSet.has(String(entry.address || "").toLowerCase()),
+      (entry) => !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
     );
     const cachedData = getWalletBalanceClientCacheData({
       walletType,

@@ -79,7 +79,7 @@ const serverCacheRows = [
 const clientCacheRows = [
   [
     "Wallet balance rows",
-    "client module memory in app/w/walletBalanceClientCache.js; cached by wallet type, chain, and address while the browser tab stays loaded. A browser refresh clears it.",
+    "client module memory in app/w/walletBalanceClientCache.js; cached by wallet type and wallet address, with chain balances nested under that address while the browser tab stays loaded. A browser refresh clears it.",
   ],
   [
     "Trade all-market lists",

@@ -12,26 +12,61 @@ function clone(value) {
   }
 }
 
-function getAddressKey(address = "") {
-  return String(address || "").trim().toLowerCase();
+function getWalletTypeKey(walletType = "evm") {
+  return String(walletType || "evm").trim() || "evm";
 }
 
-function getCacheKey({
+function getAddressKey(address = "", walletType = "evm") {
+  const text = String(address || "").trim();
+  if (!text) return "";
+
+  return getWalletTypeKey(walletType) == "solana" ? text : text.toLowerCase();
+}
+
+function getAddressCacheKey({
+  walletType = "evm",
+  address = "",
+} = {}) {
+  const type = getWalletTypeKey(walletType);
+  const addressKey = getAddressKey(address, type);
+  return type && addressKey ? `${type}:${addressKey}` : "";
+}
+
+function getAddressCacheEntry(scope = {}, create = false) {
+  const key = getAddressCacheKey(scope);
+  if (!key) return null;
+
+  if (!walletBalanceClientCacheM.has(key) && create) {
+    walletBalanceClientCacheM.set(key, {
+      at: Date.now(),
+      walletType: getWalletTypeKey(scope.walletType),
+      addressKey: getAddressKey(scope.address, scope.walletType),
+      chains: new Map(),
+    });
+  }
+
+  return walletBalanceClientCacheM.get(key) || null;
+}
+
+function getChainCacheEntry({
   walletType = "evm",
   chain = "",
   address = "",
 } = {}) {
-  const addressKey = getAddressKey(address);
-  return walletType && chain && addressKey
-    ? `${walletType}:${chain}:${addressKey}`
-    : "";
+  const entry = getAddressCacheEntry({ walletType, address });
+  return entry?.chains?.get(chain) || null;
 }
 
 function isCacheScopeMatch(entry = {}, { walletType = "", address = "" } = {}) {
   const type = String(walletType || "").trim();
-  const addressKey = getAddressKey(address);
+  const addressText = String(address || "").trim();
   if (type && entry.walletType != type) return false;
-  if (addressKey && entry.addressKey != addressKey) return false;
+  if (
+    addressText &&
+    entry.addressKey != getAddressKey(addressText, type || entry.walletType)
+  ) {
+    return false;
+  }
 
   return true;
 }
@@ -68,9 +103,9 @@ function getRequestedChainSet(chains = []) {
   return list.length ? new Set(list) : null;
 }
 
-function getRequestedAddressSet(addresses = []) {
+function getRequestedAddressSet(addresses = [], walletType = "evm") {
   const list = (Array.isArray(addresses) ? addresses : [])
-    .map(getAddressKey)
+    .map((address) => getAddressKey(address, walletType))
     .filter(Boolean);
 
   return list.length ? new Set(list) : null;
@@ -91,28 +126,38 @@ export function clearWalletBalanceClientCache(scope = {}) {
 }
 
 export function getWalletBalanceClientCacheMeta(scope = {}) {
-  const entries = [...walletBalanceClientCacheM.values()].filter((entry) =>
+  const addressEntries = [...walletBalanceClientCacheM.values()].filter((entry) =>
     isCacheScopeMatch(entry, scope),
   );
-  const at = entries.reduce(
+  const chainEntries = addressEntries.flatMap((entry) => [
+    ...entry.chains.values(),
+  ]);
+  const at = chainEntries.reduce(
     (latest, entry) => Math.max(latest, Number(entry?.at || 0)),
     0,
   );
-  const chains = [...new Set(entries.map((entry) => entry.chain).filter(Boolean))];
+  const chains = [
+    ...new Set(chainEntries.map((entry) => entry.chain).filter(Boolean)),
+  ];
 
   return {
-    source: entries.length ? "cache" : "",
+    source: chainEntries.length ? "cache" : "",
     location: "client",
     at,
     ttlMs: 0,
     expiresAt: 0,
-    entries: entries.length,
+    entries: addressEntries.length,
+    chainEntries: chainEntries.length,
     chains,
   };
 }
 
-export function writeWalletBalanceClientCache(data = [], { walletType = "evm" } = {}) {
+export function writeWalletBalanceClientCache(
+  data = [],
+  { walletType = "evm" } = {},
+) {
   const chainList = Array.isArray(data) ? data : data ? [data] : [];
+  const type = getWalletTypeKey(walletType);
 
   for (const chainE of chainList) {
     const chain = String(chainE?.chain || "");
@@ -121,14 +166,17 @@ export function writeWalletBalanceClientCache(data = [], { walletType = "evm" } 
     for (const row of chainE?.rows || []) {
       if (!shouldStoreRow(row)) continue;
 
-      const key = getCacheKey({ walletType, chain, address: row.address });
-      if (!key) continue;
+      const addressEntry = getAddressCacheEntry(
+        { walletType: type, address: row.address },
+        true,
+      );
+      if (!addressEntry) continue;
 
-      walletBalanceClientCacheM.set(key, {
-        at: Date.now(),
-        walletType,
+      const at = Date.now();
+      addressEntry.at = at;
+      addressEntry.chains.set(chain, {
+        at,
         chain,
-        addressKey: getAddressKey(row.address),
         chainMeta: getChainMeta(chainE),
         row: getStoredRow(row),
       });
@@ -142,22 +190,15 @@ export function isWalletBalanceAddressCached({
   chains = [],
   requireAllChains = true,
 } = {}) {
-  const addressKey = getAddressKey(address);
-  if (!addressKey) return false;
+  const addressEntry = getAddressCacheEntry({ walletType, address });
+  if (!addressEntry) return false;
 
   const chainList = (Array.isArray(chains) ? chains : [])
     .map((chain) => String(chain || "").trim())
     .filter(Boolean);
-  if (!chainList.length) {
-    return [...walletBalanceClientCacheM.values()].some((entry) =>
-      isCacheScopeMatch(entry, { walletType, address }),
-    );
-  }
+  if (!chainList.length) return addressEntry.chains.size > 0;
 
-  const hasChainCache = (chain) =>
-    walletBalanceClientCacheM.has(
-      getCacheKey({ walletType, chain, address: addressKey }),
-    );
+  const hasChainCache = (chain) => addressEntry.chains.has(chain);
 
   return requireAllChains
     ? chainList.every(hasChainCache)
@@ -169,34 +210,40 @@ export function getWalletBalanceClientCacheData({
   addresses = [],
   chains = [],
 } = {}) {
-  const addressSet = getRequestedAddressSet(addresses);
+  const type = getWalletTypeKey(walletType);
+  const addressSet = getRequestedAddressSet(addresses, type);
   const chainSet = getRequestedChainSet(chains);
   const chainOrder = Array.isArray(chains) ? chains : [];
   const chainM = new Map();
 
-  for (const entry of walletBalanceClientCacheM.values()) {
-    if (walletType && entry.walletType != walletType) continue;
-    if (addressSet && !addressSet.has(entry.addressKey)) continue;
-    if (chainSet && !chainSet.has(entry.chain)) continue;
+  for (const addressEntry of walletBalanceClientCacheM.values()) {
+    if (type && addressEntry.walletType != type) continue;
+    if (addressSet && !addressSet.has(addressEntry.addressKey)) continue;
 
-    if (!chainM.has(entry.chain)) {
-      chainM.set(entry.chain, {
-        ...(clone(entry.chainMeta) || {}),
-        chain: entry.chain,
-        rows: [],
-      });
+    for (const entry of addressEntry.chains.values()) {
+      if (chainSet && !chainSet.has(entry.chain)) continue;
+
+      if (!chainM.has(entry.chain)) {
+        chainM.set(entry.chain, {
+          ...(clone(entry.chainMeta) || {}),
+          chain: entry.chain,
+          rows: [],
+        });
+      }
+
+      const chainE = chainM.get(entry.chain);
+      const row = {
+        ...(clone(entry.row) || {}),
+        clientCached: true,
+        clientReloaded: false,
+      };
+      const balanceCoins = Object.keys(row.balances || {});
+      chainE.allCoins = [
+        ...new Set([...(chainE.allCoins || []), ...balanceCoins]),
+      ];
+      chainE.coins = [...new Set([...(chainE.coins || []), ...balanceCoins])];
+      chainE.rows.push(row);
     }
-
-    const chainE = chainM.get(entry.chain);
-    const row = {
-      ...(clone(entry.row) || {}),
-      clientCached: true,
-      clientReloaded: false,
-    };
-    const balanceCoins = Object.keys(row.balances || {});
-    chainE.allCoins = [...new Set([...(chainE.allCoins || []), ...balanceCoins])];
-    chainE.coins = [...new Set([...(chainE.coins || []), ...balanceCoins])];
-    chainE.rows.push(row);
   }
 
   return [...chainM.values()].sort((a, b) => {
@@ -286,8 +333,11 @@ export function applyWalletBalanceClientCache(
     return {
       ...chainE,
       rows: chainE.rows.map((row) => {
-        const key = getCacheKey({ walletType, chain, address: row?.address });
-        const cached = key ? walletBalanceClientCacheM.get(key)?.row : null;
+        const cached = getChainCacheEntry({
+          walletType,
+          chain,
+          address: row?.address,
+        })?.row;
         if (row?.clientFresh || row?.clientReloaded) return row;
         if (!cached || !hasBalances(cached)) return row;
 
@@ -314,11 +364,15 @@ export function patchWalletBalanceClientCache({
   coin = "",
   balance = null,
 } = {}) {
-  const key = getCacheKey({ walletType, chain, address });
-  if (!key || !coin || !balance) return;
+  if (!chain || !coin || !balance) return;
 
-  const cached = walletBalanceClientCacheM.get(key) || {
+  const addressEntry = getAddressCacheEntry({ walletType, address }, true);
+  if (!addressEntry) return;
+
+  const cached = addressEntry.chains.get(chain) || {
     at: Date.now(),
+    chain,
+    chainMeta: { chain },
     row: {
       address,
       balances: {},
@@ -334,11 +388,12 @@ export function patchWalletBalanceClientCache({
       ...clone(balance),
     },
   };
-  walletBalanceClientCacheM.set(key, {
-    at: Date.now(),
-    walletType,
+
+  const at = Date.now();
+  addressEntry.at = at;
+  addressEntry.chains.set(chain, {
+    at,
     chain,
-    addressKey: getAddressKey(address),
     chainMeta: cached.chainMeta || { chain },
     row: getStoredRow(row),
   });
