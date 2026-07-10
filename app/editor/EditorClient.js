@@ -9,7 +9,7 @@ import {
   localEditorStorageEvent,
   readLocalEditorFile,
   saveLocalEditorFile,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../_editorData/browserEditorStorage";
 import { editorCookieMaxAge, editorFileCookie } from "./editorSettings";
 
@@ -53,7 +53,7 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
   }, [file]);
 
   useEffect(() => {
-    const useLocal = useLocalStorageEditor();
+    const useLocal = shouldUseLocalStorageEditor();
     setUseLocalEditorStore(useLocal);
     if (!useLocal) return;
 

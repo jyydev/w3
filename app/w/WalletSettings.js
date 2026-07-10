@@ -15,7 +15,7 @@ import {
   localEditorStorageEvent,
   readLocalLineFileValues,
   setLocalLineFileValue,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../_editorData/browserEditorStorage";
 import { clearClientRuntimeCache } from "../clientRuntimeCache";
 import { clearServerRuntimeCache } from "./cacheActions";
@@ -416,7 +416,7 @@ function WalletSettings({
   }, [alchemyMinUsd]);
 
   useEffect(() => {
-    setUseLocalEditorStore(useLocalStorageEditor());
+    setUseLocalEditorStore(shouldUseLocalStorageEditor());
   }, []);
 
   useEffect(() => {

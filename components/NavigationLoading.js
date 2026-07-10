@@ -2,7 +2,7 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import cgb from "@/app/context";
+import useCgb from "@/app/context";
 
 function getRouteKey(url) {
   return `${url.pathname}${url.search}`;
@@ -25,7 +25,7 @@ function getLinkUrl(target) {
 }
 
 function NavigationLoadingInner() {
-  const { setNavigationLoading } = cgb();
+  const { setNavigationLoading } = useCgb();
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
   const search = searchParams.toString();

@@ -83,7 +83,7 @@ import {
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../../_editorData/browserEditorStorage";
 import {
   cleanTradeInput,
@@ -380,7 +380,7 @@ export default function SwapPanel({
   const toChainPickerRef = useRef(null);
   const fromCoinPickerRef = useRef(null);
   const toCoinPickerRef = useRef(null);
-  const useLocalEditorStore = useLocalStorageEditor();
+  const useLocalEditorStore = shouldUseLocalStorageEditor();
   const [locallyAddedAddressM, setLocallyAddedAddressM] = useState({});
   const {
     customCoinPreview,

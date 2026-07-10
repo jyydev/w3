@@ -23,14 +23,14 @@ export const RootProvider = ({ children }) => {
   );
 };
 
-const cgb = () => useContext(RootContext);
+const useCgb = () => useContext(RootContext);
 
-export default cgb;
+export default useCgb;
 
 /***** README */
 
 /*** usage */
-// use in any client page: import cgb from "@/app/context"; let cg = cgb(); cg.a = 1;
+// use in any client page: import useCgb from "@/app/context"; let cg = useCgb();
 
 /*** config */
 // in layout.js: import { RootProvider } from "./context";   return (..<RootProvider>..</RootProvider>)

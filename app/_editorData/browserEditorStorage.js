@@ -28,7 +28,7 @@ export function isLocalEditorHost(hostname = "") {
   );
 }
 
-export function useLocalStorageEditor(hostname) {
+export function shouldUseLocalStorageEditor(hostname) {
   if (typeof window == "undefined") return false;
   return !isLocalEditorHost(hostname ?? window.location.hostname);
 }

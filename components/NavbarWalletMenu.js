@@ -14,7 +14,7 @@ import {
   localEditorStorageEvent,
   readLocalNavFavs,
   saveLocalNavFavs,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "@/app/_editorData/browserEditorStorage";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
@@ -171,7 +171,7 @@ function addLocalWalletFile(typeNode, record) {
 }
 
 export function getLocalWalletTree() {
-  if (!useLocalStorageEditor()) return [];
+  if (!shouldUseLocalStorageEditor()) return [];
 
   return ["evm", "solana"]
     .map((walletType) => {
@@ -431,7 +431,7 @@ function NavbarWalletMenu({
     if (!window.confirm(`Delete empty ${target.kind}?\n\n${label}`)) return;
 
     try {
-      if (useLocalStorageEditor()) {
+      if (shouldUseLocalStorageEditor()) {
         if (target.kind != "file") {
           throw new Error("localStorage has no empty folder record");
         }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
-import cgb from "@/app/context";
+import useCgb from "@/app/context";
 import HoverMenu from "./HoverMenu";
 import {
   getLocalWalletTree,
@@ -445,7 +445,7 @@ function BreadcrumbInner({ walletTree = [] }) {
   const pathname = usePathname() || "/";
   const topValue = getTopValue(pathname);
   const topCurrent = topOptions.find((option) => option.value == topValue);
-  const { navigationLoading } = cgb();
+  const { navigationLoading } = useCgb();
   const [localTree, setLocalTree] = useState([]);
   const tree = useMemo(
     () => mergeTrees(walletTree, localTree),

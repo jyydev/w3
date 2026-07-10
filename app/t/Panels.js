@@ -14,7 +14,7 @@ import {
   localEditorStorageEvent,
   readLocalLineFileValues,
   readLocalWalletEntries,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../_editorData/browserEditorStorage";
 import { getLocalWalletBalanceData } from "../w/localWalletActions";
 import {
@@ -622,7 +622,7 @@ function Panels({
   );
 
   useEffect(() => {
-    if (!useLocalStorageEditor()) {
+    if (!shouldUseLocalStorageEditor()) {
       setLocalWalletEntriesM({ evm: [], solana: [] });
       setLocalFavAddrs([]);
       setLocalCustomCoinM({});
@@ -666,7 +666,7 @@ function Panels({
 
   useEffect(() => {
     setLocalWalletData(null);
-    if (!useLocalStorageEditor() || !localSelectedWalletEntries.length) {
+    if (!shouldUseLocalStorageEditor() || !localSelectedWalletEntries.length) {
       setLoadingLocalWalletData(false);
       return;
     }

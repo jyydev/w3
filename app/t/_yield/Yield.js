@@ -94,7 +94,7 @@ import { getTradeCoinBalance, getTradeCoinPrice } from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../../_editorData/browserEditorStorage";
 import {
   applyTradeMarketEndState,
@@ -519,7 +519,7 @@ export default function YieldPanel({
   const hyperliquidWithdrawCoinPickerRef = useRef(null);
   const hyperliquidWithdrawChainPickerRef = useRef(null);
   const mountedRef = useRef(false);
-  const useLocalEditorStore = useLocalStorageEditor();
+  const useLocalEditorStore = shouldUseLocalStorageEditor();
   const {
     customCoinPreview,
     customCoinDraft,

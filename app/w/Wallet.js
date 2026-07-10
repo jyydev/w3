@@ -7,7 +7,7 @@ import bscIcon from "@/data/img/bsc.png";
 import debankIcon from "@/data/img/debank.png";
 import ethereumIcon from "@/data/img/ethereum.svg";
 import solanaIcon from "@/data/img/solana.svg";
-import cgb from "@/app/context";
+import useCgb from "@/app/context";
 import { pc } from "@/fn/basic";
 import permanentCoinM from "@/fn/coinM";
 import {
@@ -44,7 +44,7 @@ import {
   readLocalWalletEntries,
   setLocalLineFileValue,
   updateLocalWalletEntryRef,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../_editorData/browserEditorStorage";
 import { toggleOffAddr, toggleOffCoin } from "./chainActions";
 import {
@@ -780,7 +780,7 @@ function Wallet({
   initialCookieM = {},
 }) {
   const router = useRouter();
-  const { setWalletLoading } = cgb();
+  const { setWalletLoading } = useCgb();
   const walletFileOptions = walletFiles.filter((file) => !file.endsWith("/"));
   const defaultAddWalletFile = walletFileOptions.includes(selectedWallet)
     ? selectedWallet
@@ -1429,7 +1429,7 @@ function Wallet({
   }
 
   function refreshLocalWalletFiles() {
-    if (!useLocalStorageEditor()) {
+    if (!shouldUseLocalStorageEditor()) {
       setLocalWalletFiles([]);
       setLocalCustomCoinM({});
       return;
@@ -1613,7 +1613,7 @@ function Wallet({
   ]);
 
   useEffect(() => {
-    const useLocal = useLocalStorageEditor();
+    const useLocal = shouldUseLocalStorageEditor();
     setUseLocalEditorStore(useLocal);
     setLocalEditorStoreChecked(true);
     if (useLocal) refreshLocalStorageEditorData(useLocal);

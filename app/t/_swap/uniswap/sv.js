@@ -1,7 +1,6 @@
 "use server";
 
 import { ethers } from "ethers";
-import coinM from "@/fn/coinM";
 import { chainIds } from "@/data/basic";
 import {
   approveExactIfNeeded,
@@ -153,7 +152,7 @@ export async function getUniswapSwapPreview({
 
   const amountIn = getUniswapAmountIn({ chain, fromCoin, amount });
   const provider = createJsonRpcProvider(rpc, {
-    chain: fromChain,
+    chain,
     scope: "Uniswap",
   });
   try {
@@ -217,7 +216,7 @@ export async function buildUniswapSwapTxs({
 
   const amountIn = getUniswapAmountIn({ chain, fromCoin, amount });
   const provider = createJsonRpcProvider(rpc, {
-    chain: fromChain,
+    chain,
     scope: "Uniswap",
   });
   try {
@@ -360,7 +359,7 @@ export async function executeUniswapSwap({
   });
 
   const provider = createJsonRpcProvider(rpc, {
-    chain: fromChain,
+    chain,
     scope: "Uniswap",
   });
   try {

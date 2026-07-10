@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import cgb from "@/app/context";
+import useCgb from "@/app/context";
 import { ClickInfoCard } from "@/components/Shared";
 import {
   clearStoredWallet,
@@ -592,7 +592,7 @@ function BrowserWalletConnect({
   walletEntries = [],
 }) {
   const router = useRouter();
-  const { setWalletLoading } = cgb();
+  const { setWalletLoading } = useCgb();
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState("");
   const [connectedWallet, setConnectedWallet] = useState(null);

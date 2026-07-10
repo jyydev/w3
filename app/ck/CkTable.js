@@ -2,6 +2,7 @@
 import "ygb/react";
 import toast from "react-hot-toast";
 import { setCookie, deleteCookie } from "cookies-next";
+import { useEffect, useState } from "react";
 const setCk = (ck, v, op = {}) => setCookie(ck, v, { maxAge: 365 * 24 * 60 * 60, ...op });
 
 const getReactCookies = () =>

@@ -78,7 +78,7 @@ import { getTradeCoinBalance, getTradeCoinPrice } from "./sv";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,
-  useLocalStorageEditor,
+  shouldUseLocalStorageEditor,
 } from "../../_editorData/browserEditorStorage";
 import {
   absTradeQty,
@@ -436,7 +436,7 @@ export default function LendPanel({
   const defiPickerRef = useRef(null);
   const chainPickerRef = useRef(null);
   const marketPickerRef = useRef(null);
-  const useLocalEditorStore = useLocalStorageEditor();
+  const useLocalEditorStore = shouldUseLocalStorageEditor();
   const {
     customCoinPreview,
     customCoinDraft,
