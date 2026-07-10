@@ -397,7 +397,18 @@ function ChainIcon({ chain }) {
   }
 
   const src = getImgSrc(chainIconM[chain]);
-  if (!src) return null;
+  if (!src) {
+    if (!chain) return null;
+
+    return (
+      <span
+        className="assetIcon assetIconText chainIcon chainIcon-missing"
+        aria-hidden="true"
+      >
+        {getCoinIconText({ coin: chain })}
+      </span>
+    );
+  }
 
   return (
     <img
@@ -428,6 +439,8 @@ function getCoinIconText({ coin = "", name = "" } = {}) {
 }
 
 function CoinIcon({ coin, coinE = {} }) {
+  if (coinE.synthetic) return null;
+
   return (
     <span
       className={`assetIcon assetIconText coinIcon coinIcon-${getCoinTypeClass(coinE.type)}`}
@@ -498,6 +511,7 @@ const coinLimitCookie = `${ckPrefix ?? ""}coinLimit`;
 const assetSortCookie = `${ckPrefix ?? ""}assetSort`;
 const rowSortCookie = `${ckPrefix ?? ""}rowSort`;
 const activeChainCookie = `${ckPrefix ?? ""}activeChain`;
+const showAllChainIconsCookie = `${ckPrefix ?? ""}showAllChainIcons`;
 const chainSortCookie = `${ckPrefix ?? ""}chainSort`;
 const allChainSortValue = "__all__";
 const chainSortCap = 10;
@@ -776,6 +790,11 @@ function Wallet({
   let [activeChain, setActiveChain] = useState(() =>
     getInitialActiveChain({ data, initialCookieM }),
   );
+  let [showAllChainIcons, setShowAllChainIcons] = useState(
+    () => getInitialCookie(initialCookieM, showAllChainIconsCookie) != "0",
+  );
+  let [chainFilterTab, setChainFilterTab] = useState("chains");
+  let [chainFilterOpen, setChainFilterOpen] = useState(false);
   let [chainSortOrder, setChainSortOrder] = useState(() =>
     parseChainSortOrder(getInitialCookie(initialCookieM, chainSortCookie)).slice(
       0,
@@ -1220,6 +1239,139 @@ function Wallet({
     const index = Math.max(0, chains.indexOf(activeChain));
     const next = chains[(index + direction + chains.length) % chains.length];
     cycleActiveChainValue(next);
+  }
+
+  function toggleShowAllChainIcons() {
+    setShowAllChainIcons((prev) => {
+      const next = !prev;
+      setCookie(showAllChainIconsCookie, next ? "1" : "0", {
+        maxAge: cookieMaxAge,
+      });
+      return next;
+    });
+  }
+
+  function ChainFilterLabel() {
+    const chainOptions = chainSelectOptions.filter((option) => option.value);
+
+    return (
+      <span
+        className={`infoHover interactiveInfoHover ${
+          chainFilterOpen ? "infoOpen" : ""
+        }`}
+        onMouseEnter={() => setChainFilterOpen(true)}
+        onMouseLeave={() => setChainFilterOpen(false)}
+      >
+        <span>chain:</span>
+        <span className="infoCard interactiveInfoCard">
+          <span className="infoCardTitle">chain filter</span>
+          <span className="interactiveInfoTabs">
+            <button
+              type="button"
+              className={`walletSettingsTab ${
+                chainFilterTab == "chains" ? "walletSettingsTabActive" : ""
+              }`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setChainFilterTab("chains");
+              }}
+            >
+              chains
+            </button>
+            <button
+              type="button"
+              className={`walletSettingsTab ${
+                chainFilterTab == "setting" ? "walletSettingsTabActive" : ""
+              }`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setChainFilterTab("setting");
+              }}
+            >
+              setting
+            </button>
+          </span>
+          {chainFilterTab == "setting" ? (
+            <table className="coinSettingsTable interactiveInfoSettingsTable">
+              <thead>
+                <tr>
+                  <th>setting</th>
+                  <th>on</th>
+                  <th>default</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>show chain icon on 'all' mode</td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={showAllChainIcons}
+                      onChange={toggleShowAllChainIcons}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </td>
+                  <td>on</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`walletChainOption interactiveInfoOption ${
+                  !activeChain ? "active" : ""
+                }`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectActiveChainValue("");
+                  setChainFilterOpen(false);
+                }}
+              >
+                <span className="interactiveInfoIconSpacer"></span>
+                <span>all</span>
+                <span className="interactiveInfoStatus">
+                  {!activeChain ? "on" : "off"}
+                </span>
+              </button>
+              {chainOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`walletChainOption interactiveInfoOption ${
+                    activeChain == option.value ? "active" : ""
+                  }`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleChain(option.value);
+                    setChainFilterOpen(false);
+                  }}
+                >
+                  <ChainIcon chain={option.value} />
+                  <span>{option.label}</span>
+                  <span className="interactiveInfoStatus">
+                    {activeChain == option.value ? "on" : "off"}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+        </span>
+      </span>
+    );
   }
 
   function saveActiveChainCookie(chain = "") {
@@ -3041,21 +3193,27 @@ function Wallet({
   }
 
   function getRows() {
-    const rowM = {};
+    const rowM = new Map();
 
     for (const chainE of chainList) {
       for (const row of chainE?.rows || []) {
-        if (!rowM[row.name]) {
-          rowM[row.name] = { name: row.name, address: row.address, chainM: {} };
+        const key =
+          getFavAddrKey(walletType, row.address) ||
+          `name:${String(row.name || "").trim()}`;
+        if (!key) continue;
+
+        if (!rowM.has(key)) {
+          rowM.set(key, { name: row.name, address: row.address, chainM: {} });
         }
-        if (!rowM[row.name].address && row.address) {
-          rowM[row.name].address = row.address;
+        const tableRow = rowM.get(key);
+        if (!tableRow.address && row.address) {
+          tableRow.address = row.address;
         }
-        rowM[row.name].chainM[chainE.chain] = row;
+        tableRow.chainM[chainE.chain] = row;
       }
     }
 
-    return Object.values(rowM).map((row) => {
+    return [...rowM.values()].map((row) => {
       const entry = getKnownWalletEntry(row);
       if (!entry) return row;
 
@@ -3110,14 +3268,16 @@ function Wallet({
   }
 
   function ChainToggle({ chainE }) {
+    if (activeChain != chainE.chain) return null;
+
     return (
       <label
         className="switch small walletChainSwitch"
-        title={`show only ${chainE.chain}`}
+        title="show all chains"
       >
         <input
           type="checkbox"
-          checked={activeChain == chainE.chain}
+          checked
           onChange={() => toggleChain(chainE.chain)}
         />
         <span className="slider"></span>
@@ -3222,121 +3382,146 @@ function Wallet({
       ])
       .filter(([, , entries]) => entries.length);
 
+    const showChainIcon =
+      activeChain == chain || (!activeChain && showAllChainIcons);
+
     return (
-      <span
-        className={`infoHover clickInfo walletChainSettingsIcon ${
-          openCoinSettingsChain == chain ? "infoOpen" : ""
-        }`}
-        onMouseLeave={() => setOpenCoinSettingsChain("")}
-      >
+      <span className="chainTitle">
+        {showChainIcon && (
+          <span
+            className={`infoHover interactiveInfoHover walletChainSettingsIcon ${
+              openCoinSettingsChain == chain ? "infoOpen" : ""
+            }`}
+            onMouseEnter={() => setOpenCoinSettingsChain(chain)}
+            onMouseLeave={() => setOpenCoinSettingsChain("")}
+          >
+            <button
+              type="button"
+              className="chainSettingsIconButton"
+              title={`${chain} coin settings`}
+              aria-label={`${chain} coin settings`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleChain(chain);
+              }}
+            >
+              <ChainIcon chain={chain} />
+            </button>
+            <span className="infoCard chainCoinSettingsCard">
+              <span className="infoCardTitle">{chain} coins</span>
+              <table className="coinSettingsTable">
+                <thead>
+                  <tr>
+                    <th>
+                      <TableSortHeader
+                        activeSort={sortKey}
+                        onSort={(key) => setCoinSettingSort(chain, key)}
+                        sortKey="symbol"
+                      >
+                        symbol
+                      </TableSortHeader>
+                    </th>
+                    <th>
+                      <TableSortHeader
+                        activeSort={sortKey}
+                        onSort={(key) => setCoinSettingSort(chain, key)}
+                        sortKey="name"
+                      >
+                        name
+                      </TableSortHeader>
+                    </th>
+                    <th>
+                      <TableSortHeader
+                        activeSort={sortKey}
+                        onSort={(key) => setCoinSettingSort(chain, key)}
+                        sortKey="on"
+                      >
+                        on
+                      </TableSortHeader>
+                    </th>
+                    <th>
+                      <TableSortHeader
+                        activeSort={sortKey}
+                        onSort={(key) => setCoinSettingSort(chain, key)}
+                        sortKey="server"
+                      >
+                        server
+                      </TableSortHeader>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedCoins.map(([source, label, entries]) => (
+                    <Fragment key={source}>
+                      <tr
+                        key={`${source}_title`}
+                        className="coinSettingsGroupRow"
+                      >
+                        <td colSpan={4}>{label}</td>
+                      </tr>
+                      {entries.map(({ coin, name, removable }) => (
+                        <tr key={coin} className="coinSettingsRow">
+                          <td>
+                            <span className="coinSettingsSymbolCell">
+                              <span>{coin}</span>
+                              {removable && (
+                                <button
+                                  type="button"
+                                  className="walletDeleteButton coinDeleteButton"
+                                  title={`delete ${chain} ${coin}`}
+                                  aria-label={`delete ${chain} ${coin}`}
+                                  disabled={
+                                    deletingCoinKey == `${chain}:${coin}`
+                                  }
+                                  onClick={(e) =>
+                                    deleteEditorCoin(e, chain, coin)
+                                  }
+                                >
+                                  <TrashIcon />
+                                </button>
+                              )}
+                            </span>
+                          </td>
+                          <td>{name || <span className="gray">-</span>}</td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={!disabled.has(coin)}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={() => toggleCoinEnabled(chain, coin)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={!serverDisabled.has(coin)}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={() => toggleServerCoin(chain, coin)}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </span>
+          </span>
+        )}
         <button
           type="button"
-          className="chainTitle chainSettingsTitle"
-          title={`${chain} coin settings`}
-          aria-label={`${chain} coin settings`}
-          onClick={() =>
-            setOpenCoinSettingsChain((prev) => (prev == chain ? "" : chain))
+          className="chainSettingsTitle"
+          title={activeChain == chain ? "show all chains" : `show only ${chain}`}
+          aria-label={
+            activeChain == chain ? "show all chains" : `show only ${chain}`
           }
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleChain(chain);
+          }}
         >
-          <ChainIcon chain={chain} />
           <span>{chain}</span>
         </button>
-        <span className="infoCard chainCoinSettingsCard">
-          <span className="infoCardTitle">{chain} coins</span>
-          <table className="coinSettingsTable">
-            <thead>
-              <tr>
-                <th>
-                  <TableSortHeader
-                    activeSort={sortKey}
-                    onSort={(key) => setCoinSettingSort(chain, key)}
-                    sortKey="symbol"
-                  >
-                    symbol
-                  </TableSortHeader>
-                </th>
-                <th>
-                  <TableSortHeader
-                    activeSort={sortKey}
-                    onSort={(key) => setCoinSettingSort(chain, key)}
-                    sortKey="name"
-                  >
-                    name
-                  </TableSortHeader>
-                </th>
-                <th>
-                  <TableSortHeader
-                    activeSort={sortKey}
-                    onSort={(key) => setCoinSettingSort(chain, key)}
-                    sortKey="on"
-                  >
-                    on
-                  </TableSortHeader>
-                </th>
-                <th>
-                  <TableSortHeader
-                    activeSort={sortKey}
-                    onSort={(key) => setCoinSettingSort(chain, key)}
-                    sortKey="server"
-                  >
-                    server
-                  </TableSortHeader>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupedCoins.map(([source, label, entries]) => (
-                <Fragment key={source}>
-                  <tr key={`${source}_title`} className="coinSettingsGroupRow">
-                    <td colSpan={4}>{label}</td>
-                  </tr>
-                  {entries.map(({ coin, name, removable }) => (
-                    <tr
-                      key={coin}
-                      className="coinSettingsRow"
-                      onClick={() => toggleCoinEnabled(chain, coin)}
-                    >
-                      <td>
-                        <span className="coinSettingsSymbolCell">
-                          <span>{coin}</span>
-                          {removable && (
-                            <button
-                              type="button"
-                              className="walletDeleteButton coinDeleteButton"
-                              title={`delete ${chain} ${coin}`}
-                              aria-label={`delete ${chain} ${coin}`}
-                              disabled={deletingCoinKey == `${chain}:${coin}`}
-                              onClick={(e) => deleteEditorCoin(e, chain, coin)}
-                            >
-                              <TrashIcon />
-                            </button>
-                          )}
-                        </span>
-                      </td>
-                      <td>{name || <span className="gray">-</span>}</td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={!disabled.has(coin)}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={() => toggleCoinEnabled(chain, coin)}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={!serverDisabled.has(coin)}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={() => toggleServerCoin(chain, coin)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </span>
       </span>
     );
   }
@@ -3491,7 +3676,7 @@ function Wallet({
       });
 
     return (
-      <span className="infoHover walletAddrSettingsHeader">
+      <span className="infoHover interactiveInfoHover walletAddrSettingsHeader">
         <SortHeader sortKey="name">addr</SortHeader>
         <span className="infoCard walletAddrSettingsCard">
           <span className="infoCardTitle">Wallets</span>
@@ -3771,6 +3956,17 @@ function Wallet({
     );
   }
 
+  function getCoinEntryByCoin(chainE, coin = "") {
+    const cleanCoin = String(coin || "").trim();
+    if (!cleanCoin) return null;
+
+    return (
+      Object.entries(chainE?.coinInfoM || {}).find(
+        ([localCoin]) => localCoin == cleanCoin,
+      ) || null
+    );
+  }
+
   function getChainCoinStats(chainE) {
     const chain = chainE.chain;
     const allCoins = getAllCoins(chainE);
@@ -3849,7 +4045,7 @@ function Wallet({
     return (
       <td>
         <span
-          className={`infoHover ${
+          className={`infoHover interactiveInfoHover ${
             copiedAddress == row.address && copiedAddressSource == "row"
               ? "infoOpen"
               : ""
@@ -4046,6 +4242,14 @@ function Wallet({
         <span>
           type: <span className="white">{coinE.type || "-"}</span>
         </span>
+        {coinE.synthetic && (
+          <span>
+            derived:{" "}
+            <span className="white">
+              {coinE.syntheticInfo || "synthetic wallet balance"}
+            </span>
+          </span>
+        )}
         {coinE.ref && (
           <span>
             ref: <span className="white">{coinE.ref}</span>
@@ -4107,7 +4311,9 @@ function Wallet({
     const sourceChain = String(coinE.sourceChain || "").trim();
     const sourceChainE = getInfoChainE(sourceChain);
     const rewardAddress = coinE.rewardAddress || coinE.address;
-    const rewardEntry = getCoinEntryByAddress(sourceChainE, rewardAddress);
+    const rewardEntry =
+      getCoinEntryByAddress(sourceChainE, rewardAddress) ||
+      getCoinEntryByCoin(sourceChainE, coinE.rewardCoin || String(coin).split("<-")[0]);
     const [rewardCoin, rewardCoinE] = rewardEntry || [
       coinE.rewardCoin || String(coin).split("<-")[0] || coin,
       {
@@ -4118,7 +4324,9 @@ function Wallet({
       },
     ];
     const sourceCoin = coinE.sourceCoin || String(coin).split("<-")[1] || "";
-    const sourceEntry = getCoinEntryByAddress(sourceChainE, coinE.sourceAddress);
+    const sourceEntry =
+      getCoinEntryByAddress(sourceChainE, coinE.sourceAddress) ||
+      getCoinEntryByCoin(sourceChainE, sourceCoin);
     const [stakingCoin, stakingCoinE] = sourceEntry || [
       sourceCoin,
       {
@@ -4472,7 +4680,7 @@ function Wallet({
               onRemoveHistory={removeWalletHistory}
               disabled={loadingWallet}
             />
-            <span>chain:</span>
+            <ChainFilterLabel />
             <CycleButtonPair
               onPrev={() => cycleActiveChain(-1)}
               onNext={() => cycleActiveChain(1)}
@@ -4759,9 +4967,12 @@ function Wallet({
             row.address && isAddressOnlyWalletName(rowName)
               ? getAddressUrl(row.address)
               : getWalletNameUrl(rowName);
+          const rowKey =
+            getFavAddrKey(walletType, row.address) ||
+            `${row.name}:${row.address}`;
 
           return (
-            <tr key={`${row.name}:${row.address}`}>
+            <tr key={rowKey}>
               <td className="stickyL">
                 {row.address && (
                   <button

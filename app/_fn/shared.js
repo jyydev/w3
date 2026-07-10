@@ -112,9 +112,10 @@ export function createJsonRpcProvider(
   rpc = "",
   { chain = "", network, staticNetwork = false, scope = "rpc" } = {},
 ) {
-  const provider = new ethers.JsonRpcProvider(rpc, network, {
-    staticNetwork,
-  });
+  const providerOptions = { staticNetwork };
+  if (chain == "WEMIX") providerOptions.batchMaxCount = 1;
+
+  const provider = new ethers.JsonRpcProvider(rpc, network, providerOptions);
   const send = provider._send?.bind(provider);
 
   if (send) {

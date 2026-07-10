@@ -46,6 +46,17 @@ const rpcNotes = [
   "WEMIX and Kaia are expected to use RPC unless an Alchemy Portfolio network is configured and supported.",
 ];
 
+const extraRpcRows = [
+  [
+    "Aave Staking rewards",
+    "If a wallet has a positive Aave Umbrella staking token balance, read the rewards controller for pending claimable rewards.",
+  ],
+  [
+    "WEMIX staking",
+    "If a wallet has native WEMIX, read WONDER 41 (WEMADE) staking balance and pending reward. Other WONDER pools are not included yet.",
+  ],
+];
+
 const sourceRows = [
   ["alchemy", "Alchemy Portfolio supplied the chain balances."],
   ["rpc", "The chain used the normal RPC balance path."],
@@ -68,6 +79,10 @@ function RpcRefPage() {
 
       <Section title="rpc flow">
         <Table rows={rpcRows} />
+      </Section>
+
+      <Section title="extra rpc queries">
+        <Table rows={extraRpcRows} />
       </Section>
 
       <Section title="notes">

@@ -670,7 +670,7 @@ function WalletSettings({
 
   return (
     <span
-      className={`infoHover clickInfo walletSettingsIcon ${
+      className={`infoHover clickInfo interactiveInfoHover walletSettingsIcon ${
         open ? "infoOpen" : ""
       }`}
       onMouseLeave={() => setOpen(false)}

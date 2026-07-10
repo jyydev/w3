@@ -33,7 +33,11 @@ function WalletInfo() {
         <span>
           Price source: Alchemy Portfolio when enabled, then DefiLlama,
           DexScreener, and RPC exchange-rate fallback.
-        </span>{" "}
+        </span>
+        <span className="infoCardTitle">Hover card</span>
+        <span>Hover a chain icon to open its coin settings card.</span>
+        <span>Click Trade text to open the Trade settings card.</span>
+        <span>Address, coin, and info icons also open detail cards.</span>
       </span>
     </span>
   );

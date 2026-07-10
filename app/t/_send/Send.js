@@ -1088,7 +1088,7 @@ export default function SendPanel({
     const copied = copiedAddress == address;
 
     return (
-      <span className="infoHover sendWalletAddressHover">
+      <span className="infoHover interactiveInfoHover sendWalletAddressHover">
         <span className="gray sendWalletTail">{shortTail(address)}</span>
         <span className="infoCard sendWalletAddressCard">
           <span className="infoCardTitle">{label}</span>

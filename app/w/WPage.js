@@ -28,7 +28,7 @@ import {
 } from "./walletSettingData";
 import {
   defaultWalletType,
-  getAaveStakingClaimBalances,
+  getClaimBalances,
   getAlchemyWalletTokenCache,
   getHyperliquidWalletBalances,
   getWalletBalances,
@@ -494,7 +494,7 @@ async function WPage({
   const claimData =
     selectedWalletType == "solana" || disabledChainM.has(claimChain)
       ? null
-      : await getAaveStakingClaimBalances({
+      : await getClaimBalances({
           data,
           usdPriceQuery,
         }).catch(() => null);

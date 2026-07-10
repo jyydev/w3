@@ -528,19 +528,28 @@ img.assetIcon {
 .chainIcon-base {
   background: #0052ff;
 }
+.chainIcon-claim {
+  background: #111827;
+  border: 1px solid #38bdf8;
+  color: white;
+}
 .chainIcon-hyperliquid {
   background: #111827;
   border: 1px solid #00e6c3;
-  color: #00e6c3;
+  color: white;
 }
 .chainIcon-kaia {
   background: #7bff00;
   color: black;
 }
+.chainIcon-missing {
+  border: 1px solid var(--gray);
+  color: white;
+}
 .chainIcon-wemix {
   background: #111827;
   border: 1px solid #7cfc00;
-  color: #7cfc00;
+  color: white;
 }
 .chainIcon-zksyncera {
   background: #4e529a;
@@ -849,6 +858,11 @@ img.assetIcon {
 .walletChainSettingsIcon {
   cursor: default;
 }
+.walletChainSettingsIcon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
 .walletChainOption {
   display: flex;
   align-items: center;
@@ -859,12 +873,73 @@ img.assetIcon {
 .walletChainOption input {
   margin: 0;
 }
+.interactiveInfoHover {
+  cursor: default;
+}
+.interactiveInfoHover .infoCard button:not(:disabled),
+.interactiveInfoHover .infoCard a[href],
+.interactiveInfoHover .infoCard input[type="checkbox"],
+.interactiveInfoHover .infoCard select,
+.interactiveInfoHover .infoCard [role="button"],
+.interactiveInfoHover .infoCard .copyAddressText {
+  cursor: pointer;
+}
+.interactiveInfoCard {
+  min-width: 160px;
+}
+.interactiveInfoTabs {
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.interactiveInfoOption {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  font: inherit;
+  text-align: left;
+}
+.interactiveInfoOption:hover,
+.interactiveInfoOption.active {
+  color: var(--orange);
+}
+.interactiveInfoIconSpacer {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.interactiveInfoStatus {
+  margin-left: auto;
+  color: var(--gray);
+}
+.interactiveInfoOption.active .interactiveInfoStatus {
+  color: white;
+}
+.interactiveInfoSettingsTable {
+  min-width: 260px;
+}
 .chainSettingsIcon {
   width: 16px;
   height: 16px;
   font-size: 14px;
 }
+.chainSettingsIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  line-height: 0;
+}
 .chainSettingsTitle {
+  display: inline-flex;
+  align-items: center;
   padding: 0;
   border: 0;
   background: transparent;
@@ -968,6 +1043,10 @@ img.assetIcon {
 .coinSettingsTable input {
   margin: 0;
 }
+.walletSettingsTable input[type="checkbox"],
+.coinSettingsTable input[type="checkbox"] {
+  cursor: pointer;
+}
 .walletRefInput {
   min-width: 8ch;
   max-width: 28ch;
@@ -1062,9 +1141,11 @@ img.assetIcon {
   margin-left: 4px;
   vertical-align: -2px;
 }
-.walletSettingsRow,
-.coinSettingsRow {
+.walletSettingsRow {
   cursor: pointer;
+}
+.coinSettingsRow {
+  cursor: default;
 }
 .walletSettingsRow:hover td,
 .coinSettingsRow:hover td {

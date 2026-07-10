@@ -143,6 +143,22 @@ const aaveStakingVaultInterface = new ethers.Interface([
 const aaveRewardsControllerInterface = new ethers.Interface([
   "function calculateCurrentUserRewards(address asset,address user) view returns (address[] rewards,uint256[] rewardsAccrued)",
 ]);
+const wemixWonderStakeCoin = "WEMIX-W41";
+const wemixWonderStakeContract = "0x6Af09e1A3c886dd8560bf4Cabd65dB16Ea2724D8";
+const wemixWonderStakeCoinE = {
+  address: wemixWonderStakeContract,
+  decimals: 18,
+  name: "WEMIX WONDER 41 Staked",
+  synthetic: true,
+  syntheticInfo: "Derived from WEMIX WONDER staking contract balance",
+  type: "yield",
+  ref: "WEMIX Stake: WONDER 41",
+};
+const wemixWonderStakePid = 41n;
+const wemixWonderStakeInterface = new ethers.Interface([
+  "function getUserInfo(uint256 pid,address user) view returns (uint256 amount,uint256 rewardDebt,uint256 rewardDebtAtBlock,uint256 rewardDebtMP,uint256 lastRewardBlock)",
+  "function pendingReward(uint256 pid,address user) view returns (uint256)",
+]);
 
 function withTimeout(promise, ms, message) {
   let timer;
@@ -1081,7 +1097,10 @@ function getClaimCoinKey({
   if (
     !existing ||
     (existing.sourceChain == sourceChain &&
-      sameEvmAddress(existing.rewardAddress, rewardAddress))
+      (sameEvmAddress(existing.rewardAddress, rewardAddress) ||
+        (!ethers.isAddress(existing.rewardAddress || "") &&
+          !ethers.isAddress(rewardAddress || "") &&
+          existing.rewardCoin == rewardCoin)))
   ) {
     return base;
   }
@@ -1700,6 +1719,150 @@ function addError(errors, coin, message) {
   errors[coin] = message;
 }
 
+async function applyWemixWonderStakeBalances({
+  chain,
+  provider,
+  rows,
+  usdPriceQuery = false,
+} = {}) {
+  if (chain != "WEMIX" || !provider) return false;
+
+  const queryRows = rows.filter(
+    (row) =>
+      ethers.isAddress(row.address) &&
+      getPositiveRaw(row.balances?.WEMIX?.raw),
+  );
+  if (!queryRows.length) return false;
+
+  const contract = new ethers.Contract(
+    wemixWonderStakeContract,
+    wemixWonderStakeInterface,
+    provider,
+  );
+  let added = false;
+
+  for (const row of queryRows) {
+    try {
+      const [userInfoResult, pendingRewardResult] = await Promise.allSettled([
+        withTimeout(
+          contract.getUserInfo(wemixWonderStakePid, row.address),
+          8000,
+          "WEMIX WONDER staking balance timeout",
+        ),
+        withTimeout(
+          contract.pendingReward(wemixWonderStakePid, row.address),
+          8000,
+          "WEMIX WONDER pending reward timeout",
+        ),
+      ]);
+      if (userInfoResult.status != "fulfilled") throw userInfoResult.reason;
+
+      const userInfo = userInfoResult.value;
+      const pendingRewardRaw =
+        pendingRewardResult.status == "fulfilled"
+          ? getPositiveRaw(pendingRewardResult.value)
+          : 0n;
+      if (pendingRewardRaw) {
+        row.wemixWonderStakePendingRewardRaw = pendingRewardRaw.toString();
+      }
+
+      const raw = getPositiveRaw(userInfo?.[0]);
+      if (!raw) continue;
+
+      const nativePrice = Number(row.balances?.WEMIX?.price || 0);
+      const balance = getBalanceE({
+        raw,
+        coin: wemixWonderStakeCoin,
+        coinE: wemixWonderStakeCoinE,
+        priceM: nativePrice ? { [wemixWonderStakeCoin]: nativePrice } : {},
+        usdPriceQuery,
+      });
+
+      if (pendingRewardRaw) {
+        balance.pendingRewardRaw = pendingRewardRaw.toString();
+        balance.pendingRewardCoin = "WEMIX";
+        balance.pendingRewardDecimals = 18;
+        balance.pendingRewardSource = "WEMIX Stake";
+      }
+
+      row.balances[wemixWonderStakeCoin] = balance;
+      added = true;
+    } catch (e) {
+      row.errors ??= {};
+      addError(
+        row.errors,
+        wemixWonderStakeCoin,
+        e?.shortMessage ?? e?.message ?? "WEMIX WONDER staking balance error",
+      );
+    }
+  }
+
+  return added;
+}
+
+function addWemixWonderClaimBalances({
+  data = [],
+  claimRowM,
+  coinInfoM,
+  claimCoins,
+} = {}) {
+  const chainE = (Array.isArray(data) ? data : []).find(
+    (entry) => entry?.chain == "WEMIX",
+  );
+  if (!chainE) return;
+
+  const rewardCoin = "WEMIX";
+  const sourceCoin = wemixWonderStakeCoin;
+  const claimCoin = getClaimCoinKey({
+    coinInfoM,
+    rewardCoin,
+    sourceChain: "WEMIX",
+    sourceCoin,
+  });
+
+  for (const row of chainE.rows || []) {
+    const stakeBalance = row.balances?.[sourceCoin];
+    const amount = getPositiveRaw(
+      stakeBalance?.pendingRewardRaw || row.wemixWonderStakePendingRewardRaw,
+    );
+    if (!amount) continue;
+
+    if (!coinInfoM[claimCoin]) {
+      coinInfoM[claimCoin] = {
+        decimals: 18,
+        name: `${rewardCoin} claim from ${sourceCoin}`,
+        type: "claim",
+        source: "WEMIX Stake",
+        sourceChain: "WEMIX",
+        sourceCoin,
+        sourceName: wemixWonderStakeCoinE.name,
+        sourceDecimals: wemixWonderStakeCoinE.decimals,
+        sourceType: wemixWonderStakeCoinE.type,
+        sourceAddress: wemixWonderStakeContract,
+        rewardCoin,
+      };
+      claimCoins.push(claimCoin);
+    }
+
+    const balance = ethers.formatUnits(amount, 18);
+    const price = Number(row.balances?.WEMIX?.price || stakeBalance?.price || 0);
+    const claimRow = ensureClaimRow(claimRowM, row);
+    claimRow.balances[claimCoin] = {
+      coin: claimCoin,
+      raw: amount.toString(),
+      balance,
+      decimals: 18,
+      price,
+      usd: price ? Number(balance) * price : 0,
+      source: "WEMIX Stake",
+      sourceChain: "WEMIX",
+      sourceCoin,
+      sourceAddress: wemixWonderStakeContract,
+      rewardCoin,
+    };
+  }
+}
+
 function getHyperliquidVaultCoin(address = "", usedCoins = null) {
   const cleanAddress = String(address || "").replace(/^0x/i, "");
   const base = cleanAddress
@@ -2315,7 +2478,7 @@ async function getAaveStakingRewardResults({
   });
 }
 
-export async function getAaveStakingClaimBalances({
+export async function getClaimBalances({
   data = [],
   usdPriceQuery = false,
 } = {}) {
@@ -2424,6 +2587,13 @@ export async function getAaveStakingClaimBalances({
       provider?.destroy?.();
     }
   }
+
+  addWemixWonderClaimBalances({
+    data,
+    claimRowM,
+    coinInfoM,
+    claimCoins,
+  });
 
   const rows = [...claimRowM.values()];
   const coins = getReturnedCoins({
@@ -3116,9 +3286,34 @@ export async function getWalletBalances({
       multicallAddress,
       usdPriceQuery,
     });
-    const coins = getReturnedCoins({ rows, coinEntries });
+    const addedWemixWonderStake =
+      !disabledCoins.includes(wemixWonderStakeCoin) &&
+      (await applyWemixWonderStakeBalances({
+        chain,
+        provider,
+        rows: validRows,
+        usdPriceQuery,
+      }));
+    const returnedCoinEntries = addedWemixWonderStake
+      ? [...coinEntries, [wemixWonderStakeCoin, wemixWonderStakeCoinE]]
+      : coinEntries;
+    const returnedAllCoins = addedWemixWonderStake
+      ? [...new Set([...allCoins, wemixWonderStakeCoin])]
+      : allCoins;
+    const returnedCoinInfoM = addedWemixWonderStake
+      ? { ...coinInfoM, [wemixWonderStakeCoin]: wemixWonderStakeCoinE }
+      : coinInfoM;
+    const coins = getReturnedCoins({ rows, coinEntries: returnedCoinEntries });
 
-    return { chain, coins, allCoins, coinInfoM, scanner, rows, source: "rpc" };
+    return {
+      chain,
+      coins,
+      allCoins: returnedAllCoins,
+      coinInfoM: returnedCoinInfoM,
+      scanner,
+      rows,
+      source: "rpc",
+    };
   } catch (e) {
     return {
       chain,
