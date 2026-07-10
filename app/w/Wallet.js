@@ -4097,7 +4097,9 @@ function Wallet({
     if (!row.address) return <td></td>;
 
     const walletEntry = getKnownWalletEntry(row) || row;
-    const walletRefEntries = getKnownWalletEntries(row);
+    const walletRefEntries = getKnownWalletEntries(row).filter((entry) =>
+      getWalletEntrySourcePath(entry),
+    );
     const walletNote = walletNotes?.[row.name] || "";
     const isSolana = walletType == "solana";
     const solanaScanner = chainList.find(
