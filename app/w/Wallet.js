@@ -2903,10 +2903,25 @@ function Wallet({
   }
 
   function getWalletCycleValues() {
-    return getCustomPickerHistoryCycleValues(
-      walletHistoryValues,
-      getWalletOptionValues(),
-    );
+    const getValues = (values = []) => {
+      const out = [];
+
+      for (const value of values) {
+        const cleanValue = String(value ?? "");
+        const option =
+          walletSelectOptions.find((entry) => entry.value == cleanValue) ||
+          getStoredWalletHistoryOption(cleanValue);
+        if (option?.disabled) continue;
+        if (!out.includes(cleanValue)) out.push(cleanValue);
+      }
+
+      return out;
+    };
+    const historyValues = getValues(walletHistoryValues);
+
+    return historyValues.length
+      ? historyValues
+      : getValues(getWalletOptionValues());
   }
 
   function nextWallet() {
