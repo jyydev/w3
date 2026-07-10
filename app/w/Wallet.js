@@ -84,10 +84,7 @@ import {
   buildAaveStakingClaimTxs,
   executeAaveStakingClaim,
 } from "../t/_yield/aaveStaking/sv";
-import {
-  getWalletPrivateKeyFlag,
-  sendBrowserTradeTx,
-} from "../t/clientShared";
+import { getWalletPrivateKeyFlag, sendBrowserTradeTx } from "../t/clientShared";
 
 function shortAddr(address) {
   return address ? `..${address.slice(-3)}` : "";
@@ -142,7 +139,8 @@ function getPermanentAddressCoinM(chain = "") {
 
   for (const [coin, coinE] of Object.entries(permanentCoinM?.[chain] || {})) {
     const addressKey = getTokenAddressKey(chain, coinE?.address);
-    if (addressKey && !addressCoinM[addressKey]) addressCoinM[addressKey] = coin;
+    if (addressKey && !addressCoinM[addressKey])
+      addressCoinM[addressKey] = coin;
   }
 
   return addressCoinM;
@@ -202,7 +200,8 @@ function normalizeWalletCoinAliases(data = []) {
         const nextBalance = { ...balance, coin: canonicalCoin };
         const prevBalance = balances[canonicalCoin];
         balances[canonicalCoin] =
-          !prevBalance || (!hasPositiveBalance(prevBalance) && hasPositiveBalance(nextBalance))
+          !prevBalance ||
+          (!hasPositiveBalance(prevBalance) && hasPositiveBalance(nextBalance))
             ? nextBalance
             : prevBalance;
       }
@@ -211,15 +210,10 @@ function normalizeWalletCoinAliases(data = []) {
     });
 
     const allCoins = normalizeCoinAliasList(
-      chainE.allCoins?.length
-        ? chainE.allCoins
-        : Object.keys(coinInfoM),
+      chainE.allCoins?.length ? chainE.allCoins : Object.keys(coinInfoM),
       aliasCoinM,
     );
-    const coins = normalizeCoinAliasList(
-      chainE.coins || [],
-      aliasCoinM,
-    );
+    const coins = normalizeCoinAliasList(chainE.coins || [], aliasCoinM);
 
     return {
       ...chainE,
@@ -270,7 +264,9 @@ function applyBalancePatches(data = [], patchM = {}) {
 }
 
 function getWalletAddressReloadKey(walletType = "evm", address = "") {
-  const cleanAddress = String(address || "").trim().toLowerCase();
+  const cleanAddress = String(address || "")
+    .trim()
+    .toLowerCase();
   return cleanAddress ? `${walletType}:${cleanAddress}` : "";
 }
 
@@ -796,10 +792,9 @@ function Wallet({
   let [chainFilterTab, setChainFilterTab] = useState("chains");
   let [chainFilterOpen, setChainFilterOpen] = useState(false);
   let [chainSortOrder, setChainSortOrder] = useState(() =>
-    parseChainSortOrder(getInitialCookie(initialCookieM, chainSortCookie)).slice(
-      0,
-      chainSortCap,
-    ),
+    parseChainSortOrder(
+      getInitialCookie(initialCookieM, chainSortCookie),
+    ).slice(0, chainSortCap),
   );
   let [walletHistoryOrder, setWalletHistoryOrder] = useState(() =>
     parseSelectionOrder(
@@ -1398,10 +1393,7 @@ function Wallet({
         "",
         ...chainList.map((chainE) => chainE.chain),
       ]);
-      const next = [
-        chain,
-        ...prev.filter((entry) => entry != chain),
-      ]
+      const next = [chain, ...prev.filter((entry) => entry != chain)]
         .filter((entry) => chainNames.has(entry))
         .slice(0, chainSortCap);
       saveChainSortCookie(next);
@@ -1680,7 +1672,8 @@ function Wallet({
       cachedEntries.map((entry) => getFavAddrKey(walletType, entry.address)),
     );
     const fetchEntries = entries.filter(
-      (entry) => !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
+      (entry) =>
+        !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
     );
     const cachedData = getWalletBalanceClientCacheData({
       walletType,
@@ -1771,7 +1764,12 @@ function Wallet({
     setWalletLoading?.(
       Boolean(loadingWallet || loadingLocalWallet || checkingLocalWallet),
     );
-  }, [loadingWallet, loadingLocalWallet, checkingLocalWallet, setWalletLoading]);
+  }, [
+    loadingWallet,
+    loadingLocalWallet,
+    checkingLocalWallet,
+    setWalletLoading,
+  ]);
 
   useEffect(() => () => setWalletLoading?.(false), [setWalletLoading]);
 
@@ -2223,7 +2221,11 @@ function Wallet({
   }
 
   function saveWalletHistoryOrder(type, order = []) {
-    const normalizedOrder = normalizeSelectionOrder(order, [], walletHistoryCap);
+    const normalizedOrder = normalizeSelectionOrder(
+      order,
+      [],
+      walletHistoryCap,
+    );
     walletHistoryByTypeRef.current[type] = normalizedOrder;
     const encoded = encodeSelectionOrder(normalizedOrder);
     setCookie(getWalletHistoryCookie(type), encoded, {
@@ -2682,7 +2684,10 @@ function Wallet({
     if (!option) return;
 
     const historyValue = getCanonicalWalletHistoryValue(value);
-    const resolvedHistoryPath = getWalletHistoryValue(value).replace(/\/+$/, "");
+    const resolvedHistoryPath = getWalletHistoryValue(value).replace(
+      /\/+$/,
+      "",
+    );
     setWalletHistoryOrder((prev) => {
       const basePrev = walletHistoryByTypeRef.current[walletType] || prev;
       const validValues = [
@@ -2714,9 +2719,7 @@ function Wallet({
   function shouldAutoRememberWalletHistory(value) {
     const historyValue = getWalletHistoryValue(value);
     return (
-      historyValue &&
-      historyValue != favWalletHistoryValue &&
-      value != "all"
+      historyValue && historyValue != favWalletHistoryValue && value != "all"
     );
   }
 
@@ -2808,7 +2811,9 @@ function Wallet({
     if (wallet == walletSelectValue) return;
     if (wallet == walletNotFoundValue) return;
     if (String(wallet || "").startsWith(`${walletNotFoundValue}:`)) {
-      const missingWallet = String(wallet).slice(walletNotFoundValue.length + 1);
+      const missingWallet = String(wallet).slice(
+        walletNotFoundValue.length + 1,
+      );
       if (!missingWallet) return;
       setLoadingWallet(true);
       router.push(getWalletUrl(missingWallet));
@@ -2999,7 +3004,8 @@ function Wallet({
 
     const address = String(row?.address || "").trim();
     const reloadKey = getWalletAddressReloadKey(walletType, address);
-    if (!address || !reloadKey || reloadingWalletAddressKey == reloadKey) return;
+    if (!address || !reloadKey || reloadingWalletAddressKey == reloadKey)
+      return;
 
     const knownEntry = getKnownWalletEntry(row) || row;
     const walletEntry = {
@@ -3008,7 +3014,9 @@ function Wallet({
         getDefaultWalletName(address),
       address,
       source: String(knownEntry.source || "").trim(),
-      label: String(knownEntry.label || knownEntry.name || row.name || "").trim(),
+      label: String(
+        knownEntry.label || knownEntry.name || row.name || "",
+      ).trim(),
     };
 
     clearWalletBalanceClientCache({ walletType, address });
@@ -3077,11 +3085,15 @@ function Wallet({
     const coinE = chainE?.coinInfoM?.[coin] || {};
     const walletEntry = getClaimWalletEntry(row);
     const walletLabel = walletEntry.label || walletEntry.name || "wallet";
-    const sourceChain = String(coinE.sourceChain || bal?.sourceChain || "").trim();
+    const sourceChain = String(
+      coinE.sourceChain || bal?.sourceChain || "",
+    ).trim();
     const stakingAddress = String(
       coinE.sourceAddress || bal?.sourceAddress || "",
     ).trim();
-    const rewardCoin = String(coinE.rewardCoin || bal?.rewardCoin || coin).trim();
+    const rewardCoin = String(
+      coinE.rewardCoin || bal?.rewardCoin || coin,
+    ).trim();
     const claimKey = getClaimRewardKey({
       address: walletEntry.address,
       sourceChain,
@@ -3146,9 +3158,12 @@ function Wallet({
       }
 
       const hash = result?.txs?.find((tx) => tx?.hash)?.hash;
-      toast.success(hash ? `${walletLabel}: claimed ${hash}` : `${walletLabel}: claimed`, {
-        id: toastId,
-      });
+      toast.success(
+        hash ? `${walletLabel}: claimed ${hash}` : `${walletLabel}: claimed`,
+        {
+          id: toastId,
+        },
+      );
       router.refresh();
     } catch (error) {
       toast.error(`${walletLabel}: ${error.message || error}`, { id: toastId });
@@ -3271,10 +3286,7 @@ function Wallet({
     if (activeChain != chainE.chain) return null;
 
     return (
-      <label
-        className="switch small walletChainSwitch"
-        title="show all chains"
-      >
+      <label className="switch small walletChainSwitch" title="show all chains">
         <input
           type="checkbox"
           checked
@@ -3296,7 +3308,9 @@ function Wallet({
       return null;
     }
 
-    return <span className="gray walletChainNoBalance">no non-zero balances</span>;
+    return (
+      <span className="gray walletChainNoBalance">no non-zero balances</span>
+    );
   }
 
   function ChainCoinSettings({ chainE }) {
@@ -3511,7 +3525,9 @@ function Wallet({
         <button
           type="button"
           className="chainSettingsTitle"
-          title={activeChain == chain ? "show all chains" : `show only ${chain}`}
+          title={
+            activeChain == chain ? "show all chains" : `show only ${chain}`
+          }
           aria-label={
             activeChain == chain ? "show all chains" : `show only ${chain}`
           }
@@ -3881,7 +3897,11 @@ function Wallet({
 
     return (
       <td>
-        {usd > 0 ? <span>${pc(usd)}</span> : <span className="gray">-</span>}
+        {usd > 0 ? (
+          <span>${pc(usd, { pc: show ? 5 : 3 })}</span>
+        ) : (
+          <span className="gray">-</span>
+        )}
       </td>
     );
   }
@@ -4036,10 +4056,10 @@ function Wallet({
       source: displayUsesReload
         ? "fresh"
         : displayUsesCache
-        ? "cache"
-        : displayUsesFresh
-          ? "fresh"
-          : cacheMeta.source,
+          ? "cache"
+          : displayUsesFresh
+            ? "fresh"
+            : cacheMeta.source,
     };
 
     return (
@@ -4179,7 +4199,7 @@ function Wallet({
         <td className="stickyL">T</td>
         <td></td>
         <td>
-          <span>${pc(getTotalWalletsUsd())}</span>
+          <span>${pc(getTotalWalletsUsd(), { pc: show ? 5 : 3 })}</span>
         </td>
         {visibleChainList.map((chainE) => {
           const coins = getVisibleCoins(chainE);
@@ -4209,7 +4229,12 @@ function Wallet({
     );
   }
 
-  function getCanAddCoin({ chainE, coin = "", coinE = {}, force = false } = {}) {
+  function getCanAddCoin({
+    chainE,
+    coin = "",
+    coinE = {},
+    force = false,
+  } = {}) {
     const discoveredCoins = Array.isArray(chainE?.discoveredCoins)
       ? chainE.discoveredCoins
       : [];
@@ -4236,7 +4261,8 @@ function Wallet({
         <span className="infoCardTitle">{coinE.name || coin}</span>
         {price > 0 && (
           <span>
-            price: <span className="white">${pc(price)}</span>
+            price:{" "}
+            <span className="white">${pc(price, { pc: show ? 5 : 3 })}</span>
           </span>
         )}
         <span>
@@ -4287,13 +4313,7 @@ function Wallet({
     );
   }
 
-  function CoinInfoCard({
-    chainE,
-    coin,
-    coinE,
-    price,
-    canAddCoin = false,
-  }) {
+  function CoinInfoCard({ chainE, coin, coinE, price, canAddCoin = false }) {
     return (
       <span className="infoCard">
         <CoinInfoCardBody
@@ -4313,7 +4333,10 @@ function Wallet({
     const rewardAddress = coinE.rewardAddress || coinE.address;
     const rewardEntry =
       getCoinEntryByAddress(sourceChainE, rewardAddress) ||
-      getCoinEntryByCoin(sourceChainE, coinE.rewardCoin || String(coin).split("<-")[0]);
+      getCoinEntryByCoin(
+        sourceChainE,
+        coinE.rewardCoin || String(coin).split("<-")[0],
+      );
     const [rewardCoin, rewardCoinE] = rewardEntry || [
       coinE.rewardCoin || String(coin).split("<-")[0] || coin,
       {
@@ -4398,7 +4421,9 @@ function Wallet({
               <CoinIcon coin={coin} coinE={coinE} />
             )}
             <span
-              className={claimDisplaySource ? "coinSymbol claimCoinSymbol" : "coinSymbol"}
+              className={
+                claimDisplaySource ? "coinSymbol claimCoinSymbol" : "coinSymbol"
+              }
               title={displayCoin == coin ? undefined : coin}
             >
               {claimDisplaySource ? (
@@ -4416,11 +4441,7 @@ function Wallet({
           </span>
         </SortHeader>
         {chainE.chain == "Claim" ? (
-          <ClaimCoinInfoCard
-            coin={coin}
-            coinE={coinE}
-            price={price}
-          />
+          <ClaimCoinInfoCard coin={coin} coinE={coinE} price={price} />
         ) : (
           <CoinInfoCard
             chainE={chainE}
