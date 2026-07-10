@@ -1259,7 +1259,9 @@ function Wallet({
       >
         <span>chain:</span>
         <span className="infoCard interactiveInfoCard">
-          <span className="infoCardTitle">chain filter</span>
+          <span className="infoCardTitle interactiveInfoCardTitle">
+            chain filter
+          </span>
           <span className="interactiveInfoTabs">
             <button
               type="button"

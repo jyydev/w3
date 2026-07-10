@@ -887,6 +887,10 @@ img.assetIcon {
 .interactiveInfoCard {
   min-width: 160px;
 }
+.interactiveInfoCardTitle {
+  color: var(--gray);
+  font-size: 9px;
+}
 .interactiveInfoTabs {
   display: inline-flex;
   gap: 8px;
