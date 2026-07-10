@@ -1650,7 +1650,14 @@ function Wallet({
     setLocalEditorStoreChecked(true);
     if (useLocal) refreshLocalStorageEditorData(useLocal);
     else setCheckingLocalWallet(false);
-  }, [walletType, serverChainNameKey]);
+  }, [
+    requestedWallet,
+    selectedWallet,
+    selectedAddress,
+    selectedWalletName,
+    walletType,
+    serverChainNameKey,
+  ]);
 
   useEffect(() => {
     if (!useLocalEditorStore) return;
