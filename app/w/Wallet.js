@@ -1263,11 +1263,15 @@ function Wallet({
 
     return (
       <span
-        className={`infoHover interactiveInfoHover ${
+        className={`infoHover clickInfo interactiveInfoHover walletChainFilterInfo ${
           chainFilterOpen ? "infoOpen" : ""
         }`}
         onMouseEnter={() => setChainFilterOpen(true)}
         onMouseLeave={() => setChainFilterOpen(false)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setChainFilterOpen(true);
+        }}
       >
         <span>chain:</span>
         <span className="infoCard interactiveInfoCard">
@@ -1496,6 +1500,38 @@ function Wallet({
     walletType,
     chainDataKey,
   ]);
+
+  useEffect(() => {
+    if (!chainFilterOpen && !openCoinSettingsChain) return;
+
+    function closeInteractiveCards(e) {
+      if (chainFilterOpen && !e.target?.closest?.(".walletChainFilterInfo")) {
+        setChainFilterOpen(false);
+      }
+      if (
+        openCoinSettingsChain &&
+        !e.target?.closest?.(".walletChainSettingsIcon")
+      ) {
+        setOpenCoinSettingsChain("");
+      }
+    }
+
+    function closeInteractiveCardsOnEscape(e) {
+      if (e.key != "Escape") return;
+      setChainFilterOpen(false);
+      setOpenCoinSettingsChain("");
+    }
+
+    document.addEventListener("mousedown", closeInteractiveCards);
+    document.addEventListener("touchstart", closeInteractiveCards);
+    document.addEventListener("keydown", closeInteractiveCardsOnEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", closeInteractiveCards);
+      document.removeEventListener("touchstart", closeInteractiveCards);
+      document.removeEventListener("keydown", closeInteractiveCardsOnEscape);
+    };
+  }, [chainFilterOpen, openCoinSettingsChain]);
 
   useEffect(() => {
     const saved = getSavedWalletHistoryOrder(walletType);
@@ -3453,7 +3489,7 @@ function Wallet({
       <span className="chainTitle">
         {showChainIcon && (
           <span
-            className={`infoHover interactiveInfoHover walletChainSettingsIcon ${
+            className={`infoHover clickInfo interactiveInfoHover walletChainSettingsIcon ${
               openCoinSettingsChain == chain ? "infoOpen" : ""
             }`}
             onMouseEnter={() => setOpenCoinSettingsChain(chain)}
@@ -3466,7 +3502,9 @@ function Wallet({
               aria-label={`${chain} coin settings`}
               onClick={(e) => {
                 e.stopPropagation();
-                toggleChain(chain);
+                setOpenCoinSettingsChain((openChain) =>
+                  openChain == chain ? "" : chain,
+                );
               }}
             >
               <ChainIcon chain={chain} />
