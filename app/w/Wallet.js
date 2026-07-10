@@ -18,11 +18,13 @@ import {
 } from "@/fn/selectionOrder";
 import { ckPrefix, scanners, walletChainFilterPriority } from "@/sets";
 import {
+  ClickInfoCard,
   CustomHistoryPicker,
   CycleButtonPair,
   DiscoveryCacheInfo,
   getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
+  HoverInfoCard,
   TableSortHeader,
   TrashIcon,
 } from "@/components/Shared";
@@ -1262,15 +1264,13 @@ function Wallet({
     const chainOptions = chainSelectOptions.filter((option) => option.value);
 
     return (
-      <span
-        className={`infoHover clickInfo interactiveInfoHover walletChainFilterInfo ${
-          chainFilterOpen ? "infoOpen" : ""
-        }`}
-        onMouseEnter={() => setChainFilterOpen(true)}
-        onMouseLeave={() => setChainFilterOpen(false)}
+      <HoverInfoCard
+        open={chainFilterOpen}
+        onOpenChange={setChainFilterOpen}
+        interactive
+        className="walletChainFilterInfo"
         onClick={(e) => {
           e.stopPropagation();
-          setChainFilterOpen(true);
         }}
       >
         <span>chain:</span>
@@ -1383,7 +1383,7 @@ function Wallet({
             </>
           )}
         </span>
-      </span>
+      </HoverInfoCard>
     );
   }
 
@@ -1500,38 +1500,6 @@ function Wallet({
     walletType,
     chainDataKey,
   ]);
-
-  useEffect(() => {
-    if (!chainFilterOpen && !openCoinSettingsChain) return;
-
-    function closeInteractiveCards(e) {
-      if (chainFilterOpen && !e.target?.closest?.(".walletChainFilterInfo")) {
-        setChainFilterOpen(false);
-      }
-      if (
-        openCoinSettingsChain &&
-        !e.target?.closest?.(".walletChainSettingsIcon")
-      ) {
-        setOpenCoinSettingsChain("");
-      }
-    }
-
-    function closeInteractiveCardsOnEscape(e) {
-      if (e.key != "Escape") return;
-      setChainFilterOpen(false);
-      setOpenCoinSettingsChain("");
-    }
-
-    document.addEventListener("mousedown", closeInteractiveCards);
-    document.addEventListener("touchstart", closeInteractiveCards);
-    document.addEventListener("keydown", closeInteractiveCardsOnEscape);
-
-    return () => {
-      document.removeEventListener("mousedown", closeInteractiveCards);
-      document.removeEventListener("touchstart", closeInteractiveCards);
-      document.removeEventListener("keydown", closeInteractiveCardsOnEscape);
-    };
-  }, [chainFilterOpen, openCoinSettingsChain]);
 
   useEffect(() => {
     const saved = getSavedWalletHistoryOrder(walletType);
@@ -3495,24 +3463,20 @@ function Wallet({
     return (
       <span className="chainTitle">
         {showChainIcon && (
-          <span
-            className={`infoHover clickInfo interactiveInfoHover walletChainSettingsIcon ${
-              openCoinSettingsChain == chain ? "infoOpen" : ""
-            }`}
-            onMouseEnter={() => setOpenCoinSettingsChain(chain)}
-            onMouseLeave={() => setOpenCoinSettingsChain("")}
+          <ClickInfoCard
+            open={openCoinSettingsChain == chain}
+            onOpenChange={(nextOpen) =>
+              setOpenCoinSettingsChain(nextOpen ? chain : "")
+            }
+            interactive
+            className="walletChainSettingsIcon"
+            onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               className="chainSettingsIconButton"
               title={`${chain} coin settings`}
               aria-label={`${chain} coin settings`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpenCoinSettingsChain((openChain) =>
-                  openChain == chain ? "" : chain,
-                );
-              }}
             >
               <ChainIcon chain={chain} />
             </button>
@@ -3615,7 +3579,7 @@ function Wallet({
                 </tbody>
               </table>
             </span>
-          </span>
+          </ClickInfoCard>
         )}
         <button
           type="button"
@@ -3787,7 +3751,7 @@ function Wallet({
       });
 
     return (
-      <span className="infoHover interactiveInfoHover walletAddrSettingsHeader">
+      <HoverInfoCard interactive className="walletAddrSettingsHeader">
         <SortHeader sortKey="name">addr</SortHeader>
         <span className="infoCard walletAddrSettingsCard">
           <span className="infoCardTitle">Wallets</span>
@@ -3905,7 +3869,7 @@ function Wallet({
             </tbody>
           </table>
         </span>
-      </span>
+      </HoverInfoCard>
     );
   }
 
@@ -4161,19 +4125,28 @@ function Wallet({
 
     return (
       <td>
-        <span
-          className={`infoHover interactiveInfoHover ${
+        <HoverInfoCard
+          interactive
+          forceOpen={
             copiedAddress == row.address && copiedAddressSource == "row"
-              ? "infoOpen"
-              : ""
-          }`}
+          }
+          onOpenChange={(nextOpen) => {
+            if (
+              !nextOpen &&
+              copiedAddress == row.address &&
+              copiedAddressSource == "row"
+            ) {
+              setCopiedAddress("");
+              setCopiedAddressSource("");
+            }
+          }}
         >
           <span>{show ? row.address : shortAddr(row.address)}</span>
           <span className="infoCard">
             <span className="walletAddressCardTitle">
               {row.name}
               {walletNote && <span className="gray">: {walletNote}</span>}
-              <span className="infoHover hoverOnlyInfo customPickerColumnInfo walletBalanceCacheInfo walletAddressCacheInfo">
+              <HoverInfoCard className="customPickerColumnInfo walletBalanceCacheInfo walletAddressCacheInfo">
                 <span className="infoIcon">i</span>
                 <span className="infoCard">
                   <DiscoveryCacheInfo
@@ -4191,7 +4164,7 @@ function Wallet({
                     onReload={(event) => reloadWalletAddressBalance(event, row)}
                   />
                 </span>
-              </span>
+              </HoverInfoCard>
             </span>
             <CopyAddressRow address={row.address} />
             {walletRefEntries.length > 0 && (
@@ -4235,7 +4208,7 @@ function Wallet({
               </span>
             )}
           </span>
-        </span>
+        </HoverInfoCard>
         {!isSolana && (
           <a
             href={profileUrl}
@@ -4509,7 +4482,7 @@ function Wallet({
     const canAddCoin = getCanAddCoin({ chainE, coin, coinE });
 
     return (
-      <span className="infoHover">
+      <HoverInfoCard>
         <SortHeader sortKey={sortKey} className="coinSortHeader">
           <span className="coinHeaderLabel">
             {claimSourceChain ? (
@@ -4548,7 +4521,7 @@ function Wallet({
             canAddCoin={canAddCoin}
           />
         )}
-      </span>
+      </HoverInfoCard>
     );
   }
 
@@ -4556,7 +4529,7 @@ function Wallet({
     const { allCoins, balanceCoins, noPriceCoins } = getChainCoinStats(chainE);
 
     return (
-      <span className="infoHover">
+      <HoverInfoCard>
         <SortHeader sortKey={`sum:${chainE.chain}`}>sum</SortHeader>
         <span className="infoCard">
           <span className="infoCardTitle">{chainE.chain} sum</span>
@@ -4577,7 +4550,7 @@ function Wallet({
             <span className="gray">{noPriceCoins.join(", ")}</span>
           )}
         </span>
-      </span>
+      </HoverInfoCard>
     );
   }
 
@@ -4781,12 +4754,12 @@ function Wallet({
                 </option>
               ))}
             </select>
-            <span className="infoHover">
+            <HoverInfoCard>
               <span>wallets:</span>
               <span className="infoCard">
                 <span>option 'all' excludes watch</span>
               </span>
-            </span>
+            </HoverInfoCard>
             <CycleButtonPair
               onPrev={prevWallet}
               onNext={nextWallet}
@@ -4865,7 +4838,7 @@ function Wallet({
               className="walletAddForm walletCaptionAddForm"
               onSubmit={submitAddWallet}
             >
-              <span className="infoHover hoverOnlyInfo">
+              <HoverInfoCard>
                 <label
                   className="switch small walletAddSwitch"
                   title="show add controls"
@@ -4880,7 +4853,7 @@ function Wallet({
                 <span className="infoCard">
                   <span>Toggle on to add this address or add a new coin.</span>
                 </span>
-              </span>
+              </HoverInfoCard>
               {showAddWallet && (
                 <>
                   <select

@@ -5,7 +5,11 @@ import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { ckPrefix, walletChainFilterPriority } from "@/sets";
-import { TableSortHeader } from "@/components/Shared";
+import {
+  ClickInfoCard,
+  HoverInfoCard,
+  TableSortHeader,
+} from "@/components/Shared";
 import {
   clearLocalEditorData,
   localEditorStorageEvent,
@@ -223,7 +227,7 @@ function WalletSettings({
         settingCell: (
           <span className="walletSettingName">
             clear cookies
-            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+            <HoverInfoCard className="walletSettingInfo">
               <span className="infoIcon">i</span>
               <span className="infoCard">
                 <span>Clears browser cookies only.</span>
@@ -231,7 +235,7 @@ function WalletSettings({
                 <span>app clears cookies with the app prefix.</span>
                 <span>sorting clears Wallet and Trade order cookies.</span>
               </span>
-            </span>
+            </HoverInfoCard>
           </span>
         ),
         onCell: (
@@ -261,14 +265,14 @@ function WalletSettings({
         settingCell: (
           <span className="walletSettingName">
             clear data
-            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+            <HoverInfoCard className="walletSettingInfo">
               <span className="infoIcon">i</span>
               <span className="infoCard">
                 <span>Clears data/editor style files.</span>
                 <span>On Vercel this means localStorage editor files.</span>
                 <span>On local dev this means server project files.</span>
               </span>
-            </span>
+            </HoverInfoCard>
           </span>
         ),
         onCell: (
@@ -302,7 +306,7 @@ function WalletSettings({
         settingCell: (
           <span className="walletSettingName">
             clear cache
-            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+            <HoverInfoCard className="walletSettingInfo">
               <span className="infoIcon">i</span>
               <span className="infoCard">
                 <span>Clears runtime memory cache only.</span>
@@ -310,7 +314,7 @@ function WalletSettings({
                 <span>server clears warm server module cache.</span>
                 <span>On Vercel, other warm instances may keep their cache until TTL expires.</span>
               </span>
-            </span>
+            </HoverInfoCard>
           </span>
         ),
         onCell: (
@@ -344,13 +348,13 @@ function WalletSettings({
         settingCell: (
           <span className="walletSettingName">
             sorting
-            <span className="infoHover hoverOnlyInfo walletSettingInfo">
+            <HoverInfoCard className="walletSettingInfo">
               <span className="infoIcon">i</span>
               <span className="infoCard">
                 <span>Stores the preferred sorting mode.</span>
                 <span>default is app order; cookie is saved order.</span>
               </span>
-            </span>
+            </HoverInfoCard>
           </span>
         ),
         onCell: (
@@ -669,18 +673,17 @@ function WalletSettings({
   }
 
   return (
-    <span
-      className={`infoHover clickInfo interactiveInfoHover walletSettingsIcon ${
-        open ? "infoOpen" : ""
-      }`}
-      onMouseLeave={() => setOpen(false)}
+    <ClickInfoCard
+      open={open}
+      onOpenChange={setOpen}
+      interactive
+      className="walletSettingsIcon"
     >
       <button
         type="button"
         className="settingsIcon"
         title="wallet settings"
         aria-label="wallet settings"
-        onClick={() => setOpen((prev) => !prev)}
       >
         ⚙
       </button>
@@ -823,7 +826,7 @@ function WalletSettings({
           </>
         )}
       </span>
-    </span>
+    </ClickInfoCard>
   );
 }
 

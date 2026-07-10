@@ -29,8 +29,10 @@ function NavigationLoadingInner() {
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
   const search = searchParams.toString();
+  const currentRoute = `${pathname}${search ? `?${search}` : ""}`;
   const [loading, setLoading] = useState(false);
   const pendingRouteRef = useRef("");
+  const renderedRouteRef = useRef(currentRoute);
   const showTimerRef = useRef(null);
   const hideTimerRef = useRef(null);
 
@@ -64,7 +66,15 @@ function NavigationLoadingInner() {
     }
 
     function onPopState() {
-      startLoading("");
+      const nextRoute = getCurrentRouteKey();
+      if (nextRoute == renderedRouteRef.current) {
+        clearTimers();
+        pendingRouteRef.current = "";
+        setLoading(false);
+        return;
+      }
+
+      startLoading(nextRoute);
     }
 
     document.addEventListener("click", onClick, true);
@@ -82,13 +92,13 @@ function NavigationLoadingInner() {
   }, [loading, setNavigationLoading]);
 
   useEffect(() => {
-    const currentRoute = `${pathname}${search ? `?${search}` : ""}`;
+    renderedRouteRef.current = currentRoute;
     if (!pendingRouteRef.current || pendingRouteRef.current == currentRoute) {
       clearTimers();
       pendingRouteRef.current = "";
       setLoading(false);
     }
-  }, [pathname, search]);
+  }, [currentRoute]);
 
   return null;
 }

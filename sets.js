@@ -108,9 +108,9 @@ exports.rpcs = {
     alchemyRpc("opt-mainnet"),
   ],
   Base: [
-    "https://1rpc.io/base",
     "https://base-rpc.publicnode.com",
     "https://mainnet.base.org",
+    "https://1rpc.io/base",
     "https://base.drpc.org",
     "https://base-mainnet.public.blastapi.io",
     alchemyRpc("base-mainnet"),

@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
-import { CycleButtonPair, getCycleTargetValue } from "@/components/Shared";
+import {
+  ClickInfoCard,
+  CycleButtonPair,
+  getCycleTargetValue,
+  HoverInfoCard,
+} from "@/components/Shared";
 import {
   getAllLocalCustomCoinM,
   localEditorStorageEvent,
@@ -1113,16 +1118,15 @@ function Panels({
             />
             <span className="slider"></span>
           </label>
-          <span
-            className={`infoHover clickInfo tradeSettingsInfo ${
-              showTradeSettings ? "infoOpen" : ""
-            }`}
-            onMouseLeave={() => setShowTradeSettings(false)}
+          <ClickInfoCard
+            open={showTradeSettings}
+            onOpenChange={setShowTradeSettings}
+            interactive
+            className="tradeSettingsInfo"
           >
             <button
               type="button"
               className="tradeSettingsLabel"
-              onClick={() => setShowTradeSettings((prev) => !prev)}
             >
               Trade
             </button>
@@ -1143,7 +1147,7 @@ function Panels({
                 </label>
               </span>
             </span>
-          </span>
+          </ClickInfoCard>
           <label htmlFor="tradeWallet">
             {wallets.length != 1 && (
               <CycleButtonPair
@@ -1182,7 +1186,7 @@ function Panels({
             </label>
           )}
           {!!selectedWalletEntry?.address && (
-            <span className="infoHover hoverOnlyInfo tradeWalletAddress">
+            <HoverInfoCard className="tradeWalletAddress">
               <span className="gray">
                 {shortAddressTail(selectedWalletEntry.address)}
               </span>
@@ -1205,7 +1209,7 @@ function Panels({
                   {selectedWalletEntry.address}
                 </span>
               </span>
-            </span>
+            </HoverInfoCard>
           )}
           <span className="tradePaneControls">
             <label
@@ -1255,14 +1259,10 @@ function Panels({
                   const canLoop = !!entry.hasPrivateKey;
 
                   return (
-                    <label
+                    <HoverInfoCard
+                      as="label"
                       key={`loopWallet_${entry.value}_${entry.address}`}
-                      className={[
-                        "tradeLoopWallet",
-                        "infoHover",
-                        "hoverOnlyInfo",
-                        canLoop ? "" : "disabled",
-                      ]
+                      className={["tradeLoopWallet", canLoop ? "" : "disabled"]
                         .filter(Boolean)
                         .join(" ")}
                     >
@@ -1283,7 +1283,7 @@ function Panels({
                         </span>
                         {!canLoop && <span className="red">no private key</span>}
                       </span>
-                    </label>
+                    </HoverInfoCard>
                   );
                 })}
               </div>

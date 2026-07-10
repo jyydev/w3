@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { chainIds } from "@/data/basic";
+import { HoverInfoCard } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -4361,7 +4362,7 @@ export default function YieldPanel({
             </button>
             {isAaveStaking && (
               <span className="tradeCooldownStatus">
-                <span className="infoHover hoverOnlyInfo">
+                <HoverInfoCard>
                   <span className="infoIcon">i</span>
                   <span className="infoCard">
                     <span className="infoCardTitle">
@@ -4390,7 +4391,7 @@ export default function YieldPanel({
                       4. If the window expires, activate cooldown again.
                     </span>
                   </span>
-                </span>
+                </HoverInfoCard>
                 {aaveStakingCooldownText && (
                   <span
                     className={

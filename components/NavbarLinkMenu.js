@@ -7,6 +7,7 @@ import {
   readLocalNavFavs,
   saveLocalNavFavs,
 } from "@/app/_editorData/browserEditorStorage";
+import HoverMenu from "./HoverMenu";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
@@ -196,12 +197,12 @@ function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
 
   return (
     <div className="walletNavGroup">
-      <div className="dropdown title">
-        <button className="dropbtn">
+      <HoverMenu className="dropdown title">
+        <button className="navigationMenuTrigger dropbtn">
           {title}
           <i className="custom-caret"></i>
         </button>
-        <div className="dropdown-content navMenuTree">
+        <div className="navigationMenuPanel dropdown-content navMenuTree">
           {entries.map((entry) =>
             entry.type == "section" ? (
               <div className="section" key={`section:${entry.label}`}>
@@ -224,7 +225,7 @@ function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
             ),
           )}
         </div>
-      </div>
+      </HoverMenu>
       {!!visibleFavs.length && (
         <div className="navQuickFavs">{visibleFavs.map(renderQuickFav)}</div>
       )}

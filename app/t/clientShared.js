@@ -25,6 +25,7 @@ import {
   CycleButtonPair,
   getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
+  HoverInfoCard,
 } from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
@@ -1327,8 +1328,8 @@ export function TradeAssetInfoIcon({
   }
 
   return (
-    <span
-      className="infoHover hoverOnlyInfo tradeAssetInfo"
+    <HoverInfoCard
+      className="tradeAssetInfo"
       onClick={(e) => e.stopPropagation()}
     >
       <span className="infoIcon">i</span>
@@ -1342,7 +1343,7 @@ export function TradeAssetInfoIcon({
         ref={cleanRef}
         price={priceValue}
       />
-    </span>
+    </HoverInfoCard>
   );
 }
 
@@ -1572,8 +1573,8 @@ export function TradeMarketPicker({
     if (!hasInfo) return null;
 
     return (
-      <span
-        className="infoHover hoverOnlyInfo customPickerCoinInfo"
+      <HoverInfoCard
+        className="customPickerCoinInfo"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="infoIcon">i</span>
@@ -1589,7 +1590,7 @@ export function TradeMarketPicker({
           lockedUntilTimestamp={lockedUntilTimestamp}
           formatLockedUntil={formatLockedUntil}
         />
-      </span>
+      </HoverInfoCard>
     );
   }
 
@@ -3480,7 +3481,7 @@ export function SwapTxLink({ tx }) {
   const label = `${walletLabel}${tx.chain} ${tx.type ? `${tx.type} ` : ""}${shortHash(tx.hash)}`;
 
   return (
-    <span className="infoHover hoverOnlyInfo swapTxInfo">
+    <HoverInfoCard className="swapTxInfo">
       {txUrl ? (
         <a href={txUrl} target="_blank" rel="noreferrer">
           {label}
@@ -3523,6 +3524,6 @@ export function SwapTxLink({ tx }) {
           </span>
         )}
       </span>
-    </span>
+    </HoverInfoCard>
   );
 }

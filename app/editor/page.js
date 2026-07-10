@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import Logo from "@/components/Logo";
+import { HoverInfoCard } from "@/components/Shared";
 import EditorClient from "./EditorClient";
 import { listEditorDataFiles, readEditorDataFile } from "./editorData";
 import { editorFileCookie } from "./editorSettings";
@@ -41,7 +42,7 @@ async function App({ searchParams }) {
       {console.log("return")}
       <div className="flex mb-1">
         <Logo page={"editor"} />
-        <span className="infoHover editorInfoIcon" tabIndex={0}>
+        <HoverInfoCard className="editorInfoIcon" tabIndex={0}>
           <span className="infoIcon">i</span>
           <span className="infoCard">
             <span className="infoCardTitle">Editor</span>
@@ -49,7 +50,7 @@ async function App({ searchParams }) {
             <span>Saved files are under data/editor.</span>
             <span>Wallet files use JSON arrays with wallet, address, and ref.</span>
           </span>
-        </span>
+        </HoverInfoCard>
       </div>
       <EditorClient
         initialFiles={initial.files}

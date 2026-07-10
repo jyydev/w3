@@ -76,7 +76,8 @@
 
 /* Add a red background color to navbar links on hover */
 .navbar a:hover,
-.dropdown:hover .dropbtn {
+.dropdown:hover .dropbtn,
+.dropdown.navMenuOpen > .dropbtn {
   color: var(--orange);
 }
 
@@ -147,7 +148,7 @@
   z-index: 60;
 }
 
-.navSubmenu:hover > .navSubmenuContent {
+.navSubmenu.navMenuOpen > .navSubmenuContent {
   display: block;
 }
 
@@ -333,8 +334,8 @@
   /* border-top: 1px dotted #555; */
 }
 
-/* Show the dropdown menu on hover */
-.dropdown:hover .dropdown-content {
+/* Shared HoverMenu controls dropdown visibility. */
+.dropdown.navMenuOpen > .dropdown-content {
   display: block;
 }
 
@@ -439,7 +440,8 @@
 }
 
 .breadcrumbCrumb:not(.disabled):hover .breadcrumbCrumbLabel,
-.breadcrumbCrumb:not(.disabled):focus-within .breadcrumbCrumbLabel {
+.breadcrumbCrumb:not(.disabled):focus-within .breadcrumbCrumbLabel,
+.breadcrumbCrumb:not(.disabled).navMenuOpen .breadcrumbCrumbLabel {
   color: var(--orange);
 }
 
@@ -466,7 +468,8 @@
 }
 
 .breadcrumbCrumb:not(.disabled):hover .breadcrumbCaret,
-.breadcrumbCrumb:not(.disabled):focus-within .breadcrumbCaret {
+.breadcrumbCrumb:not(.disabled):focus-within .breadcrumbCaret,
+.breadcrumbCrumb:not(.disabled).navMenuOpen .breadcrumbCaret {
   border-top-color: var(--orange);
 }
 
@@ -491,13 +494,8 @@
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
 }
 
-.breadcrumbCrumb:hover > .breadcrumbMenu,
-.breadcrumbCrumb:focus-within > .breadcrumbMenu {
+.breadcrumbCrumb.navMenuOpen > .breadcrumbMenu {
   display: grid;
-}
-
-.breadcrumbCrumb.closed > .breadcrumbMenu {
-  display: none;
 }
 
 .breadcrumbMenuNode {
@@ -516,8 +514,7 @@
   left: 100%;
 }
 
-.breadcrumbMenuNode:hover > .breadcrumbMenu,
-.breadcrumbMenuNode:focus-within > .breadcrumbMenu {
+.breadcrumbMenuNode.navMenuOpen > .breadcrumbMenu {
   display: grid;
 }
 

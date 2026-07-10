@@ -6,6 +6,7 @@ import path from "path";
 import NavbarLinkMenu from "./NavbarLinkMenu";
 import NavbarWalletMenu from "./NavbarWalletMenu";
 import Breadcrumb from "./Breadcrumb";
+import HoverMenu from "./HoverMenu";
 
 const walletTypeLabels = {
   evm: "EVM",
@@ -271,17 +272,17 @@ export default async function Navbar() {
               </Link>
             )
           ) : (
-            <div /*multi-links: dropdown with caret icon*/
+            <HoverMenu /*multi-links: dropdown with caret icon*/
               className={
                 e[1] ? "dropdown title" /*title:margin left no -ve*/ : "dropdown"
               }
               key={uid()}
             >
-              <button className="dropbtn">
+              <button className="navigationMenuTrigger dropbtn">
                 {e[1]}
                 <i className="custom-caret"></i>
               </button>
-              <div className="dropdown-content">
+              <div className="navigationMenuPanel dropdown-content">
                 {
                   /*e[0]=[[title,link],link,]*/ e[0].map(
                     (e /*e=[link, title] or link*/) =>
@@ -312,7 +313,7 @@ export default async function Navbar() {
                   )
                 }
               </div>
-            </div>
+            </HoverMenu>
           );
         })}
       </div>

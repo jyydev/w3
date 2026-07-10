@@ -4,7 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { pc } from "@/fn/basic";
-import { CycleButtonPair, getCycleTargetValue } from "@/components/Shared";
+import {
+  CycleButtonPair,
+  getCycleTargetValue,
+  HoverInfoCard,
+} from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -1103,7 +1107,7 @@ export default function SendPanel({
     const copied = copiedAddress == address;
 
     return (
-      <span className="infoHover interactiveInfoHover sendWalletAddressHover">
+      <HoverInfoCard interactive className="sendWalletAddressHover">
         <span className="gray sendWalletTail">{shortTail(address)}</span>
         <span className="infoCard sendWalletAddressCard">
           <span className="infoCardTitle">{label}</span>
@@ -1129,7 +1133,7 @@ export default function SendPanel({
             </button>
           </span>
         </span>
-      </span>
+      </HoverInfoCard>
     );
   }
 

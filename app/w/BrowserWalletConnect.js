@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import cgb from "@/app/context";
+import { ClickInfoCard } from "@/components/Shared";
 import {
   clearStoredWallet,
   readStoredWallet,
@@ -833,14 +834,14 @@ function BrowserWalletConnect({
   }
 
   return (
-    <span
-      className={`infoHover clickInfo walletConnect${open ? " infoOpen" : ""}`}
-      onMouseLeave={() => setOpen(false)}
+    <ClickInfoCard
+      open={open}
+      onOpenChange={setOpen}
+      className="walletConnect"
     >
       <button
         type="button"
         className={`walletConnectBtn${displayAddress ? " connected" : ""}`}
-        onClick={() => setOpen((prev) => !prev)}
       >
         <span className="walletConnectDot"></span>
         {displayAddress ? (
@@ -918,7 +919,7 @@ function BrowserWalletConnect({
           </span>
         </span>
       </span>
-    </span>
+    </ClickInfoCard>
   );
 }
 

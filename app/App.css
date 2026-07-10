@@ -807,35 +807,17 @@ img.assetIcon {
   right: 0;
   height: 8px;
 }
-.infoHover:hover > .infoCard,
-.infoHover:focus-within > .infoCard,
 .infoHover.infoOpen > .infoCard {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.infoHover.clickInfo:hover > .infoCard,
-.infoHover.clickInfo:focus-within > .infoCard {
-  display: none;
-}
-.infoHover.clickInfo.infoOpen > .infoCard {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.infoHover.hoverOnlyInfo:not(:hover):focus-within > .infoCard {
-  display: none;
-}
-.infoHover:hover,
-.infoHover:focus-within,
 .infoHover.infoOpen {
   z-index: 1000;
 }
 .infoCardTitle {
   color: white;
 }
-.infoHover:hover > .claimCoinInfoCard,
-.infoHover:focus-within > .claimCoinInfoCard,
 .infoHover.infoOpen > .claimCoinInfoCard {
   flex-direction: column;
   gap: 8px;

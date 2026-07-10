@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
 import cgb from "@/app/context";
+import HoverMenu from "./HoverMenu";
 import {
   getLocalWalletTree,
   getWalletNavUrl,
@@ -137,7 +138,7 @@ function SelectCrumb({
   href = "",
   fallbackLabel = "select",
 }) {
-  const [closed, setClosed] = useState(false);
+  const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.value == value);
   const label = selected?.label || fallbackLabel;
   const selectableOptions = options.filter(
@@ -149,7 +150,7 @@ function SelectCrumb({
 
   function renderMenu(options, keyPrefix = "menu") {
     return (
-      <span className="breadcrumbMenu">
+      <span className="navigationMenuPanel breadcrumbMenu">
         {options.map((option) =>
           renderMenuOption(option, `${keyPrefix}:${option.value}`),
         )}
@@ -159,11 +160,19 @@ function SelectCrumb({
 
   function renderMenuOption(option, key) {
     const hasChildren = !!option.children?.length;
-    const className = `breadcrumbMenuItem ${
-      option.value == value ? "active" : ""
-    }`;
+    const className = [
+      "breadcrumbMenuItem",
+      hasChildren ? "navigationMenuTrigger" : "",
+      option.value == value ? "active" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const content = option.href && !option.disabled ? (
-      <Link href={option.href} className={className} onClick={() => setClosed(true)}>
+      <Link
+        href={option.href}
+        className={className}
+        onClick={() => setOpen(false)}
+      >
         {option.label}
       </Link>
     ) : (
@@ -171,20 +180,35 @@ function SelectCrumb({
         type="button"
         className={className}
         disabled={option.disabled}
-        onClick={() => setClosed(true)}
+        onClick={() => setOpen(false)}
       >
         {option.label}
       </button>
     );
 
-    return (
-      <span
-        key={key}
-        className={`breadcrumbMenuNode ${hasChildren ? "hasChildren" : ""}`}
-      >
+    const nodeContent = (
+      <>
         {content}
-        {hasChildren && <span className="breadcrumbMenuCaret">&gt;</span>}
+        {hasChildren && (
+          <span className="navigationMenuTrigger breadcrumbMenuCaret">
+            &gt;
+          </span>
+        )}
         {hasChildren && renderMenu(option.children, key)}
+      </>
+    );
+
+    return hasChildren ? (
+      <HoverMenu
+        as="span"
+        key={key}
+        className="breadcrumbMenuNode hasChildren"
+      >
+        {nodeContent}
+      </HoverMenu>
+    ) : (
+      <span key={key} className="breadcrumbMenuNode">
+        {nodeContent}
       </span>
     );
   }
@@ -192,25 +216,30 @@ function SelectCrumb({
   return (
     <>
       <span className="breadcrumbSep">&gt;</span>
-      <span
+      <HoverMenu
+        as="span"
+        open={open}
+        onOpenChange={setOpen}
+        disabled={!canOpen}
         className={`breadcrumbCrumb ${disabled ? "disabled" : ""} ${
-          closed ? "closed" : ""
-        } ${isPlaceholder ? "placeholder" : ""}`}
-        onMouseEnter={() => setClosed(false)}
-        onFocus={() => setClosed(false)}
+          isPlaceholder ? "placeholder" : ""
+        }`}
       >
         {canNavigate ? (
           <Link
             href={href}
-            className="breadcrumbCrumbLabel"
-            onClick={() => setClosed(true)}
+            className="navigationMenuTrigger breadcrumbCrumbLabel"
+            onClick={() => setOpen(false)}
             aria-label={`go to ${label}`}
           >
             {label}
           </Link>
         ) : (
           <span className="breadcrumbCrumbLabelWrap">
-            <span className="breadcrumbCrumbLabel inert" aria-label={ariaLabel}>
+            <span
+              className="navigationMenuTrigger breadcrumbCrumbLabel inert"
+              aria-label={ariaLabel}
+            >
               {label}
             </span>
           </span>
@@ -219,7 +248,7 @@ function SelectCrumb({
           <span className="breadcrumbCrumbMenuWrap">
             <button
               type="button"
-              className="breadcrumbCrumbToggle"
+              className="navigationMenuTrigger breadcrumbCrumbToggle"
               aria-label={`${ariaLabel} options`}
               aria-haspopup="menu"
             >
@@ -228,7 +257,7 @@ function SelectCrumb({
           </span>
         )}
         {canOpen && renderMenu(options, "crumb")}
-      </span>
+      </HoverMenu>
     </>
   );
 }

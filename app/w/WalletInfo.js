@@ -1,21 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { ClickInfoCard } from "@/components/Shared";
 
 function WalletInfo() {
-  const [open, setOpen] = useState(false);
-
   return (
-    <span
-      className={`infoHover clickInfo walletInfoIcon ${open ? "infoOpen" : ""}`}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <ClickInfoCard className="walletInfoIcon">
       <button
         type="button"
         className="infoIcon walletInfoButton"
         aria-label="wallet info"
         title="wallet info"
-        onClick={() => setOpen((prev) => !prev)}
       >
         i
       </button>
@@ -34,12 +28,12 @@ function WalletInfo() {
           Price source: Alchemy Portfolio when enabled, then DefiLlama,
           DexScreener, and RPC exchange-rate fallback.
         </span>
-        <span className="infoCardTitle">Hover card</span>
-        <span>Hover a chain icon to open its coin settings card.</span>
-        <span>Click Trade text to open the Trade settings card.</span>
-        <span>Address, coin, and info icons also open detail cards.</span>
+        <span className="infoCardTitle">Info cards</span>
+        <span>Click chain icons or Trade text to open settings cards.</span>
+        <span>Hover address, coin, and info icons to open detail cards.</span>
+        <span>Cards close when the pointer leaves or you click outside.</span>
       </span>
-    </span>
+    </ClickInfoCard>
   );
 }
 

@@ -7,6 +7,56 @@ import {
   getDiscoveryCacheAgeMs,
   getDiscoveryCacheRemainingMs,
 } from "@/fn/discoveryCache";
+import useOverlayInteraction from "./useOverlayInteraction";
+
+function SharedInfoCard({
+  activation = "hover",
+  open,
+  forceOpen = false,
+  onOpenChange,
+  interactive = false,
+  className = "",
+  children,
+  as: Root = "span",
+  onClick,
+  ...props
+}) {
+  const { overlayOpen, rootRef, interactionProps } = useOverlayInteraction({
+    activation,
+    open,
+    forceOpen,
+    onOpenChange,
+    panelClassName: "infoCard",
+    onClick,
+  });
+
+  return (
+    <Root
+      {...props}
+      {...interactionProps}
+      ref={rootRef}
+      className={[
+        "infoHover",
+        activation == "click" ? "clickInfo" : "hoverOnlyInfo",
+        interactive ? "interactiveInfoHover" : "",
+        overlayOpen ? "infoOpen" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {children}
+    </Root>
+  );
+}
+
+export function ClickInfoCard(props) {
+  return <SharedInfoCard {...props} activation="click" />;
+}
+
+export function HoverInfoCard(props) {
+  return <SharedInfoCard {...props} activation="hover" />;
+}
 
 export function CycleButton({
   direction = "next",
@@ -191,10 +241,10 @@ export function CustomPickerColumn({
       <span className="customPickerColumnTitle">
         <span>{title}</span>
         {infoText && (
-          <span className="infoHover hoverOnlyInfo customPickerColumnInfo">
+          <HoverInfoCard className="customPickerColumnInfo">
             <span className="infoIcon">i</span>
             <span className="infoCard">{infoText}</span>
-          </span>
+          </HoverInfoCard>
         )}
       </span>
       {children}

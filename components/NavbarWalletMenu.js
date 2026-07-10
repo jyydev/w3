@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { TrashIcon } from "@/components/Shared";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
+import HoverMenu from "./HoverMenu";
 import {
   deleteLocalEditorFile,
   listLocalWalletFileRecords,
@@ -286,16 +287,20 @@ function WalletNavNode({
   }
 
   return (
-    <div className="navSubmenu">
+    <HoverMenu className="navSubmenu">
       <div className="navMenuRow">
-        <Link href={fav.href} title={fav.title}>
+        <Link
+          href={fav.href}
+          title={fav.title}
+          className="navigationMenuTrigger"
+        >
           {node.label}
         </Link>
         {favButton}
         {trashButton}
-        <span className="navSubmenuCaret">{">"}</span>
+        <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
       </div>
-      <div className="navSubmenuContent">
+      <div className="navigationMenuPanel navSubmenuContent">
         {visibleChildren.map((child) => (
           <WalletNavNode
             key={`${child.walletType}:${child.type}:${child.filePath}:${
@@ -309,7 +314,7 @@ function WalletNavNode({
           />
         ))}
       </div>
-    </div>
+    </HoverMenu>
   );
 }
 
@@ -517,12 +522,15 @@ function NavbarWalletMenu({
 
   return (
     <div className="walletNavGroup">
-      <div className="dropdown title">
-        <Link className="dropbtn navTitleLink" href={routeBase}>
+      <HoverMenu className="dropdown title">
+        <Link
+          className="navigationMenuTrigger dropbtn navTitleLink"
+          href={routeBase}
+        >
           {title}
           <i className="custom-caret"></i>
         </Link>
-        <div className="dropdown-content navMenuTree">
+        <div className="navigationMenuPanel dropdown-content navMenuTree">
           {mergedTree.length ? (
             mergedTree.map((node) => (
               <WalletNavNode
@@ -538,7 +546,7 @@ function NavbarWalletMenu({
             <Link href={routeBase}>all</Link>
           )}
         </div>
-      </div>
+      </HoverMenu>
       {!!visibleFavs.length && (
         <div className="navQuickFavs">{visibleFavs.map(renderQuickFav)}</div>
       )}
