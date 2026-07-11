@@ -4839,7 +4839,7 @@ function Wallet({
               className="walletAddForm walletCaptionAddForm"
               onSubmit={submitAddWallet}
             >
-              <HoverInfoCard>
+              <PassiveInfoCard content="Toggle on to add this address or add a new coin.">
                 <label
                   className="switch small walletAddSwitch"
                   title="show add controls"
@@ -4851,10 +4851,7 @@ function Wallet({
                   />
                   <span className="slider"></span>
                 </label>
-                <span className="infoCard">
-                  <span>Toggle on to add this address or add a new coin.</span>
-                </span>
-              </HoverInfoCard>
+              </PassiveInfoCard>
               {showAddWallet && (
                 <>
                   <select

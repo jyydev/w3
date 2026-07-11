@@ -631,7 +631,7 @@ img.assetIcon {
   transform: translateX(-50%);
 }
 .passiveInfo:not(.passiveInfoClick) > .passiveInfoTrigger:hover + .passiveInfoCard,
-.passiveInfo:not(.passiveInfoClick) > .passiveInfoTrigger:focus-within + .passiveInfoCard,
+.passiveInfo:not(.passiveInfoClick) > .passiveInfoTrigger:has(:focus-visible) + .passiveInfoCard,
 .passiveInfo.infoOpen > .passiveInfoCard {
   display: block;
 }
