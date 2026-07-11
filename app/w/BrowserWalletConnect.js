@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import useCgb from "@/app/context";
-import { ClickInfoCard } from "@/components/Shared";
+import { InteractiveInfoCard } from "@/components/Shared";
 import {
   clearStoredWallet,
   readStoredWallet,
@@ -834,7 +834,7 @@ function BrowserWalletConnect({
   }
 
   return (
-    <ClickInfoCard
+    <InteractiveInfoCard
       open={open}
       onOpenChange={setOpen}
       className="walletConnect"
@@ -919,7 +919,7 @@ function BrowserWalletConnect({
           </span>
         </span>
       </span>
-    </ClickInfoCard>
+    </InteractiveInfoCard>
   );
 }
 

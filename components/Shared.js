@@ -58,6 +58,12 @@ export function HoverInfoCard(props) {
   return <SharedInfoCard {...props} activation="hover" />;
 }
 
+export function InteractiveInfoCard({ activation = "click", ...props }) {
+  return (
+    <SharedInfoCard {...props} activation={activation} interactive />
+  );
+}
+
 export function PassiveInfoCard({
   activation = "hover",
   open,

@@ -18,13 +18,13 @@ import {
 } from "@/fn/selectionOrder";
 import { ckPrefix, scanners, walletChainFilterPriority } from "@/sets";
 import {
-  ClickInfoCard,
   CustomHistoryPicker,
   CycleButtonPair,
   DiscoveryCacheInfo,
   getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
   HoverInfoCard,
+  InteractiveInfoCard,
   PassiveInfoCard,
   TableSortHeader,
   TrashIcon,
@@ -1265,10 +1265,10 @@ function Wallet({
     const chainOptions = chainSelectOptions.filter((option) => option.value);
 
     return (
-      <HoverInfoCard
+      <InteractiveInfoCard
+        activation="hover"
         open={chainFilterOpen}
         onOpenChange={setChainFilterOpen}
-        interactive
         className="walletChainFilterInfo"
         onClick={(e) => {
           e.stopPropagation();
@@ -1384,7 +1384,7 @@ function Wallet({
             </>
           )}
         </span>
-      </HoverInfoCard>
+      </InteractiveInfoCard>
     );
   }
 
@@ -3464,12 +3464,11 @@ function Wallet({
     return (
       <span className="chainTitle">
         {showChainIcon && (
-          <ClickInfoCard
+          <InteractiveInfoCard
             open={openCoinSettingsChain == chain}
             onOpenChange={(nextOpen) =>
               setOpenCoinSettingsChain(nextOpen ? chain : "")
             }
-            interactive
             className="walletChainSettingsIcon"
             onClick={(e) => e.stopPropagation()}
           >
@@ -3534,7 +3533,7 @@ function Wallet({
                         <td colSpan={4}>{label}</td>
                       </tr>
                       {entries.map(({ coin, name, removable }) => (
-                        <tr key={coin} className="coinSettingsRow">
+                        <tr key={coin} className="infoSettingsRow">
                           <td>
                             <span className="coinSettingsSymbolCell">
                               <span>{coin}</span>
@@ -3580,7 +3579,7 @@ function Wallet({
                 </tbody>
               </table>
             </span>
-          </ClickInfoCard>
+          </InteractiveInfoCard>
         )}
         <button
           type="button"
@@ -3752,7 +3751,10 @@ function Wallet({
       });
 
     return (
-      <HoverInfoCard interactive className="walletAddrSettingsHeader">
+      <InteractiveInfoCard
+        activation="hover"
+        className="walletAddrSettingsHeader"
+      >
         <SortHeader sortKey="name">addr</SortHeader>
         <span className="infoCard walletAddrSettingsCard">
           <span className="infoCardTitle">Wallets</span>
@@ -3817,16 +3819,32 @@ function Wallet({
                   getNameDisableKey(serverName),
                 );
                 const deleting = deletingWalletKey == entryKey;
+                const sourcePrefix = entry.source ? `${entry.source}/` : "";
+                const walletLabel =
+                  sourcePrefix && entry.label?.startsWith(sourcePrefix)
+                    ? entry.label.slice(sourcePrefix.length)
+                    : entry.label || entry.name;
 
                 return (
                   <tr
                     key={`${entry.label}:${entry.address}`}
-                    className="walletSettingsRow"
-                    onClick={() => toggleWalletEnabled(entry.address)}
+                    className="infoSettingsRow"
                   >
                     <td>
                       <span className="walletSettingName">
-                        <span>{entry.label}</span>
+                        <span className="walletSettingPath">
+                          {entry.source ? (
+                            <>
+                              <Link href={getWalletUrl(entry.source)}>
+                                {entry.source}
+                              </Link>
+                              <span>/</span>
+                              <span>{walletLabel}</span>
+                            </>
+                          ) : (
+                            <span>{walletLabel}</span>
+                          )}
+                        </span>
                         {entry.source && (
                           <button
                             type="button"
@@ -3870,7 +3888,7 @@ function Wallet({
             </tbody>
           </table>
         </span>
-      </HoverInfoCard>
+      </InteractiveInfoCard>
     );
   }
 
@@ -4126,8 +4144,8 @@ function Wallet({
 
     return (
       <td>
-        <HoverInfoCard
-          interactive
+        <InteractiveInfoCard
+          activation="hover"
           forceOpen={
             copiedAddress == row.address && copiedAddressSource == "row"
           }
@@ -4209,7 +4227,7 @@ function Wallet({
               </span>
             )}
           </span>
-        </HoverInfoCard>
+        </InteractiveInfoCard>
         {!isSolana && (
           <a
             href={profileUrl}
@@ -4353,9 +4371,6 @@ function Wallet({
           </span>
         )}
         <span>
-          decimals: <span className="white">{coinE.decimals ?? "-"}</span>
-        </span>
-        <span>
           address:{" "}
           {address && addressUrl ? (
             <a
@@ -4365,10 +4380,15 @@ function Wallet({
               title={address}
             >
               {shortContract(address)}
+              {" "}
+              <span className="gray externalLinkIcon">↗</span>
             </a>
           ) : (
             <span className="white">{coinE.native ? "native" : "-"}</span>
           )}
+        </span>
+        <span>
+          decimals: <span className="white">{coinE.decimals ?? "-"}</span>
         </span>
         {canAddCoin && (
           <button

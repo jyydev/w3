@@ -900,16 +900,49 @@ export async function loadWallets(
     walletName,
     walletEntryList,
   });
+  const uniqueEntries = [];
+  const seenAddresses = new Set();
+
+  for (const entry of entries) {
+    if (disabled.has(getWalletDisableKey(entry.address))) continue;
+    if (
+      disabledNames.has(getWalletNameDisableKey(entry.name)) ||
+      disabledNames.has(getWalletNameDisableKey(entry.label))
+    ) {
+      continue;
+    }
+
+    const address = String(entry.address || "").trim();
+    const addressKey =
+      walletType == "solana" ? address : address.toLowerCase();
+    if (addressKey && seenAddresses.has(addressKey)) continue;
+    if (addressKey) seenAddresses.add(addressKey);
+    uniqueEntries.push(entry);
+  }
+
+  const nameCounts = new Map();
+  for (const entry of uniqueEntries) {
+    nameCounts.set(entry.name, (nameCounts.get(entry.name) || 0) + 1);
+  }
+  const usedNames = new Set();
 
   return Object.fromEntries(
-    entries
-      .filter((entry) => !disabled.has(getWalletDisableKey(entry.address)))
-      .filter(
-        (entry) =>
-          !disabledNames.has(getWalletNameDisableKey(entry.name)) &&
-          !disabledNames.has(getWalletNameDisableKey(entry.label)),
-      )
-      .map((entry) => [entry.name, entry.address]),
+    uniqueEntries.map((entry) => {
+      const baseName =
+        nameCounts.get(entry.name) > 1
+          ? entry.label || [entry.source, entry.name].filter(Boolean).join("/")
+          : entry.name;
+      let name = baseName;
+      let suffix = 2;
+
+      while (usedNames.has(name)) {
+        name = `${baseName}_${suffix}`;
+        suffix += 1;
+      }
+      usedNames.add(name);
+
+      return [name, entry.address];
+    }),
   );
 }
 

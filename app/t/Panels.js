@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCookie, setCookie } from "cookies-next";
 import {
-  ClickInfoCard,
   CycleButtonPair,
   getCycleTargetValue,
   HoverInfoCard,
+  InteractiveInfoCard,
 } from "@/components/Shared";
 import {
   getAllLocalCustomCoinM,
@@ -1118,10 +1118,9 @@ function Panels({
             />
             <span className="slider"></span>
           </label>
-          <ClickInfoCard
+          <InteractiveInfoCard
             open={showTradeSettings}
             onOpenChange={setShowTradeSettings}
-            interactive
             className="tradeSettingsInfo"
           >
             <button
@@ -1147,7 +1146,7 @@ function Panels({
                 </label>
               </span>
             </span>
-          </ClickInfoCard>
+          </InteractiveInfoCard>
           <label htmlFor="tradeWallet">
             {wallets.length != 1 && (
               <CycleButtonPair

@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { ckPrefix, walletChainFilterPriority } from "@/sets";
 import {
-  ClickInfoCard,
   HoverInfoCard,
+  InteractiveInfoCard,
   TableSortHeader,
 } from "@/components/Shared";
 import {
@@ -673,10 +673,9 @@ function WalletSettings({
   }
 
   return (
-    <ClickInfoCard
+    <InteractiveInfoCard
       open={open}
       onOpenChange={setOpen}
-      interactive
       className="walletSettingsIcon"
     >
       <button
@@ -826,7 +825,7 @@ function WalletSettings({
           </>
         )}
       </span>
-    </ClickInfoCard>
+    </InteractiveInfoCard>
   );
 }
 

@@ -5,11 +5,15 @@ import "../ref.css";
 const cardRows = [
   [
     "HoverInfoCard",
-    "Opens when its trigger is hovered or focused. The card can remain open while the pointer moves into it, so use it for details or interactive content that must be inspected.",
+    "Opens when its trigger is hovered or focused. The card can remain open while the pointer moves into it, so use it for details that must be inspected.",
   ],
   [
     "ClickInfoCard",
-    "Opens and toggles when its trigger is clicked. Use it for settings, controls, and other interactive cards.",
+    "Opens and toggles when its trigger is clicked. Use it for click-open read-only details.",
+  ],
+  [
+    "InteractiveInfoCard",
+    "Shared interactive card for settings, tables, links, inputs, buttons, and tabs. It supports click activation by default or activation=hover, and clicks inside its panel do not dismiss it.",
   ],
   [
     "PassiveInfoCard: hover",
@@ -31,6 +35,10 @@ const dismissRows = [
     "Closes when toggled, clicking outside, leaving the trigger/card area, or losing focus.",
   ],
   [
+    "InteractiveInfoCard",
+    "Uses the same shared dismissal behavior, but panel clicks remain inside the card. It closes by trigger toggle, outside click, pointer leave, or focus leaving the card.",
+  ],
+  [
     "Passive hover",
     "CSS-controlled; closes as soon as the trigger loses hover or focus. It has no persistent open state.",
   ],
@@ -41,11 +49,12 @@ const dismissRows = [
 ];
 
 const implementationNotes = [
-  "HoverInfoCard and ClickInfoCard share SharedInfoCard and useOverlayInteraction.",
+  "HoverInfoCard, ClickInfoCard, and InteractiveInfoCard share SharedInfoCard and useOverlayInteraction.",
+  "InteractiveInfoCard is the synchronized wrapper for cards containing controls; its default activation is click and activation=hover is available.",
   "PassiveInfoCard supports activation=hover and activation=click from the same shared component.",
   "Click-activated passive cards reuse useOverlayInteraction for dismissal.",
   "Hover-activated passive cards use trigger-only CSS because they do not need persistent state or an outside-click listener.",
-  "Use PassiveInfoCard only for short read-only reminders. Use HoverInfoCard or ClickInfoCard when the card contains links, inputs, buttons, tabs, or selectable text that must remain available.",
+  "Use PassiveInfoCard only for short read-only reminders. Use InteractiveInfoCard when the card contains links, inputs, buttons, tabs, or selectable text that must remain available.",
 ];
 
 function InfoCardsRefPage() {

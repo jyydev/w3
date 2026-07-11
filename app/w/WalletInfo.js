@@ -1,10 +1,10 @@
 "use client";
 
-import { ClickInfoCard } from "@/components/Shared";
+import { InteractiveInfoCard } from "@/components/Shared";
 
 function WalletInfo() {
   return (
-    <ClickInfoCard className="walletInfoIcon">
+    <InteractiveInfoCard className="walletInfoIcon">
       <button
         type="button"
         className="infoIcon walletInfoButton"
@@ -33,7 +33,7 @@ function WalletInfo() {
         <span>Hover address, coin, and info icons to open detail cards.</span>
         <span>Cards close when the pointer leaves or you click outside.</span>
       </span>
-    </ClickInfoCard>
+    </InteractiveInfoCard>
   );
 }
 

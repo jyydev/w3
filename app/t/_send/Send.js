@@ -7,7 +7,7 @@ import { pc } from "@/fn/basic";
 import {
   CycleButtonPair,
   getCycleTargetValue,
-  HoverInfoCard,
+  InteractiveInfoCard,
 } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
@@ -1107,7 +1107,10 @@ export default function SendPanel({
     const copied = copiedAddress == address;
 
     return (
-      <HoverInfoCard interactive className="sendWalletAddressHover">
+      <InteractiveInfoCard
+        activation="hover"
+        className="sendWalletAddressHover"
+      >
         <span className="gray sendWalletTail">{shortTail(address)}</span>
         <span className="infoCard sendWalletAddressCard">
           <span className="infoCardTitle">{label}</span>
@@ -1133,7 +1136,7 @@ export default function SendPanel({
             </button>
           </span>
         </span>
-      </HoverInfoCard>
+      </InteractiveInfoCard>
     );
   }
 

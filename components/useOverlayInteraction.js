@@ -69,9 +69,13 @@ export default function useOverlayInteraction({
     rootRef,
     interactionProps: {
       onBlur(e) {
-        if (!e.currentTarget.contains(e.relatedTarget)) {
-          changeOpen(false);
-        }
+        const root = e.currentTarget;
+        const nextTarget = e.relatedTarget;
+
+        // Safari may provide no next target when an internal checkbox is
+        // clicked. Pointer leave and outside pointer-down handle dismissal.
+        if (!nextTarget || root.contains(nextTarget)) return;
+        changeOpen(false);
       },
       onClick(e) {
         onClick?.(e);

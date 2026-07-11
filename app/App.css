@@ -1124,6 +1124,10 @@ img.assetIcon {
   align-items: center;
   gap: 5px;
 }
+.walletSettingPath {
+  display: inline-flex;
+  align-items: center;
+}
 .walletSettingInfo {
   line-height: 1;
 }
@@ -1173,14 +1177,10 @@ img.assetIcon {
   margin-left: 4px;
   vertical-align: -2px;
 }
-.walletSettingsRow {
-  cursor: pointer;
-}
-.coinSettingsRow {
+.infoSettingsRow {
   cursor: default;
 }
-.walletSettingsRow:hover td,
-.coinSettingsRow:hover td {
+.infoSettingsRow:hover td {
   background: #111;
 }
 .varColor {
