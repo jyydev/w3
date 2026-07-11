@@ -21,16 +21,6 @@ const topOptions = [
   { value: "login", label: "login", href: "/login" },
 ];
 
-const refChildren = [
-  { value: "rpc", label: "rpc", href: "/ref/rpc" },
-  { value: "api", label: "api", href: "/ref/api" },
-  { value: "cache", label: "cache", href: "/ref/cache" },
-  { value: "cookie", label: "cookie", href: "/ref/cookie" },
-  { value: "env", label: "env", href: "/ref/env" },
-  { value: "editor-data", label: "editor data", href: "/ref/editor-data" },
-  { value: "test", label: "test", href: "/ref/test" },
-];
-
 function getTopValue(pathname = "/") {
   const first = pathname.split("/").filter(Boolean)[0] || "";
   if (first == "w") return "wallet";
@@ -116,7 +106,7 @@ function getWalletTypeOptions(routeBase, tree = []) {
   }));
 }
 
-function getTopMenuOptions(tree = []) {
+function getTopMenuOptions(tree = [], refTree = []) {
   return topOptions.map((option) => {
     if (option.value == "wallet") {
       return { ...option, children: getWalletTypeOptions("/w", tree) };
@@ -124,7 +114,7 @@ function getTopMenuOptions(tree = []) {
     if (option.value == "trade") {
       return { ...option, children: getWalletTypeOptions("/t", tree) };
     }
-    if (option.value == "ref") return { ...option, children: refChildren };
+    if (option.value == "ref") return { ...option, children: refTree };
 
     return option;
   });
@@ -403,45 +393,76 @@ function WalletCrumbs({ routeBase, tree = [] }) {
   return crumbs;
 }
 
-function RefCrumbs() {
+function RefCrumbs({ tree = [] }) {
   const pathname = usePathname() || "/ref";
   const parts = pathname.split("/").filter(Boolean).slice(1);
-  const current = parts[0] || "";
 
-  if (!current) {
+  if (!parts.length) {
     return (
       <SelectCrumb
         value=""
         ariaLabel="ref page"
         fallbackLabel="select"
-        options={refChildren}
+        options={tree}
       />
     );
   }
 
-  const known = refChildren.find((entry) => entry.value == current);
-  if (known) {
-    return (
+  const crumbs = [];
+  let options = tree;
+  let currentNode = null;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = decodeURIComponent(parts[i]);
+    const known = options.find((entry) => entry.value == part);
+    if (!known) {
+      crumbs.push(
+        <SelectCrumb
+          key={`missing:${parts.slice(i).join("/")}`}
+          value="missing"
+          disabled
+          options={[
+            {
+              value: "missing",
+              label: `not found: ${parts.slice(i).join("/")}`,
+            },
+          ]}
+          fallbackLabel={`not found: ${parts.slice(i).join("/")}`}
+        />,
+      );
+      return crumbs;
+    }
+
+    crumbs.push(
       <SelectCrumb
+        key={known.href || `ref:${parts.slice(0, i + 1).join("/")}`}
         value={known.value}
         ariaLabel="ref page"
         href={known.href}
-        options={refChildren}
-      />
+        disabled={known.disabled && !known.children?.length}
+        options={options}
+      />,
+    );
+    currentNode = known;
+    options = known.children || [];
+  }
+
+  if (currentNode?.children?.length) {
+    crumbs.push(
+      <SelectCrumb
+        key={`${currentNode.href || currentNode.value}:child`}
+        value=""
+        ariaLabel="ref child page"
+        fallbackLabel="select"
+        options={currentNode.children}
+      />,
     );
   }
 
-  return (
-    <SelectCrumb
-      value="missing"
-      disabled
-      options={[{ value: "missing", label: `not found: ${parts.join("/")}` }]}
-      fallbackLabel={`not found: ${parts.join("/")}`}
-    />
-  );
+  return crumbs;
 }
 
-function BreadcrumbInner({ walletTree = [] }) {
+function BreadcrumbInner({ walletTree = [], refTree = [] }) {
   const pathname = usePathname() || "/";
   const topValue = getTopValue(pathname);
   const topCurrent = topOptions.find((option) => option.value == topValue);
@@ -451,7 +472,10 @@ function BreadcrumbInner({ walletTree = [] }) {
     () => mergeTrees(walletTree, localTree),
     [walletTree, localTree],
   );
-  const topMenuOptions = useMemo(() => getTopMenuOptions(tree), [tree]);
+  const topMenuOptions = useMemo(
+    () => getTopMenuOptions(tree, refTree),
+    [tree, refTree],
+  );
 
   useEffect(() => {
     function refreshLocalTree() {
@@ -482,7 +506,7 @@ function BreadcrumbInner({ walletTree = [] }) {
       />
       {topValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}
       {topValue == "trade" && <WalletCrumbs routeBase="/t" tree={tree} />}
-      {topValue == "ref" && <RefCrumbs />}
+      {topValue == "ref" && <RefCrumbs tree={refTree} />}
       {navigationLoading && (
         <span className="breadcrumbLoading" role="status" aria-live="polite">
           loading...

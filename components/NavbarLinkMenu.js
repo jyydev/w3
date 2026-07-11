@@ -12,6 +12,22 @@ import HoverMenu from "./HoverMenu";
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
 function getLinkEntry(item) {
+  if (item && typeof item == "object" && !Array.isArray(item)) {
+    const href = item.href ? String(item.href) : "";
+
+    return {
+      type: item.type || (!href && !item.children?.length ? "section" : ""),
+      value: String(item.value || href || item.label || ""),
+      href,
+      label: String(item.label || href),
+      title: String(item.title || href),
+      disabled: !!item.disabled,
+      children: (Array.isArray(item.children) ? item.children : []).map(
+        getLinkEntry,
+      ),
+    };
+  }
+
   const isPair = Array.isArray(item);
   const href = isPair ? item[0] : item;
   const label = isPair ? item[1] : item;
@@ -26,7 +42,15 @@ function getLinkEntry(item) {
     href: cleanHref,
     label: String(label || cleanHref),
     title: cleanHref,
+    children: [],
   };
+}
+
+function flattenLinkEntries(entries = []) {
+  return entries.flatMap((entry) => [
+    entry,
+    ...flattenLinkEntries(entry.children || []),
+  ]);
 }
 
 function normalizeFavs(favs = [], validHrefM = new Map()) {
@@ -63,10 +87,81 @@ function FavButton({ active, onClick }) {
   );
 }
 
+function NavbarLinkNode({ entry, favHrefM, onToggleFav }) {
+  if (entry.type == "section") {
+    return <div className="section">{entry.label}</div>;
+  }
+
+  const hasChildren = !!entry.children?.length;
+  const canNavigate = !!entry.href && !entry.disabled;
+  const fav = canNavigate
+    ? {
+        href: entry.href,
+        label: entry.label,
+        title: entry.title || entry.href,
+      }
+    : null;
+  const content = canNavigate ? (
+    <Link
+      href={entry.href}
+      title={entry.title}
+      className={hasChildren ? "navigationMenuTrigger" : ""}
+    >
+      {entry.label}
+    </Link>
+  ) : (
+    <span className={hasChildren ? "navigationMenuTrigger" : ""}>
+      {entry.label}
+    </span>
+  );
+  const favButton = fav ? (
+    <FavButton
+      active={favHrefM.has(fav.href)}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggleFav(fav);
+      }}
+    />
+  ) : null;
+
+  if (!hasChildren) {
+    return (
+      <div className="navMenuRow navLeafRow">
+        {content}
+        {favButton}
+      </div>
+    );
+  }
+
+  return (
+    <HoverMenu className="navSubmenu">
+      <div className="navMenuRow">
+        {content}
+        {favButton}
+        <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
+      </div>
+      <div className="navigationMenuPanel navSubmenuContent">
+        {entry.children.map((child) => (
+          <NavbarLinkNode
+            key={child.href || `${child.type}:${child.value}:${child.label}`}
+            entry={child}
+            favHrefM={favHrefM}
+            onToggleFav={onToggleFav}
+          />
+        ))}
+      </div>
+    </HoverMenu>
+  );
+}
+
 function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
   const entries = useMemo(() => items.map(getLinkEntry), [items]);
   const validFavs = useMemo(
-    () => entries.filter((entry) => entry.href),
+    () =>
+      flattenLinkEntries(entries).filter(
+        (entry) => entry.href && !entry.disabled,
+      ),
     [entries],
   );
   const validHrefM = useMemo(
@@ -203,27 +298,14 @@ function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
           <i className="custom-caret"></i>
         </button>
         <div className="navigationMenuPanel dropdown-content navMenuTree">
-          {entries.map((entry) =>
-            entry.type == "section" ? (
-              <div className="section" key={`section:${entry.label}`}>
-                {entry.label}
-              </div>
-            ) : (
-              <div className="navMenuRow navLeafRow" key={entry.href}>
-                <Link href={entry.href} title={entry.title}>
-                  {entry.label}
-                </Link>
-                <FavButton
-                  active={favHrefM.has(entry.href)}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleFav(entry);
-                  }}
-                />
-              </div>
-            ),
-          )}
+          {entries.map((entry) => (
+            <NavbarLinkNode
+              key={entry.href || `${entry.type}:${entry.value}:${entry.label}`}
+              entry={entry}
+              favHrefM={favHrefM}
+              onToggleFav={toggleFav}
+            />
+          ))}
         </div>
       </HoverMenu>
       {!!visibleFavs.length && (

@@ -589,15 +589,28 @@ img.assetIcon {
   align-items: center;
   gap: 2px;
 }
-.cycleButtonHover {
+.passiveInfo {
   position: relative;
   display: inline-flex;
   cursor: default;
 }
-.cycleButtonHover .btn:not(:disabled) {
+.passiveInfoTrigger {
+  display: inline-flex;
+  align-items: center;
+}
+.passiveInfoButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
   cursor: pointer;
 }
-.cycleButtonInfoCard {
+.passiveInfoTrigger .btn:not(:disabled) {
+  cursor: pointer;
+}
+.passiveInfoCard {
   display: none;
   position: absolute;
   top: calc(100% + 3px);
@@ -617,8 +630,9 @@ img.assetIcon {
   pointer-events: none;
   transform: translateX(-50%);
 }
-.cycleButtonHover .btn:hover + .cycleButtonInfoCard,
-.cycleButtonHover .btn:focus-visible + .cycleButtonInfoCard {
+.passiveInfo:not(.passiveInfoClick) > .passiveInfoTrigger:hover + .passiveInfoCard,
+.passiveInfo:not(.passiveInfoClick) > .passiveInfoTrigger:focus-within + .passiveInfoCard,
+.passiveInfo.infoOpen > .passiveInfoCard {
   display: block;
 }
 .coinIcon {

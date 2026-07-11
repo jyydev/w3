@@ -58,6 +58,63 @@ export function HoverInfoCard(props) {
   return <SharedInfoCard {...props} activation="hover" />;
 }
 
+export function PassiveInfoCard({
+  activation = "hover",
+  open,
+  forceOpen = false,
+  onOpenChange,
+  disabled = false,
+  children,
+  content,
+  className = "",
+  cardClassName = "",
+}) {
+  const clickActivation = activation == "click";
+  const { overlayOpen, rootRef, interactionProps } = useOverlayInteraction({
+    activation: clickActivation ? "click" : "passive",
+    open,
+    forceOpen,
+    onOpenChange,
+    disabled,
+    panelClassName: "passiveInfoCard",
+    triggerClassName: "passiveInfoTrigger",
+  });
+
+  if (content === undefined || content === null || content === "") {
+    return children;
+  }
+
+  return (
+    <span
+      {...interactionProps}
+      ref={rootRef}
+      className={[
+        "passiveInfo",
+        clickActivation ? "passiveInfoClick" : "",
+        overlayOpen ? "infoOpen" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {clickActivation ? (
+        <button type="button" className="passiveInfoTrigger passiveInfoButton">
+          {children}
+        </button>
+      ) : (
+        <span className="passiveInfoTrigger">{children}</span>
+      )}
+      <span
+        className={["passiveInfoCard", cardClassName]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {content}
+      </span>
+    </span>
+  );
+}
+
 export function CycleButton({
   direction = "next",
   children,
@@ -89,10 +146,7 @@ export function CycleButton({
   if (disabled || !targetText) return button;
 
   return (
-    <span className="cycleButtonHover">
-      {button}
-      <span className="cycleButtonInfoCard">{targetText}</span>
-    </span>
+    <PassiveInfoCard content={targetText}>{button}</PassiveInfoCard>
   );
 }
 

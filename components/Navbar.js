@@ -12,6 +12,7 @@ const walletTypeLabels = {
   evm: "EVM",
   solana: "Solana",
 };
+const refPageFilePattern = /^page\.(?:js|jsx|ts|tsx)$/i;
 
 function getWalletType(folder = "") {
   return folder.toLowerCase() == "solana" ? "solana" : "evm";
@@ -146,6 +147,65 @@ async function getWalletNavTree() {
   );
 }
 
+function getRefRouteLabel(folder = "") {
+  return String(folder || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isPublicRefRouteFolder(folder = "") {
+  return ![".", "_", "@", "[", "("].includes(String(folder || "")[0]);
+}
+
+async function readRefNavChildren(dir, routeParts = [], knownEntries) {
+  const entries =
+    knownEntries ||
+    (await fs
+      .readdir(dir, { withFileTypes: true })
+      .catch((e) => (e.code == "ENOENT" ? [] : Promise.reject(e))));
+  const folders = entries
+    .filter(
+      (entry) => entry.isDirectory() && isPublicRefRouteFolder(entry.name),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const children = await Promise.all(
+    folders.map(async (entry) => {
+      const parts = [...routeParts, entry.name];
+      const folderPath = path.join(dir, entry.name);
+      const folderEntries = await fs.readdir(folderPath, { withFileTypes: true });
+      const hasPage = folderEntries.some(
+        (child) => child.isFile() && refPageFilePattern.test(child.name),
+      );
+      const nestedChildren = await readRefNavChildren(
+        folderPath,
+        parts,
+        folderEntries,
+      );
+      if (!hasPage && !nestedChildren.length) return null;
+
+      const href = hasPage ? `/ref/${parts.join("/")}` : "";
+
+      return {
+        value: entry.name,
+        label: getRefRouteLabel(entry.name),
+        href,
+        title: href,
+        disabled: !hasPage,
+        children: nestedChildren,
+      };
+    }),
+  );
+
+  return children.filter(Boolean);
+}
+
+async function getRefNavTree() {
+  return readRefNavChildren(path.join(process.cwd(), "app/ref"));
+}
+
 const split4nestedBrackets = (s) => {
   let r = [],
     c = "",
@@ -193,13 +253,19 @@ export default async function Navbar() {
       typeof key == "string" ? target[`${ckPrefix ?? ""}${key}`] : target[key],
   });
   const walletNavTree = await getWalletNavTree();
+  const refNavTree = await getRefNavTree();
 
   let links = [["/", "⌂ Home"]]; //txt separator: links.push(['','tx'])
   let etc = [
     ["/editor", "editor"],
     ["/ck", "cookies"],
     ["/login", "login"],
-    ["/ref", "ref"],
+    {
+      href: "/ref",
+      label: "ref",
+      title: "/ref",
+      children: refNavTree,
+    },
   ];
 
   links.push([{ type: "walletTree", routeBase: "/w" }, "wallet"]);
@@ -317,7 +383,7 @@ export default async function Navbar() {
           );
         })}
       </div>
-      <Breadcrumb walletTree={walletNavTree} />
+      <Breadcrumb walletTree={walletNavTree} refTree={refNavTree} />
     </>
   );
 }

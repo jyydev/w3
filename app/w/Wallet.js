@@ -25,6 +25,7 @@ import {
   getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
   HoverInfoCard,
+  PassiveInfoCard,
   TableSortHeader,
   TrashIcon,
 } from "@/components/Shared";
@@ -4754,12 +4755,12 @@ function Wallet({
                 </option>
               ))}
             </select>
-            <HoverInfoCard>
+            <PassiveInfoCard
+              activation="click"
+              content="option 'all' excludes watch"
+            >
               <span>wallets:</span>
-              <span className="infoCard">
-                <span>option 'all' excludes watch</span>
-              </span>
-            </HoverInfoCard>
+            </PassiveInfoCard>
             <CycleButtonPair
               onPrev={prevWallet}
               onNext={nextWallet}

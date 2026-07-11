@@ -117,6 +117,7 @@ const settingsNotes = [
   "Clear cache removes runtime memory cache for current client and/or warm server instance.",
   "Environment variable details are documented in /ref/env.",
   "Cookie and sorting details are documented in /ref/cookie.",
+  "Shared hover, click, and passive info card behavior is documented in /ref/infoCards.",
   "Login uses the app-specific w3_login cookie.",
 ];
 
@@ -203,6 +204,11 @@ function Page() {
         <p>
           <a className="refLink" href="/ref/cookie">
             Cookie and sorting details
+          </a>
+        </p>
+        <p>
+          <a className="refLink" href="/ref/infoCards">
+            Info card behavior
           </a>
         </p>
         <List items={settingsNotes} />
