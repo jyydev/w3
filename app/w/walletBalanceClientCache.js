@@ -114,7 +114,7 @@ function getRequestedAddressSet(addresses = [], walletType = "evm") {
     .map((address) => getAddressKey(address, walletType))
     .filter(Boolean);
 
-  return list.length ? new Set(list) : null;
+  return new Set(list);
 }
 
 export function clearWalletBalanceClientCache(scope = {}) {
@@ -234,7 +234,7 @@ export function getWalletBalanceClientCacheData({
 
   for (const addressEntry of walletBalanceClientCacheM.values()) {
     if (type && addressEntry.walletType != type) continue;
-    if (addressSet && !addressSet.has(addressEntry.addressKey)) continue;
+    if (!addressSet.has(addressEntry.addressKey)) continue;
 
     for (const entry of addressEntry.chains.values()) {
       if (chainSet && !chainSet.has(entry.chain)) continue;
