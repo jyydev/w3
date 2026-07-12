@@ -201,8 +201,6 @@ function getFavWalletEntries(
   walletType = defaultWalletType,
   knownEntries = [],
 ) {
-  const usedNames = new Set();
-
   return favAddrs
     .filter((fav) => fav.type == walletType)
     .map((fav, index) => {
@@ -215,21 +213,13 @@ function getFavWalletEntries(
       const baseName =
         String(knownEntry?.name || fav.name || "").trim() ||
         `fav_${cleanAddress.slice(-6) || index + 1}`;
-      let name = baseName;
-      let i = 2;
-
-      while (usedNames.has(name)) {
-        name = `${baseName}_${i}`;
-        i += 1;
-      }
-      usedNames.add(name);
 
       return {
         ...knownEntry,
-        name,
+        name: baseName,
         address: cleanAddress,
         source: knownEntry?.source || "",
-        label: knownEntry?.label || name,
+        label: knownEntry?.label || baseName,
       };
     })
     .filter((entry) => entry.address);
@@ -589,6 +579,7 @@ async function WPage({
         requestedWallet={walletFile}
         selectedWalletName={selectedWalletName}
         walletEntries={walletEntries}
+        allWalletEntries={allWalletEntries}
         walletPkM={walletPkM}
         disabledWallets={disabledWallets}
         offAddrs={offAddrs}

@@ -490,7 +490,7 @@ export function hasLocalWalletSource(walletType = "evm", source = "") {
 export function readLocalWalletEntries(
   walletType = "evm",
   source = "",
-  { includeReserved = false } = {},
+  { includeReserved = false, uniqueNames = true } = {},
 ) {
   const type = walletType == "solana" ? "solana" : "evm";
   const cleanSource = String(source || "").trim().replace(/\/+$/, "");
@@ -509,13 +509,15 @@ export function readLocalWalletEntries(
   return matchingRecords.flatMap((record) => {
     return record.entries.map((entry) => {
       let name = entry.name;
-      const baseName = name;
-      let i = 2;
-      while (usedNames.has(name)) {
-        name = `${baseName}_${i}`;
-        i += 1;
+      if (uniqueNames) {
+        const baseName = name;
+        let i = 2;
+        while (usedNames.has(name)) {
+          name = `${baseName}_${i}`;
+          i += 1;
+        }
+        usedNames.add(name);
       }
-      usedNames.add(name);
 
       return {
         ...entry,

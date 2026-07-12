@@ -768,6 +768,7 @@ function Wallet({
   requestedWallet = "",
   selectedWalletName = "",
   walletEntries = [],
+  allWalletEntries = [],
   walletPkM = {},
   disabledWallets = [],
   offAddrs = [],
@@ -913,6 +914,7 @@ function Wallet({
     useLocalEditorStore && localWalletName
       ? readLocalWalletEntries(walletType, "", {
           includeReserved: true,
+          uniqueNames: false,
         }).filter((entry) => entry.name == localWalletName)
       : [];
   const localFavWalletEntries =
@@ -923,6 +925,7 @@ function Wallet({
     selectedWallet != "all"
       ? readLocalWalletEntries(walletType, "", {
           includeReserved: true,
+          uniqueNames: false,
         }).filter((entry) =>
           favAddrs.some(
             (fav) =>
@@ -946,7 +949,29 @@ function Wallet({
   const serverChainNameKey = serverChainList
     .map((chainE) => chainE.chain)
     .join("|");
-  const walletSourceData = localWalletData || data;
+  const localAllWalletEntries = useLocalEditorStore
+    ? readLocalWalletEntries(walletType, "", {
+        includeReserved: true,
+        uniqueNames: false,
+      })
+    : [];
+  const localWalletDataKey = [
+    walletType,
+    selectedAddress
+      ? `addr:${getFavAddrKey(walletType, selectedAddress)}`
+      : localWalletName
+        ? `name:${localWalletName}`
+        : selectedWallet == "all" || localAllWallets
+          ? "all"
+          : effectiveRequestedWallet
+            ? `file:${effectiveRequestedWallet}`
+            : "favs",
+    localWalletVersion,
+    JSON.stringify(favAddrs),
+  ].join("|");
+  const activeLocalWalletData =
+    localWalletData?.key == localWalletDataKey ? localWalletData.data : null;
+  const walletSourceData = activeLocalWalletData || data;
   const cachedWalletSourceData = useMemo(
     () => applyWalletBalanceClientCache(walletSourceData, { walletType }),
     [walletSourceData, walletType, walletBalanceCacheVersion],
@@ -1002,9 +1027,20 @@ function Wallet({
     ? customCoinChain
     : customCoinChains[0] || "";
   const localSettingWalletEntries = useLocalEditorStore
-    ? readLocalWalletEntries(walletType, localWalletLoadSource, {
-        includeReserved: Boolean(localWalletName),
-      })
+    ? localWalletName
+      ? localWalletNameEntries
+      : !selectedAddress &&
+          !localWalletName &&
+          !effectiveRequestedWallet &&
+          selectedWallet != "all"
+        ? localFavWalletEntries
+        : localAllWallets
+          ? localAllWalletEntries
+          : localRequestedWallet
+            ? readLocalWalletEntries(walletType, localWalletLoadSource, {
+                uniqueNames: false,
+              })
+            : []
     : [];
   const mergedWalletEntries = (() => {
     const seen = new Set();
@@ -1017,10 +1053,24 @@ function Wallet({
         )}`;
         if (seen.has(key)) return false;
         seen.add(key);
-
         return true;
       },
     );
+  })();
+  const allKnownWalletEntries = (() => {
+    const seen = new Set();
+
+    return [
+      ...(allWalletEntries || []),
+      ...localAllWalletEntries,
+      ...mergedWalletEntries,
+    ].filter((entry) => {
+      const key = getWalletEntryKey(entry);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+
+      return true;
+    });
   })();
   const walletEntryByAddress = getWalletEntryByAddress();
   const walletEntryByName = getWalletEntryByName();
@@ -1709,7 +1759,9 @@ function Wallet({
 
     let cancelled = false;
     setCheckingLocalWallet(false);
-    if (cachedData.length) setLocalWalletData(cachedData);
+    if (cachedData.length) {
+      setLocalWalletData({ key: localWalletDataKey, data: cachedData });
+    }
     if (!fetchEntries.length) {
       setLoadingLocalWallet(false);
       return () => {
@@ -1742,7 +1794,10 @@ function Wallet({
         if (!cancelled) {
           const freshData = markWalletBalanceDataFresh(nextData);
           writeWalletBalanceClientCache(freshData, { walletType });
-          setLocalWalletData(mergeWalletBalanceData(cachedData, freshData));
+          setLocalWalletData({
+            key: localWalletDataKey,
+            data: mergeWalletBalanceData(cachedData, freshData),
+          });
         }
       })
       .catch((e) => {
@@ -1766,6 +1821,7 @@ function Wallet({
     localFavWalletEntries.length,
     JSON.stringify(favAddrs),
     localWalletVersion,
+    localWalletDataKey,
     JSON.stringify(localCustomCoinM),
     effectiveRequestedWallet,
     walletType,
@@ -3249,7 +3305,7 @@ function Wallet({
       entries.push(entry);
     }
 
-    for (const entry of mergedWalletEntries || []) {
+    for (const entry of allKnownWalletEntries || []) {
       const entryAddressKey = getFavAddrKey(walletType, entry?.address);
       const nameMatches = walletName && entry?.name == walletName;
       const addressMatches = addressKey && entryAddressKey == addressKey;
@@ -3691,7 +3747,14 @@ function Wallet({
   function renderAddressSettingsHeader() {
     const disabled = new Set(disabledWalletList.map(getWalletDisableKey));
     const serverDisabled = new Set(offAddrList.map(getNameDisableKey));
+    const currentRowAddressSet = new Set(
+      rows.map((row) => getFavAddrKey(walletType, row.address)).filter(Boolean),
+    );
     const wallets = mergedWalletEntries
+      .filter((entry) => {
+        const addressKey = getFavAddrKey(walletType, entry.address);
+        return !currentRowAddressSet.size || currentRowAddressSet.has(addressKey);
+      })
       .map((entry, index) => ({
         ...entry,
         index,
