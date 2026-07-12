@@ -813,6 +813,7 @@ function Wallet({
   );
   const walletHistoryByTypeRef = useRef({});
   const walletHistorySkipRef = useRef("");
+  const localWalletCacheReadyRef = useRef(false);
   let [loadingWallet, setLoadingWallet] = useState(false);
   let [coinLimit, setCoinLimit] = useState(() => {
     const savedCoinLimit = Number(
@@ -1716,6 +1717,7 @@ function Wallet({
 
     if (!useLocalEditorStore) {
       setCheckingLocalWallet(false);
+      localWalletCacheReadyRef.current = true;
       return;
     }
     if (
@@ -1725,6 +1727,7 @@ function Wallet({
       !localFavWalletEntries.length
     ) {
       setCheckingLocalWallet(false);
+      localWalletCacheReadyRef.current = true;
       return;
     }
 
@@ -1735,20 +1738,24 @@ function Wallet({
         : readLocalWalletEntries(walletType, localWalletLoadSource);
     if (!entries.length) {
       setCheckingLocalWallet(false);
+      localWalletCacheReadyRef.current = true;
       return;
     }
 
     const balanceChains = serverChainList
       .map((chainE) => chainE.chain)
       .filter((chain) => chain && chain != "Claim");
-    const cachedEntries = entries.filter((entry) =>
-      isWalletBalanceAddressCached({
-        walletType,
-        address: entry.address,
-        chains: balanceChains,
-        requireAllChains: true,
-      }),
-    );
+    const canUseLocalWalletCache = localWalletCacheReadyRef.current;
+    const cachedEntries = canUseLocalWalletCache
+      ? entries.filter((entry) =>
+          isWalletBalanceAddressCached({
+            walletType,
+            address: entry.address,
+            chains: balanceChains,
+            requireAllChains: true,
+          }),
+        )
+      : [];
     const cachedAddressSet = new Set(
       cachedEntries.map((entry) => getFavAddrKey(walletType, entry.address)),
     );
@@ -1756,11 +1763,13 @@ function Wallet({
       (entry) =>
         !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
     );
-    const cachedData = getWalletBalanceClientCacheData({
-      walletType,
-      addresses: cachedEntries.map((entry) => entry.address),
-      chains: balanceChains,
-    });
+    const cachedData = canUseLocalWalletCache
+      ? getWalletBalanceClientCacheData({
+          walletType,
+          addresses: cachedEntries.map((entry) => entry.address),
+          chains: balanceChains,
+        })
+      : [];
 
     let cancelled = false;
     setCheckingLocalWallet(false);
@@ -1769,6 +1778,7 @@ function Wallet({
     }
     if (!fetchEntries.length) {
       setLoadingLocalWallet(false);
+      localWalletCacheReadyRef.current = true;
       return () => {
         cancelled = true;
       };
@@ -1809,7 +1819,10 @@ function Wallet({
         if (!cancelled) toast.error(e.message || "local wallet load failed");
       })
       .finally(() => {
-        if (!cancelled) setLoadingLocalWallet(false);
+        if (!cancelled) {
+          localWalletCacheReadyRef.current = true;
+          setLoadingLocalWallet(false);
+        }
       });
 
     return () => {
