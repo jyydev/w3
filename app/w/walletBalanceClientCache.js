@@ -357,9 +357,10 @@ export function applyWalletBalanceClientCache(
           address: row?.address,
         });
         const cached = cachedEntry?.row;
-        if (row?.clientFresh || row?.clientReloaded) return row;
+        const isFreshView = !!viewId && cachedEntry?.viewId == viewId;
+        if (row?.clientReloaded) return row;
+        if (row?.clientFresh && (!cached || isFreshView)) return row;
         if (!cached || !hasBalances(cached)) return row;
-        const isFreshView = !!viewId && cachedEntry.viewId == viewId;
 
         return {
           ...row,

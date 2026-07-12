@@ -3868,10 +3868,26 @@ function Wallet({
     const currentRowAddressSet = new Set(
       rows.map((row) => getFavAddrKey(walletType, row.address)).filter(Boolean),
     );
-    const wallets = mergedWalletEntries
+    const matchingWallets = allKnownWalletEntries.filter((entry) => {
+      const addressKey = getFavAddrKey(walletType, entry.address);
+      return !currentRowAddressSet.size || currentRowAddressSet.has(addressKey);
+    });
+    const pathAddressSet = new Set(
+      matchingWallets
+        .filter((entry) => String(entry?.source || "").trim())
+        .map((entry) => getFavAddrKey(walletType, entry.address))
+        .filter(Boolean),
+    );
+    const seenWallets = new Set();
+    const wallets = matchingWallets
       .filter((entry) => {
         const addressKey = getFavAddrKey(walletType, entry.address);
-        return !currentRowAddressSet.size || currentRowAddressSet.has(addressKey);
+        if (!entry?.source && pathAddressSet.has(addressKey)) return false;
+
+        const key = `${entry?.source || ""}:${entry?.name || ""}:${addressKey}`;
+        if (!addressKey || seenWallets.has(key)) return false;
+        seenWallets.add(key);
+        return true;
       })
       .map((entry, index) => ({
         ...entry,
