@@ -1,6 +1,12 @@
 "use client";
 
 const walletBalanceClientCacheM = new Map();
+let walletBalanceClientViewSequence = 0;
+
+export function createWalletBalanceClientViewId() {
+  walletBalanceClientViewSequence += 1;
+  return `wallet-view-${Date.now()}-${walletBalanceClientViewSequence}`;
+}
 
 function clone(value) {
   if (value === undefined) return undefined;
@@ -154,7 +160,7 @@ export function getWalletBalanceClientCacheMeta(scope = {}) {
 
 export function writeWalletBalanceClientCache(
   data = [],
-  { walletType = "evm" } = {},
+  { walletType = "evm", viewId = "" } = {},
 ) {
   const chainList = Array.isArray(data) ? data : data ? [data] : [];
   const type = getWalletTypeKey(walletType);
@@ -173,10 +179,15 @@ export function writeWalletBalanceClientCache(
       if (!addressEntry) continue;
 
       const at = Date.now();
+      const existing = addressEntry.chains.get(chain);
+      const entryViewId = row.clientCached
+        ? existing?.viewId || ""
+        : viewId || existing?.viewId || "";
       addressEntry.at = at;
       addressEntry.chains.set(chain, {
         at,
         chain,
+        viewId: entryViewId,
         chainMeta: getChainMeta(chainE),
         row: getStoredRow(row),
       });
@@ -189,6 +200,7 @@ export function isWalletBalanceAddressCached({
   address = "",
   chains = [],
   requireAllChains = true,
+  requireViewId = false,
 } = {}) {
   const addressEntry = getAddressCacheEntry({ walletType, address });
   if (!addressEntry) return false;
@@ -198,7 +210,10 @@ export function isWalletBalanceAddressCached({
     .filter(Boolean);
   if (!chainList.length) return addressEntry.chains.size > 0;
 
-  const hasChainCache = (chain) => addressEntry.chains.has(chain);
+  const hasChainCache = (chain) => {
+    const entry = addressEntry.chains.get(chain);
+    return !!entry && (!requireViewId || !!entry.viewId);
+  };
 
   return requireAllChains
     ? chainList.every(hasChainCache)
@@ -209,6 +224,7 @@ export function getWalletBalanceClientCacheData({
   walletType = "evm",
   addresses = [],
   chains = [],
+  viewId = "",
 } = {}) {
   const type = getWalletTypeKey(walletType);
   const addressSet = getRequestedAddressSet(addresses, type);
@@ -232,10 +248,12 @@ export function getWalletBalanceClientCacheData({
       }
 
       const chainE = chainM.get(entry.chain);
+      const isFreshView = !!viewId && entry.viewId == viewId;
       const row = {
         ...(clone(entry.row) || {}),
-        clientCached: true,
+        clientCached: !isFreshView,
         clientReloaded: false,
+        clientFresh: isFreshView,
       };
       const balanceCoins = Object.keys(row.balances || {});
       chainE.allCoins = [
@@ -321,7 +339,7 @@ export function markWalletBalanceDataFresh(data = []) {
 
 export function applyWalletBalanceClientCache(
   data = [],
-  { walletType = "evm" } = {},
+  { walletType = "evm", viewId = "" } = {},
 ) {
   const chainList = Array.isArray(data) ? data : data ? [data] : [];
   if (!chainList.length || !walletBalanceClientCacheM.size) return data;
@@ -333,13 +351,15 @@ export function applyWalletBalanceClientCache(
     return {
       ...chainE,
       rows: chainE.rows.map((row) => {
-        const cached = getChainCacheEntry({
+        const cachedEntry = getChainCacheEntry({
           walletType,
           chain,
           address: row?.address,
-        })?.row;
+        });
+        const cached = cachedEntry?.row;
         if (row?.clientFresh || row?.clientReloaded) return row;
         if (!cached || !hasBalances(cached)) return row;
+        const isFreshView = !!viewId && cachedEntry.viewId == viewId;
 
         return {
           ...row,
@@ -349,8 +369,9 @@ export function applyWalletBalanceClientCache(
             ...(cached.balances || {}),
           },
           errors: row.errors || cached.errors,
-          clientCached: true,
+          clientCached: !isFreshView,
           clientReloaded: false,
+          clientFresh: isFreshView,
         };
       }),
     };
@@ -394,6 +415,7 @@ export function patchWalletBalanceClientCache({
   addressEntry.chains.set(chain, {
     at,
     chain,
+    viewId: cached.viewId || "",
     chainMeta: cached.chainMeta || { chain },
     row: getStoredRow(row),
   });
