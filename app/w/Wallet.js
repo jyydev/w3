@@ -971,7 +971,12 @@ function Wallet({
   ].join("|");
   const activeLocalWalletData =
     localWalletData?.key == localWalletDataKey ? localWalletData.data : null;
-  const walletSourceData = activeLocalWalletData || data;
+  const freshServerWalletData = useMemo(
+    () => markWalletBalanceDataFresh(data),
+    [data],
+  );
+  const walletSourceData =
+    activeLocalWalletData || freshServerWalletData;
   const cachedWalletSourceData = useMemo(
     () => applyWalletBalanceClientCache(walletSourceData, { walletType }),
     [walletSourceData, walletType, walletBalanceCacheVersion],
