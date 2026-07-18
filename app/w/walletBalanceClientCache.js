@@ -2,6 +2,7 @@
 
 const walletBalanceClientCacheM = new Map();
 let walletBalanceClientViewSequence = 0;
+export const walletBalancePatchEvent = "w3:walletBalancePatch";
 
 export function createWalletBalanceClientViewId() {
   walletBalanceClientViewSequence += 1;
@@ -27,6 +28,90 @@ function getAddressKey(address = "", walletType = "evm") {
   if (!text) return "";
 
   return getWalletTypeKey(walletType) == "solana" ? text : text.toLowerCase();
+}
+
+function getWalletBalancePatchKey(patch = {}, walletType = "evm") {
+  return `${patch.chain}:${patch.coin}:${getAddressKey(
+    patch.address,
+    walletType,
+  )}`;
+}
+
+export function getWalletBalancePatches(
+  data = [],
+  {
+    baseData = [],
+    replaceAddresses = [],
+    walletType = "evm",
+  } = {},
+) {
+  const refreshedChainSet = new Set(
+    (Array.isArray(data) ? data : data ? [data] : [])
+      .map((chainE) => String(chainE?.chain || "").trim())
+      .filter(Boolean),
+  );
+  const replaceAddressKeys = new Set(
+    (Array.isArray(replaceAddresses) ? replaceAddresses : [])
+      .map((address) => getAddressKey(address, walletType))
+      .filter(Boolean),
+  );
+  const patchM = new Map();
+
+  function addData(sourceData, clear = false) {
+    const chainList = Array.isArray(sourceData)
+      ? sourceData
+      : sourceData
+        ? [sourceData]
+        : [];
+
+    for (const chainE of chainList) {
+      const chain = String(chainE?.chain || "").trim();
+      if (!chain || (clear && !refreshedChainSet.has(chain))) continue;
+
+      for (const row of chainE.rows || []) {
+        const address = String(row?.address || "").trim();
+        const addressKey = getAddressKey(address, walletType);
+        if (!addressKey || (clear && !replaceAddressKeys.has(addressKey))) {
+          continue;
+        }
+
+        for (const [coin, balance] of Object.entries(row.balances || {})) {
+          if (!coin || !balance || typeof balance != "object") continue;
+
+          const patch = {
+            chain,
+            coin,
+            address,
+            balance: clear
+              ? { ...balance, raw: "0", balance: "0", usd: 0 }
+              : balance,
+            coinE: chainE.coinInfoM?.[coin],
+          };
+          patchM.set(getWalletBalancePatchKey(patch, walletType), patch);
+        }
+      }
+    }
+  }
+
+  if (replaceAddressKeys.size) addData(baseData, true);
+  addData(data);
+  return [...patchM.values()];
+}
+
+export function emitWalletBalancePatches(patches = []) {
+  if (typeof window == "undefined") return;
+
+  const balances = (Array.isArray(patches) ? patches : []).filter(
+    (patch) =>
+      patch?.chain && patch?.coin && patch?.address && patch?.balance,
+  );
+  if (!balances.length) return;
+
+  window.dispatchEvent(
+    new CustomEvent(walletBalancePatchEvent, {
+      detail: { balances },
+    }),
+  );
 }
 
 function getAddressCacheKey({

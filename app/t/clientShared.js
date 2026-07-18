@@ -39,7 +39,7 @@ export const tradeLeftPaneCookie = "w3_trade_left_pane";
 export const tradeRightPaneSelectCookie = "w3_trade_right_pane_select";
 export const tradePaneOrderCookie = "w3_trade_pane_order";
 export const tradeInputMaxOffCookie = "w3_trade_input_max_off";
-export const walletBalancePatchEvent = "w3:walletBalancePatch";
+export { walletBalancePatchEvent } from "../w/walletBalanceClientCache";
 export const tradeSwapDexCookie = "w3_trade_swap_dex";
 export const tradeSwapFromChainCookie = "w3_trade_swap_from_chain";
 export const tradeSwapFromCoinCookie = "w3_trade_swap_from_coin";

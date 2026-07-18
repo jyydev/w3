@@ -18,10 +18,12 @@ import {
 } from "../_editorData/browserEditorStorage";
 import { getLocalWalletBalanceData } from "../w/localWalletActions";
 import {
+  emitWalletBalancePatches,
   getWalletBalanceClientCacheData,
   isWalletBalanceAddressCached,
   markWalletBalanceDataFresh,
   mergeWalletBalanceData,
+  walletBalancePatchEvent,
   writeWalletBalanceClientCache,
 } from "../w/walletBalanceClientCache";
 import {
@@ -59,7 +61,6 @@ import {
   TradeSelectionPicker,
   shortAddress,
   tradeShowCookie,
-  walletBalancePatchEvent,
 } from "./clientShared";
 
 function getEntryKey(entry = {}) {
@@ -232,11 +233,20 @@ function applyBalancePatches(data = [], patchM = {}) {
     if (!chainPatches.length) return chainE;
 
     const patchCoins = chainPatches.map((patch) => patch.coin);
+    const patchCoinInfoM = Object.fromEntries(
+      chainPatches
+        .filter((patch) => patch.coinE && typeof patch.coinE == "object")
+        .map((patch) => [patch.coin, patch.coinE]),
+    );
 
     return {
       ...chainE,
       allCoins: [...new Set([...(chainE.allCoins || []), ...patchCoins])],
       coins: [...new Set([...(chainE.coins || []), ...patchCoins])],
+      coinInfoM: {
+        ...(chainE.coinInfoM || {}),
+        ...patchCoinInfoM,
+      },
       rows: (chainE.rows || []).map((row) => {
         const rowPatches = chainPatches.filter((patch) =>
           sameAddress(row.address, patch.address),
@@ -255,15 +265,6 @@ function applyBalancePatches(data = [], patchM = {}) {
       }),
     };
   });
-}
-
-function emitBalancePatches(patches = []) {
-  if (typeof window == "undefined" || !patches.length) return;
-  window.dispatchEvent(
-    new CustomEvent(walletBalancePatchEvent, {
-      detail: { balances: patches },
-    }),
-  );
 }
 
 function getLocalSelectedWalletEntries({
@@ -435,8 +436,48 @@ function Panels({
     const hasHyperliquid = effectiveData.some(
       (chainE) => chainE.chain == "Hyperliquid",
     );
-    return hasHyperliquid ? effectiveData : [...effectiveData, hyperliquidE];
-  }, [effectiveData, localWalletData, walletBaseData]);
+    const yieldData = hasHyperliquid
+      ? effectiveData
+      : [...effectiveData, hyperliquidE];
+
+    return normalizeTradeCoinAliases(
+      applyBalancePatches(yieldData, balancePatchM),
+    );
+  }, [balancePatchM, effectiveData, localWalletData, walletBaseData]);
+
+  useEffect(() => {
+    function handleBalancePatch(e) {
+      const patches = Array.isArray(e?.detail?.balances)
+        ? e.detail.balances
+        : [];
+      if (!patches.length) return;
+
+      setBalancePatchM((patchM) => {
+        const next = { ...patchM };
+
+        for (const patch of patches) {
+          if (
+            !patch?.chain ||
+            !patch?.coin ||
+            !patch?.address ||
+            !patch?.balance
+          ) {
+            continue;
+          }
+
+          next[getBalancePatchKey(patch)] = patch;
+        }
+
+        return next;
+      });
+    }
+
+    window.addEventListener(walletBalancePatchEvent, handleBalancePatch);
+    return () => {
+      window.removeEventListener(walletBalancePatchEvent, handleBalancePatch);
+    };
+  }, []);
+
   const effectiveWalletEntriesM = useMemo(
     () => ({
       evm: mergeWalletEntries(
@@ -1000,14 +1041,7 @@ function Panels({
       ).filter(Boolean);
 
       if (!patches.length) return;
-      setBalancePatchM((patchM) => {
-        const next = { ...patchM };
-        for (const patch of patches) {
-          next[getBalancePatchKey(patch)] = patch;
-        }
-        return next;
-      });
-      emitBalancePatches(patches);
+      emitWalletBalancePatches(patches);
     }
 
     delays.forEach((delay) => {

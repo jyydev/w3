@@ -455,7 +455,7 @@ async function fetchJupiterTokenSearch(query = "") {
   const res = await withTimeout(
     fetch(`${jupiterTokenSearchUrl}?query=${encodeURIComponent(cleanQuery)}`, {
       headers: { accept: "application/json" },
-      next: { revalidate: 300 },
+      next: { revalidate: discoveryCacheMs / 1000 },
     }),
     10000,
     `Jupiter token search timeout: ${cleanQuery}`,

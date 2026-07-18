@@ -70,12 +70,15 @@ import {
   applyWalletBalanceClientCache,
   clearWalletBalanceClientCache,
   createWalletBalanceClientViewId,
+  emitWalletBalancePatches,
+  getWalletBalancePatches,
   getWalletBalanceClientCacheData,
   getWalletBalanceClientCacheMeta,
   isWalletBalanceAddressCached,
   markWalletBalanceDataFresh,
   mergeWalletBalanceData,
   patchWalletBalanceClientCache,
+  walletBalancePatchEvent,
   writeWalletBalanceClientCache,
 } from "./walletBalanceClientCache";
 import {
@@ -95,7 +98,6 @@ function shortAddr(address) {
   return address ? `..${address.slice(-3)}` : "";
 }
 
-const walletBalancePatchEvent = "w3:walletBalancePatch";
 const tradeChainSelectEvent = "w3:tradeChainSelect";
 
 function sameWalletAddress(a = "", b = "") {
@@ -3278,14 +3280,14 @@ function Wallet({
         ...prev,
         [reloadKey]: nextData,
       }));
-      setBalancePatchM((prev) => {
-        const next = { ...prev };
-        for (const key of Object.keys(next)) {
-          if (sameWalletAddress(next[key]?.address, address)) delete next[key];
-        }
-        return next;
-      });
       setWalletBalanceCacheVersion((version) => version + 1);
+      emitWalletBalancePatches(
+        getWalletBalancePatches(normalizeWalletCoinAliases(nextData), {
+          baseData: activeData,
+          replaceAddresses: [address],
+          walletType,
+        }),
+      );
       toast.success(`reloaded ${walletEntry.label || walletEntry.name}`);
     } catch (e) {
       toast.error(e?.message || "wallet reload failed");
@@ -4381,6 +4383,14 @@ function Wallet({
                   />
                 </span>
               </HoverInfoCard>
+              <button
+                type="button"
+                className="btn small bgGray"
+                disabled={reloading}
+                onClick={(event) => reloadWalletAddressBalance(event, row)}
+              >
+                reload
+              </button>
             </span>
             <CopyAddressRow address={row.address} />
             {walletRefEntries.length > 0 && (

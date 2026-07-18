@@ -28,7 +28,7 @@ const cacheTypeRows = [
 const serverCacheRows = [
   [
     "Discovery cache maps",
-    "Server module memory registered through fn/discoveryCache.js. TTL is 1 hour and the shared global limit is 100 entries across wired server discovery maps.",
+    "Server module memory registered through fn/discoveryCache.js. The default discovery-entry TTL is 1 hour, and the shared global limit is 100 entries across wired server discovery maps. Other server caches can use different TTLs.",
   ],
   [
     "Aave markets",
@@ -52,7 +52,7 @@ const serverCacheRows = [
   ],
   [
     "Spark markets",
-    "server discovery cache map in app/t/_yield/spark/sv.js; keyed by chain. Spark savings-rate data is also cached server-side for 10 minutes.",
+    "server discovery cache map in app/t/_yield/spark/sv.js; keyed by chain and cached for 1 hour. Its separate savings-rate API response uses the same 1-hour server cache TTL.",
   ],
   [
     "Venus Flux markets",

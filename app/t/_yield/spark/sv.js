@@ -61,7 +61,6 @@ const sparkSavingsRateApi =
 const sparkMarketFetchTimeoutMs = 15000;
 const sparkSavingsRateTimeoutMs = 8000;
 const sparkTokenMetaTimeoutMs = 8000;
-const sparkSavingsRateCacheMs = 10 * 60 * 1000;
 let sparkSavingsRateCache = { ts: 0, rates: null };
 const sparkMarketCacheM = {};
 const sparkPsm3AddressM = {
@@ -371,13 +370,15 @@ async function getSparkSavingsRates() {
   const now = Date.now();
   if (
     sparkSavingsRateCache.rates &&
-    now - sparkSavingsRateCache.ts < sparkSavingsRateCacheMs
+    now - sparkSavingsRateCache.ts < discoveryCacheMs
   ) {
     return sparkSavingsRateCache.rates;
   }
 
   const rates = await withTimeout(
-    fetch(sparkSavingsRateApi, { next: { revalidate: 600 } }),
+    fetch(sparkSavingsRateApi, {
+      next: { revalidate: discoveryCacheMs / 1000 },
+    }),
     sparkSavingsRateTimeoutMs,
     "Spark savings rate timeout",
   )
