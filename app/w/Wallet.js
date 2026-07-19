@@ -3563,7 +3563,7 @@ function Wallet({
     );
   }
 
-  function ChainCoinSettings({ chainE }) {
+  function renderChainCoinSettings(chainE) {
     const chain = chainE.chain;
     const sortKey = coinSettingSortM[chain] || "";
     const disabled = new Set(disabledCoinsM[chain] || []);
@@ -3571,6 +3571,16 @@ function Wallet({
     const editorCoinM = editableCustomCoinM?.[chain] || {};
     const permanentCoins = permanentCoinM?.[chain] || {};
     const discoveredCoins = new Set(chainE.discoveredCoins || []);
+    const chainCoinInfoM = chainE.coinInfoM || {};
+    const settingCoins = [
+      ...new Set([
+        ...Object.keys(permanentCoins),
+        ...Object.keys(editorCoinM),
+        ...Object.keys(chainCoinInfoM),
+        ...disabled,
+        ...serverDisabled,
+      ]),
+    ];
     const sourceIndexM = {
       permanent: Object.fromEntries(
         Object.keys(permanentCoins).map((coin, index) => [coin, index]),
@@ -3579,11 +3589,20 @@ function Wallet({
         Object.keys(editorCoinM).map((coin, index) => [coin, index]),
       ),
       alchemy: Object.fromEntries(
-        [...discoveredCoins].map((coin, index) => [coin, index]),
+        settingCoins
+          .filter(
+            (coin) =>
+              !Object.prototype.hasOwnProperty.call(permanentCoins, coin) &&
+              !Object.prototype.hasOwnProperty.call(editorCoinM, coin),
+          )
+          .map((coin, index) => [coin, index]),
       ),
     };
-    const coinRows = Object.entries(chainE.coinInfoM || {}).map(
-      ([coin, coinE], index) => ({
+    const coinRows = settingCoins.map((coin, index) => {
+      const coinE =
+        chainCoinInfoM[coin] || editorCoinM[coin] || permanentCoins[coin] || {};
+
+      return {
         coin,
         name: coinE?.name || "",
         index,
@@ -3592,9 +3611,11 @@ function Wallet({
           ? "editor"
           : discoveredCoins.has(coin) || coinE?.source == "alchemy"
             ? "alchemy"
-            : "permanent",
-      }),
-    );
+            : Object.prototype.hasOwnProperty.call(permanentCoins, coin)
+              ? "permanent"
+              : "alchemy",
+      };
+    });
     const groupList = [
       ["permanent", "server"],
       ["editor", "added"],
@@ -5260,7 +5281,7 @@ function Wallet({
                       gap: 6,
                     }}
                   >
-                    <ChainCoinSettings chainE={chainE} />
+                    {renderChainCoinSettings(chainE)}
                     <ChainToggle chainE={chainE} />
                     <ChainNoBalanceMsg chainE={chainE} />
                   </div>
