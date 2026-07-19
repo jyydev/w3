@@ -1550,6 +1550,9 @@ async function getAlchemyBalances({
   const coinOrder = coinEntries.map(([coin]) => coin);
   const coinSet = new Set(coinOrder);
   const discoveredCoins = new Set();
+  const detectedBalanceCoinsM = Object.fromEntries(
+    rows.map((row) => [row.name, new Set()]),
+  );
   const discoveredAddressM = {};
   const balancesM = Object.fromEntries(rows.map((row) => [row.name, {}]));
   const errorsM = Object.fromEntries(rows.map((row) => [row.name, {}]));
@@ -1590,8 +1593,6 @@ async function getAlchemyBalances({
       discoveredCoins.add(coin);
     }
 
-    if (disabled.has(coin)) continue;
-
     const balance = getAlchemyBalanceE({
       chain,
       token,
@@ -1600,6 +1601,8 @@ async function getAlchemyBalances({
       usdPriceQuery,
     });
     if (BigInt(balance.raw) <= 0n) continue;
+    detectedBalanceCoinsM[row.name]?.add(coin);
+    if (disabled.has(coin)) continue;
 
     balancesM[row.name][coin] = balance;
     if (!coinSet.has(coin)) {
@@ -1616,6 +1619,7 @@ async function getAlchemyBalances({
     coinInfoM,
     coinEntries: coinOrder.map((coin) => [coin, coinInfoM[coin]]),
     discoveredCoins,
+    detectedBalanceCoinsM,
     priceM,
   };
 }
@@ -1755,6 +1759,9 @@ async function buildAlchemyWalletResult({
   for (const row of rows) {
     row.balances = alchemy.balancesM[row.name] ?? {};
     row.errors = alchemy.errorsM[row.name] ?? {};
+    row.detectedBalanceCoins = [
+      ...(alchemy.detectedBalanceCoinsM[row.name] || []),
+    ];
   }
 
   let priceM = await applyFallbackPrices({
@@ -3503,6 +3510,21 @@ async function getTronBalances({
     resolvedAllCoinEntries,
     disabledCoins,
   );
+  const detectedBalanceCoinsM = Object.fromEntries(
+    rows.map((row) => {
+      const tokenBalanceM = getTronTokenBalanceM(
+        accountM[row.name]?.account || {},
+      );
+      const coins = discovery.coinEntries
+        .filter(([, coinE]) => {
+          const address = normalizeTronAddress(coinE?.address);
+          return address && getPositiveRaw(tokenBalanceM[address]) > 0n;
+        })
+        .map(([coin]) => coin);
+
+      return [row.name, coins];
+    }),
+  );
 
   for (const batch of chunkList(rows, tronWalletChunkSize)) {
     const results = await Promise.all(
@@ -3542,6 +3564,7 @@ async function getTronBalances({
     allCoinEntries: resolvedAllCoinEntries,
     coinInfoM: Object.fromEntries(resolvedAllCoinEntries),
     discoveredCoins: discovery.discoveredCoins,
+    detectedBalanceCoinsM,
   };
 }
 
@@ -3728,6 +3751,7 @@ export async function getTronWalletBalances({
       coinEntries,
       coinInfoM,
       discoveredCoins,
+      detectedBalanceCoinsM,
     } = await getTronBalances({
       chainE,
       rows: validRows,
@@ -3741,6 +3765,7 @@ export async function getTronWalletBalances({
     for (const row of validRows) {
       row.balances = balancesM[row.name] ?? {};
       row.errors = errorsM[row.name] ?? {};
+      row.detectedBalanceCoins = detectedBalanceCoinsM[row.name] ?? [];
       if (Object.keys(row.errors).length == coinEntries.length) {
         row.error = Object.values(row.errors)[0];
       }
@@ -3849,6 +3874,9 @@ export async function getHyperliquidWalletBalances({
   const coinInfoM = {};
   const allCoins = [];
   const discoveredCoins = new Set();
+  const detectedBalanceCoinM = new Map(
+    validRows.map((row) => [row, new Set()]),
+  );
   const baseVaultM = getHyperliquidBaseVaultM();
   const editorVaultM = {
     ...(await readCustomHyperliquidVaultM()),
@@ -3914,6 +3942,9 @@ export async function getHyperliquidWalletBalances({
       }
 
       const coin = addressCoinM[addressKey];
+      if (Number(vault.equity) > 0 || Number(vault.usd) > 0) {
+        detectedBalanceCoinM.get(row)?.add(coin);
+      }
       if (disabled.has(coin)) continue;
       if (coinInfoM[coin]) {
         coinInfoM[coin] = {
@@ -3968,6 +3999,9 @@ export async function getHyperliquidWalletBalances({
         }
 
         const coin = spotTokenCoinM[spot.token];
+        if (Number(spot.balance) > 0 || Number(spot.usd) > 0) {
+          detectedBalanceCoinM.get(row)?.add(coin);
+        }
         if (disabled.has(coin)) continue;
 
         row.balances[coin] = {
@@ -3996,6 +4030,9 @@ export async function getHyperliquidWalletBalances({
     rows,
     coinEntries: allCoins.map((coin) => [coin, coinInfoM[coin]]),
   });
+  for (const row of validRows) {
+    row.detectedBalanceCoins = [...(detectedBalanceCoinM.get(row) || [])];
+  }
 
   return {
     chain,

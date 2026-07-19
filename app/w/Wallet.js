@@ -263,7 +263,14 @@ function normalizeWalletCoinAliases(data = []) {
             : prevBalance;
       }
 
-      return { ...row, balances };
+      return {
+        ...row,
+        detectedBalanceCoins: normalizeCoinAliasList(
+          row.detectedBalanceCoins || [],
+          aliasCoinM,
+        ),
+        balances,
+      };
     });
 
     const allCoins = normalizeCoinAliasList(
@@ -3576,6 +3583,14 @@ function Wallet({
     const editorCoinM = editableCustomCoinM?.[chain] || {};
     const permanentCoins = permanentCoinM?.[chain] || {};
     const discoveredCoins = new Set(chainE.discoveredCoins || []);
+    const detectedBalanceCoins = new Set(
+      (chainE.rows || []).flatMap((row) => [
+        ...(row.detectedBalanceCoins || []),
+        ...Object.entries(row.balances || {})
+          .filter(([, balance]) => hasPositiveBalance(balance))
+          .map(([coin]) => coin),
+      ]),
+    );
     const chainCoinInfoM = chainE.coinInfoM || {};
     const settingCoins = [
       ...new Set([
@@ -3603,24 +3618,34 @@ function Wallet({
           .map((coin, index) => [coin, index]),
       ),
     };
-    const coinRows = settingCoins.map((coin, index) => {
-      const coinE =
-        chainCoinInfoM[coin] || editorCoinM[coin] || permanentCoins[coin] || {};
+    const coinRows = settingCoins
+      .map((coin, index) => {
+        const coinE =
+          chainCoinInfoM[coin] ||
+          editorCoinM[coin] ||
+          permanentCoins[coin] ||
+          {};
 
-      return {
-        coin,
-        name: coinE?.name || "",
-        index,
-        removable: Object.prototype.hasOwnProperty.call(editorCoinM, coin),
-        source: Object.prototype.hasOwnProperty.call(editorCoinM, coin)
-          ? "editor"
-          : discoveredCoins.has(coin) || coinE?.source == "alchemy"
-            ? "alchemy"
-            : Object.prototype.hasOwnProperty.call(permanentCoins, coin)
-              ? "permanent"
-              : "alchemy",
-      };
-    });
+        return {
+          coin,
+          name: coinE?.name || "",
+          index,
+          removable: Object.prototype.hasOwnProperty.call(editorCoinM, coin),
+          source: Object.prototype.hasOwnProperty.call(editorCoinM, coin)
+            ? "editor"
+            : discoveredCoins.has(coin) || coinE?.source == "alchemy"
+              ? "alchemy"
+              : Object.prototype.hasOwnProperty.call(permanentCoins, coin)
+                ? "permanent"
+                : "alchemy",
+        };
+      })
+      .filter(
+        ({ coin, source }) =>
+          source != "alchemy" ||
+          (!disabled.has(coin) && !serverDisabled.has(coin)) ||
+          detectedBalanceCoins.has(coin),
+      );
     const groupList = [
       ["permanent", "server"],
       ["editor", "added"],
