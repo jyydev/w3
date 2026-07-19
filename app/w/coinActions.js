@@ -13,6 +13,7 @@ import { ethers } from "ethers";
 import { TronWeb } from "tronweb";
 import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import baseCoinM from "@/fn/coinM";
+import { detectCoinTextType } from "@/fn/coinType";
 import { rpcs } from "@/sets";
 import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
 import {
@@ -55,43 +56,6 @@ const tokenTypeAbi = [
   "function UNDERLYING_ASSET_ADDRESS() view returns (address)",
   "function exchangeRateStored() view returns (uint256)",
 ];
-const stableSymbols = new Set([
-  "BSC-USD",
-  "BUSD",
-  "DAI",
-  "FDUSD",
-  "FRAX",
-  "LUSD",
-  "USDC",
-  "USDC.E",
-  "USDE",
-  "USDF",
-  "USDS",
-  "USDT",
-  "USDT.E",
-  "USD1",
-]);
-const governanceSymbols = new Set([
-  "AAVE",
-  "ARB",
-  "CAKE",
-  "COMP",
-  "CRV",
-  "FXS",
-  "GMX",
-  "LDO",
-  "MKR",
-  "PENDLE",
-  "UNI",
-]);
-const wrappedSymbolPatterns = [
-  /^W[A-Z0-9]+$/,
-  /^BTCB$/,
-  /^BTC\.B$/,
-  /^WBTC(?:\.E)?$/,
-  /^WETH(?:\.E)?$/,
-];
-
 function getRpcs(chain) {
   const chainRpc = rpcs?.[chain];
   const rpcList = Array.isArray(chainRpc) ? chainRpc : [chainRpc];
@@ -332,69 +296,11 @@ async function detectContractType(provider, address) {
   return "";
 }
 
-function includesAny(value, words) {
-  const lower = String(value || "").toLowerCase();
-  return words.some((word) => lower.includes(word));
-}
-
-function isStableSymbol(symbol) {
-  const upper = String(symbol || "").toUpperCase();
-  if (stableSymbols.has(upper)) return true;
-  return /^(?:[A-Z]+)?USD[A-Z0-9.]*$/.test(upper);
-}
-
-function isWrappedSymbol(symbol) {
-  const upper = String(symbol || "").toUpperCase();
-  return wrappedSymbolPatterns.some((pattern) => pattern.test(upper));
-}
-
 async function detectCoinType({ provider, address, name, symbol }) {
   const contractType = await detectContractType(provider, address);
   if (contractType) return contractType;
 
-  return detectTextType({ name, symbol });
-}
-
-function detectTextType({ name, symbol }) {
-  const text = `${name} ${symbol}`;
-  if (
-    includesAny(text, [
-      "aave",
-      "compound",
-      "fluid",
-      "venus",
-      "lending",
-      "ctoken",
-      "atoken",
-    ])
-  ) {
-    return "lend";
-  }
-  if (
-    includesAny(text, [
-      "vault",
-      "savings",
-      "yield",
-      "staked",
-      "staking",
-      "receipt",
-      "wrapped staked",
-    ])
-  ) {
-    return "yield";
-  }
-  if (isStableSymbol(symbol) || includesAny(name, ["stablecoin", "stable coin"])) {
-    return "stable";
-  }
-  if (isWrappedSymbol(symbol) || includesAny(name, ["wrapped", "binance-peg"])) {
-    return "wrapped";
-  }
-  if (governanceSymbols.has(String(symbol || "").toUpperCase())) {
-    return "governance";
-  }
-  if (includesAny(text, ["aster", "perp", "trading"])) return "trading";
-
-  return "token";
+  return detectCoinTextType({ name, symbol });
 }
 
 function readBorshString(data, offset) {
@@ -473,7 +379,7 @@ async function getSolanaMetadata(connection, mintAddress) {
     decimals: mintInfo.decimals,
     name,
     symbol,
-    type: detectTextType({ name, symbol }),
+    type: detectCoinTextType({ name, symbol }),
   };
 }
 
@@ -717,7 +623,7 @@ async function getTokenMeta(selectedChain, tokenAddress) {
         name: cleanName,
         symbol: cleanSymbol,
         decimals: Number(decimals?.toString?.() ?? decimals),
-        type: detectTextType({
+        type: detectCoinTextType({
           name: cleanName,
           symbol: cleanSymbol,
         }),

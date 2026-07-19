@@ -10,6 +10,7 @@ import {
   tronEnergyStakeCoinE,
 } from "@/data/coins/tron";
 import { chainIds, defaultMulticallAddress, multicalls } from "@/data/basic";
+import { detectCoinTextType } from "@/fn/coinType";
 import getCoinM from "@/fn/getCoinM";
 import { getJustLendMarketData } from "@/fn/justLendMarketData";
 import { getTronStakeV2State } from "@/fn/tronStake";
@@ -1325,10 +1326,10 @@ function getAlchemyDiscoveredCoinE({ chain, coin, token }) {
   const coinE = {
     decimals: Number.isFinite(decimals) ? decimals : 18,
     name,
-    type:
-      stableCoins.has(String(coin || "").toUpperCase()) || isUsdLikeCoin(coin, { name })
-        ? "stable"
-        : "token",
+    type: detectCoinTextType({
+      name,
+      symbol: token.tokenMetadata?.symbol || coin,
+    }),
     source: "alchemy",
   };
 
@@ -3319,18 +3320,15 @@ function makeTronDiscoveredCoinKey({
 
 function getTronDiscoveredCoinE({ address, coin, info }) {
   const name = info.name || coin;
-  const text = `${coin} ${name}`.toLowerCase();
 
   return {
     address,
     decimals: info.decimals,
     name,
-    type: text.includes("justlend")
-      ? "lend"
-      : stableCoins.has(String(coin || "").toUpperCase()) ||
-          isUsdLikeCoin(coin, { name })
-        ? "stable"
-        : "token",
+    type: detectCoinTextType({
+      name,
+      symbol: info.symbol || coin,
+    }),
     source: "trongrid",
   };
 }
