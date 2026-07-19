@@ -64,6 +64,12 @@ import {
   getAaveStakingMarketBalance,
 } from "./aaveStaking/sv";
 import AaveStakingClient from "./aaveStaking/Client";
+import {
+  buildTronStakingLendTxs,
+  executeTronStakingLend,
+  getTronStakingLendPreview,
+} from "./tronStaking/sv";
+import TronStakingClient from "./tronStaking/Client";
 import HyperliquidClient, {
   HyperliquidChainSelect,
   HyperliquidCoinSelect,
@@ -224,6 +230,9 @@ function hasPositiveRawAmount(value = "0") {
 }
 
 function getYieldProtocolUrl(defi = "") {
+  if (defi == "tronStaking") {
+    return "https://developers.tron.network/docs/staking-on-tron-network";
+  }
   if (defi == "spark") return "https://app.spark.fi/savings/";
   if (defi == "aaveStaking") return "https://app.aave.com/staking/";
   if (defi == "venusFlux") return "https://flux.venus.io/lending/56";
@@ -233,6 +242,9 @@ function getYieldProtocolUrl(defi = "") {
 
 function getYieldProtocolChainUrl(defi = "", chain = "") {
   const chainId = chainIds[chain];
+  if (defi == "tronStaking" && chain == "Tron") {
+    return "https://tronscan.org/#/wallet/resources";
+  }
   if (defi == "venusFlux" && chainId) {
     return `https://flux.venus.io/lending/${encodeURIComponent(chainId)}`;
   }
@@ -278,11 +290,12 @@ export default function YieldPanel({
     () =>
       (Array.isArray(data) ? data : data ? [data] : [])
         .filter(Boolean)
-        .filter((chainE) =>
-          walletType == "solana"
-            ? chainE.chain == "Solana"
-            : chainE.chain != "Solana",
-        ),
+        .filter((chainE) => {
+          if (walletType == "solana") return chainE.chain == "Solana";
+          if (walletType == "tron") return chainE.chain == "Tron";
+
+          return chainE.chain != "Solana" && chainE.chain != "Tron";
+        }),
     [data, walletType],
   );
   const initialChainMarketsM = useMemo(() => {
@@ -546,11 +559,15 @@ export default function YieldPanel({
   }, [chainList, defi]);
   const isHyperliquid = defi == "hyperliquid";
   const isAaveStaking = defi == "aaveStaking";
+  const isTronStaking = defi == "tronStaking";
   const isVenusFlux = defi == "venusFlux";
   const isErc4626Yield = defi == "spark" || isAaveStaking || isVenusFlux;
+  const hasYieldRatePreview = isErc4626Yield || isTronStaking;
   const ProtocolClient = isHyperliquid
     ? HyperliquidClient
-    : isAaveStaking
+    : isTronStaking
+      ? TronStakingClient
+      : isAaveStaking
       ? AaveStakingClient
       : isVenusFlux
         ? VenusFluxClient
@@ -854,7 +871,9 @@ export default function YieldPanel({
   const allMarketCacheKey = `${defi}:${allMarketChain}`;
   const allProtocolLabel = isHyperliquid
     ? "Hyperliquid"
-    : isAaveStaking
+    : isTronStaking
+      ? "TRX Staking"
+      : isAaveStaking
       ? "Aave Staking"
     : isVenusFlux
       ? "Venus Flux"
@@ -959,7 +978,7 @@ export default function YieldPanel({
   const allMarkets = isHyperliquid ? [] : protocolAllMarkets;
   const allLoading = isHyperliquid ? false : allMarketsLoading;
   const allError = isHyperliquid ? "" : allMarketsError;
-  const hasProtocolAllMarkets = !isHyperliquid;
+  const hasProtocolAllMarkets = isErc4626Yield;
   const fallbackMarketE = getFallbackTradeMarketEntry(market);
   const fallbackMarketIsLocal =
     !!fallbackMarketE &&
@@ -1140,7 +1159,7 @@ export default function YieldPanel({
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    isErc4626Yield
+    hasYieldRatePreview
       ? toNum(marketPreview?.receiptPerUnderlying)
       : 0;
   const underlyingListPrice = toNum(displayUnderlyingBalance.price);
@@ -1160,7 +1179,7 @@ export default function YieldPanel({
     fallbackPrice: receiptFallbackPrice,
     loading: receiptPriceLoading,
   } = useTradeFallbackPrice({
-    enabled: chainE?.chain != "Hyperliquid",
+    enabled: chainE?.chain != "Hyperliquid" && !isTronStaking,
     cacheKey: receiptPriceKey,
     chain: chainE?.chain,
     coin: lendCoin,
@@ -1178,7 +1197,7 @@ export default function YieldPanel({
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
     (isHyperliquid && displayReceiptCoin ? 1 : 0) ||
-    (isErc4626Yield && underlyingPrice && marketReceiptRate
+    (hasYieldRatePreview && underlyingPrice && marketReceiptRate
       ? underlyingPrice / marketReceiptRate
       : 0);
   const vaultLockedUntil =
@@ -1275,8 +1294,53 @@ export default function YieldPanel({
           )
           .join(", ")
       : "0";
+  const tronStakingState = isTronStaking
+    ? marketPreview?.staking || {}
+    : {};
+  const tronStakingStatusLoading =
+    isTronStaking && (!marketPreviewLoaded || marketLoading);
+  const tronStakingWithdrawable = toNum(
+    tronStakingState.withdrawableFormatted,
+  );
+  const tronStakingPending = toNum(tronStakingState.pendingEnergyFormatted);
+  const tronStakingPendingEntries = Array.isArray(
+    tronStakingState.pendingEntries,
+  )
+    ? tronStakingState.pendingEntries
+    : [];
+  const tronStakingAvailableUnfreezeCount = Number(
+    tronStakingState.availableUnfreezeCount || 0,
+  );
+  const tronStakingMaxUnfreezeOperations =
+    Number(tronStakingState.maxUnfreezeOperations || 0) || 32;
+  const tronStakingNoUnfreezeSlots =
+    isTronStaking &&
+    !tronStakingStatusLoading &&
+    tronStakingAvailableUnfreezeCount <= 0;
+  const tronStakingNextClaimAt = Number(
+    tronStakingState.nextEnergyClaimAt || 0,
+  );
+  const tronStakingNextClaimRemaining = tronStakingNextClaimAt
+    ? formatRemainingTime(tronStakingNextClaimAt, nowMs)
+    : "";
+  const tronStakingClaimText = tronStakingStatusLoading
+    ? "..."
+    : `${formatTradeQty(tronStakingWithdrawable, 6)} TRX`;
+  const tronStakingStatusText = tronStakingStatusLoading
+    ? "checking unstaking status..."
+    : tronStakingWithdrawable > 0
+      ? `${formatTradeQty(tronStakingWithdrawable, 6)} TRX ready to claim`
+      : tronStakingNextClaimAt
+        ? `next claim ${formatShortDateTime(tronStakingNextClaimAt)}${
+            tronStakingNextClaimRemaining
+              ? ` (in ${tronStakingNextClaimRemaining})`
+              : ""
+          }`
+        : "no pending unstake";
+  const tronStakingUnfreezeDelayDays =
+    Number(tronStakingState.unfreezeDelayDays || 0) || 14;
   const receiptRate =
-    isErc4626Yield && marketReceiptRate
+    hasYieldRatePreview && marketReceiptRate
       ? marketReceiptRate
       : underlyingPrice && receiptPrice
         ? underlyingPrice / receiptPrice
@@ -1472,17 +1536,17 @@ export default function YieldPanel({
   });
   const depositLabel = isHyperliquid
     ? "deposit"
-    : isAaveStaking
+    : isAaveStaking || isTronStaking
       ? "stake"
       : "lend";
   const withdrawLabel = isHyperliquid
     ? "withdraw"
-    : isAaveStaking
+    : isAaveStaking || isTronStaking
       ? "unstake"
       : "redeem";
   const depositButtonLabel = isHyperliquid
     ? "DEPOSIT"
-    : isAaveStaking
+    : isAaveStaking || isTronStaking
       ? "STAKE"
       : "LEND";
   const withdrawButtonLabel = isHyperliquid
@@ -1491,6 +1555,8 @@ export default function YieldPanel({
       ? aaveStakingNeedsCooldown
         ? "ACTIVATE COOLDOWN"
         : "UNSTAKE"
+      : isTronStaking
+        ? "UNSTAKE"
       : "REDEEM";
   const marketCookieValues = useMemo(() => {
     const values = hasProtocolAllMarkets
@@ -1787,7 +1853,7 @@ export default function YieldPanel({
 
   useEffect(() => {
     if (
-      !isErc4626Yield ||
+      !hasYieldRatePreview ||
       !chainE?.chain ||
       !underlyingCoin ||
       !lendCoin ||
@@ -1799,7 +1865,9 @@ export default function YieldPanel({
     if (marketPreviewLoaded) return;
 
     let cancelled = false;
-    const getPreview = isAaveStaking
+    const getPreview = isTronStaking
+      ? getTronStakingLendPreview
+      : isAaveStaking
       ? getAaveStakingLendPreview
       : isVenusFlux
         ? getVenusFluxLendPreview
@@ -1855,8 +1923,9 @@ export default function YieldPanel({
   }, [
     chainE?.chain,
     defi,
+    hasYieldRatePreview,
     isAaveStaking,
-    isErc4626Yield,
+    isTronStaking,
     isVenusFlux,
     lendCoin,
     marketReady,
@@ -3014,12 +3083,14 @@ export default function YieldPanel({
     }
     const isSpark = defi == "spark";
     const isAaveStakingAction = defi == "aaveStaking";
+    const isTronStakingAction = defi == "tronStaking";
     const isVenusFluxAction = defi == "venusFlux";
     const isHyperliquidAction = defi == "hyperliquid";
 
     if (
       !isSpark &&
       !isAaveStakingAction &&
+      !isTronStakingAction &&
       !isVenusFluxAction &&
       !isHyperliquidAction
     ) {
@@ -3028,7 +3099,9 @@ export default function YieldPanel({
     }
     const protocol = isHyperliquidAction
       ? "Hyperliquid"
-      : isAaveStakingAction
+      : isTronStakingAction
+        ? "TRX Staking"
+        : isAaveStakingAction
         ? "Aave Staking"
         : isVenusFluxAction
           ? "Venus Flux"
@@ -3041,12 +3114,14 @@ export default function YieldPanel({
       tradeToast.error("wallet missing");
       return;
     }
-    if (
-      walletEntry?.isBrowserWallet &&
-      walletEntry.type != "evm"
-    ) {
-      tradeToast.error(`${protocol} needs an EVM browser wallet`);
-      return;
+    if (walletEntry?.isBrowserWallet) {
+      const requiredWalletType = isTronStakingAction ? "tron" : "evm";
+      if (walletEntry.type != requiredWalletType) {
+        tradeToast.error(
+          `${protocol} needs a ${requiredWalletType.toUpperCase()} browser wallet`,
+        );
+        return;
+      }
     }
     if (
       !walletEntry?.isBrowserWallet &&
@@ -3141,6 +3216,10 @@ export default function YieldPanel({
           : submitRedeem
             ? "unstake"
             : "stake"
+        : isTronStakingAction
+          ? submitRedeem
+            ? "unstake"
+            : "stake"
         : submitAction;
     const signedQtyAbs = Math.abs(signedQtyNum);
     const qty =
@@ -3160,7 +3239,12 @@ export default function YieldPanel({
                 "",
               );
     const autoApprovalAmount =
-      !submitRedeem && !isHyperliquidAction && autoApproval ? qty : "";
+      !submitRedeem &&
+      !isHyperliquidAction &&
+      !isTronStakingAction &&
+      autoApproval
+        ? qty
+        : "";
     const getApprovalAmount = (approvalNeeded) => {
       if (!approvalNeeded) return "";
       return (
@@ -3187,21 +3271,27 @@ export default function YieldPanel({
     const useBrowserWallet = !!walletEntry?.isBrowserWallet;
     const buildTxs = isHyperliquidAction
       ? buildHyperliquidLendTxs
-      : isAaveStakingAction
+      : isTronStakingAction
+        ? buildTronStakingLendTxs
+        : isAaveStakingAction
         ? buildAaveStakingLendTxs
         : isVenusFluxAction
           ? buildVenusFluxLendTxs
           : buildSparkLendTxs;
     const executeLend = isHyperliquidAction
       ? executeHyperliquidLend
-      : isAaveStakingAction
+      : isTronStakingAction
+        ? executeTronStakingLend
+        : isAaveStakingAction
         ? executeAaveStakingLend
         : isVenusFluxAction
           ? executeVenusFluxLend
           : executeSparkLend;
     const previewLend = isHyperliquidAction
       ? getHyperliquidLendPreview
-      : isAaveStakingAction
+      : isTronStakingAction
+        ? getTronStakingLendPreview
+        : isAaveStakingAction
         ? getAaveStakingLendPreview
         : isVenusFluxAction
           ? getVenusFluxLendPreview
@@ -3367,7 +3457,11 @@ export default function YieldPanel({
         }
 
         let approvalAmount = "";
-        if (!submitRedeem && !isHyperliquidAction) {
+        if (
+          !submitRedeem &&
+          !isHyperliquidAction &&
+          !isTronStakingAction
+        ) {
           tradeToast.loading(`${protocol}: checking allowance...`, {
             id: toastId,
           });
@@ -3410,6 +3504,13 @@ export default function YieldPanel({
         ? { ...res, action: actionLabel }
         : res;
       setLendResult(displayRes);
+      if (isTronStakingAction) {
+        setMarketPreviewM((previewM) => {
+          const next = { ...previewM };
+          delete next[marketPreviewKey];
+          return next;
+        });
+      }
       tradeToast.success(`${protocol} ${actionLabel} submitted`, {
         id: toastId,
       });
@@ -3639,6 +3740,178 @@ export default function YieldPanel({
       const loopResult = createTradeLoopResult(result, {
         defi: "Aave Staking",
         action: "claim rewards",
+      });
+      if (loopResult) setLendResult(loopResult);
+    }
+
+    return result;
+  }
+
+  async function runTronStakingClaimForWallet(
+    walletEntry = selectedWalletEntry,
+    { skipConfirm = false, loopRun = false } = {},
+  ) {
+    const protocol = "TRX Staking";
+    const actionLabel = "claim unstaked TRX";
+    const tradeToast = createTradeToast(walletEntry, loopRun);
+
+    if (!walletEntry?.address) {
+      tradeToast.error("wallet missing");
+      return;
+    }
+    if (walletEntry?.isBrowserWallet && walletEntry.type != "tron") {
+      tradeToast.error(`${protocol} needs a TRON browser wallet`);
+      return;
+    }
+    if (!walletEntry?.isBrowserWallet && !walletEntry?.hasPrivateKey) {
+      tradeToast.error("no private key");
+      return;
+    }
+    if (!isTronStaking || !lendCoin || !underlyingCoin) {
+      tradeToast.error(`${protocol}: no staking market selected`);
+      return;
+    }
+
+    const toastId = tradeToast.loading(`${protocol}: checking unstaked TRX...`);
+    setLendPending(true);
+    setLendPendingAction("claim");
+    setLendResult(null);
+
+    try {
+      const preview = await getTronStakingLendPreview({
+        walletAddress: walletEntry.address,
+        chain: chainE.chain,
+        action: "claim",
+        underlyingCoin,
+        lendCoin,
+        amount: "0",
+      });
+      const claimQty = toNum(preview.staking?.withdrawableFormatted);
+      if (!(claimQty > 0)) {
+        const errorResult = {
+          ok: false,
+          error: "no unstaked TRX available to claim",
+          defi: protocol,
+          action: actionLabel,
+        };
+        setLendResult(errorResult);
+        tradeToast.error(errorResult.error, { id: toastId });
+        return errorResult;
+      }
+
+      if (!skipConfirm && !walletEntry?.isBrowserWallet) {
+        const ok = window.confirm(
+          `Execute ${protocol} ${actionLabel}?\n\nwallet: ${
+            walletEntry.name || walletEntry.label
+          }\nchain: Tron\namount: ${formatTradeQty(claimQty, 6)} TRX`,
+        );
+        if (!ok) {
+          toast.dismiss(toastId);
+          return;
+        }
+      }
+
+      let res;
+      if (walletEntry?.isBrowserWallet) {
+        tradeToast.loading(`${protocol}: building claim wallet prompt...`, {
+          id: toastId,
+        });
+        const built = await buildTronStakingLendTxs({
+          walletAddress: walletEntry.address,
+          chain: chainE.chain,
+          action: "claim",
+          underlyingCoin,
+          lendCoin,
+          amount: "0",
+        });
+        const txs = [];
+        for (const tx of built.txs || []) {
+          tradeToast.loading(`${protocol}: confirm ${tx.type}...`, {
+            id: toastId,
+          });
+          txs.push(
+            await sendBrowserTradeTx({
+              tx,
+              walletEntry,
+              tradeToast,
+              toastId,
+            }),
+          );
+        }
+        res = { ...built, txs };
+      } else {
+        tradeToast.loading(`${protocol}: submitting claim...`, {
+          id: toastId,
+        });
+        res = await executeTronStakingLend({
+          walletName: walletEntry.name,
+          walletAddress: walletEntry.address,
+          chain: chainE.chain,
+          action: "claim",
+          underlyingCoin,
+          lendCoin,
+          amount: "0",
+        });
+      }
+
+      const displayRes = { ...res, action: actionLabel };
+      setLendResult(displayRes);
+      setMarketPreviewM((previewM) => {
+        const next = { ...previewM };
+        delete next[marketPreviewKey];
+        return next;
+      });
+      tradeToast.success(`${protocol} ${actionLabel} submitted`, {
+        id: toastId,
+      });
+      onTxComplete({
+        ...displayRes,
+        refreshTargets: [
+          {
+            chain: "Tron",
+            coin: underlyingCoin,
+            address: walletEntry.address,
+            coinE: getMarketCoinE("underlying"),
+          },
+          {
+            chain: "Tron",
+            coin: lendCoin,
+            address: walletEntry.address,
+            coinE: getMarketCoinE("lend"),
+          },
+        ],
+      });
+      return res;
+    } catch (e) {
+      const message = e?.message || `${protocol} ${actionLabel} failed`;
+      const errorResult = {
+        ok: false,
+        error: message,
+        defi: protocol,
+        action: actionLabel,
+      };
+      setLendResult(errorResult);
+      tradeToast.error(message, { id: toastId });
+      return errorResult;
+    } finally {
+      setLendPending(false);
+      setLendPendingAction("");
+    }
+  }
+
+  async function runTronStakingClaim() {
+    const result = await runTradeWalletLoop({
+      loopWallets,
+      getLoopWalletEntries,
+      selectedWalletEntry,
+      actionLabel: "TRX Staking claim unstaked TRX",
+      runOne: (walletEntry, options) =>
+        runTronStakingClaimForWallet(walletEntry, options),
+    });
+    if (Array.isArray(result)) {
+      const loopResult = createTradeLoopResult(result, {
+        defi: "TRX Staking",
+        action: "claim unstaked TRX",
       });
       if (loopResult) setLendResult(loopResult);
     }
@@ -4085,7 +4358,9 @@ export default function YieldPanel({
               }
             >
               {lendPendingAction == "lend"
-                ? `${depositButtonLabel}ING`
+                ? isAaveStaking || isTronStaking
+                  ? "STAKING"
+                  : `${depositButtonLabel}ING`
                 : depositButtonLabel}
             </button>
           </div>
@@ -4115,6 +4390,24 @@ export default function YieldPanel({
               </button>
             </div>
           )}
+          {isTronStaking && (
+            <div className="tradeClaimRewardsLine">
+              <span className="gray">claim:</span>
+              <span>{tronStakingClaimText}</span>
+              <button
+                type="button"
+                className="btn small bgCyan"
+                onClick={runTronStakingClaim}
+                disabled={
+                  lendPending ||
+                  tronStakingStatusLoading ||
+                  !(tronStakingWithdrawable > 0)
+                }
+              >
+                {lendPendingAction == "claim" ? "CLAIMING" : "CLAIM"}
+              </button>
+            </div>
+          )}
           {showGasAutoLabel && (
             <label className="tradeGasSelect">
               <span className="gray">gas:</span>
@@ -4123,16 +4416,18 @@ export default function YieldPanel({
               </select>
             </label>
           )}
-          {!isHyperliquid && !selectedWalletEntry?.isBrowserWallet && (
-            <label className="tradeAutoApproval">
-              <input
-                type="checkbox"
-                checked={autoApproval}
-                onChange={(e) => updateAutoApproval(e.target.checked)}
-              />
-              <span className="gray">auto approve</span>
-            </label>
-          )}
+          {!isHyperliquid &&
+            !isTronStaking &&
+            !selectedWalletEntry?.isBrowserWallet && (
+              <label className="tradeAutoApproval">
+                <input
+                  type="checkbox"
+                  checked={autoApproval}
+                  onChange={(e) => updateAutoApproval(e.target.checked)}
+                />
+                <span className="gray">auto approve</span>
+              </label>
+            )}
           {!isHyperliquidDepositMode && (
             <span className="tradeRateLine">
               <span className="gray">rate:</span>{" "}
@@ -4319,7 +4614,10 @@ export default function YieldPanel({
                 )
               }
               disabled={
-                !withdrawMaxReceipt || vaultLocked || aaveStakingCooldownPending
+                !withdrawMaxReceipt ||
+                vaultLocked ||
+                aaveStakingCooldownPending ||
+                tronStakingNoUnfreezeSlots
               }
             />
             <button
@@ -4327,7 +4625,10 @@ export default function YieldPanel({
               className="btn small bgGray"
               onClick={setMaxRedeem}
               disabled={
-                !withdrawMaxReceipt || vaultLocked || aaveStakingCooldownPending
+                !withdrawMaxReceipt ||
+                vaultLocked ||
+                aaveStakingCooldownPending ||
+                tronStakingNoUnfreezeSlots
               }
             >
               max
@@ -4344,6 +4645,8 @@ export default function YieldPanel({
                 lendPending ||
                 vaultLocked ||
                 aaveStakingCooldownPending ||
+                tronStakingStatusLoading ||
+                tronStakingNoUnfreezeSlots ||
                 (aaveStakingNeedsCooldown && !maxReceipt) ||
                 (isHyperliquidDepositMode &&
                   (!activeHyperliquidWithdrawCoin ||
@@ -4357,7 +4660,9 @@ export default function YieldPanel({
                     ? "WITHDRAWING"
                     : isAaveStaking
                       ? "UNSTAKING"
-                      : "REDEEMING"
+                      : isTronStaking
+                        ? "UNSTAKING"
+                        : "REDEEMING"
                 : withdrawButtonLabel}
             </button>
             {isAaveStaking && (
@@ -4401,6 +4706,62 @@ export default function YieldPanel({
                     {aaveStakingCooldownText}
                   </span>
                 )}
+              </span>
+            )}
+            {isTronStaking && (
+              <span className="tradeCooldownStatus">
+                <HoverInfoCard>
+                  <span className="infoIcon">i</span>
+                  <span className="infoCard">
+                    <span className="infoCardTitle">
+                      TRX Energy unstake
+                    </span>
+                    <span>{tronStakingStatusText}</span>
+                    <span>
+                      1. Click <span className="gray">UNSTAKE</span> to release
+                      the selected Stake 2.0 Energy balance.
+                    </span>
+                    <span>
+                      2. Wait{" "}
+                      <span className="gray">
+                        {tronStakingUnfreezeDelayDays} days
+                      </span>{" "}
+                      before it becomes withdrawable.
+                    </span>
+                    <span>
+                      3. Click <span className="gray">CLAIM</span> after the
+                      waiting period.
+                    </span>
+                    <span>
+                      Pending Energy:{" "}
+                      <span className="gray">
+                        {formatTradeQty(tronStakingPending, 6)} TRX
+                      </span>
+                      . Requests:{" "}
+                      <span className="gray">
+                        {tronStakingPendingEntries.length}
+                      </span>
+                      .
+                    </span>
+                    <span>
+                      Unstake slots available:{" "}
+                      <span className="gray">
+                        {tronStakingAvailableUnfreezeCount}/
+                        {tronStakingMaxUnfreezeOperations}
+                      </span>
+                      .
+                    </span>
+                    <span>
+                      CLAIM withdraws every matured Stake 2.0 request on this
+                      account, including other resource types.
+                    </span>
+                  </span>
+                </HoverInfoCard>
+                <span className={tronStakingNoUnfreezeSlots ? "red" : "gray"}>
+                  {tronStakingNoUnfreezeSlots
+                    ? "no unstake slots available"
+                    : tronStakingStatusText}
+                </span>
               </span>
             )}
           </div>

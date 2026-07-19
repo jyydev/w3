@@ -4,6 +4,7 @@ import { clearAaveRuntimeCache } from "../t/_lend/aave/sv";
 import { clearMorphoRuntimeCache } from "../t/_lend/morpho/sv";
 import { clearVenusRuntimeCache } from "../t/_lend/venus/sv";
 import { clearJupiterRuntimeCache } from "../t/_lend/jupiter/sv";
+import { clearJustLendRuntimeCache } from "../t/_lend/justlend/sv";
 import { clearRelayRuntimeCache } from "../t/_swap/relay/sv";
 import { clearJumperRuntimeCache } from "../t/_swap/jumper/sv";
 import { clearAcrossRuntimeCache } from "../t/_swap/across/sv";
@@ -19,6 +20,7 @@ export async function clearServerRuntimeCache() {
     clearMorphoRuntimeCache(),
     clearVenusRuntimeCache(),
     clearJupiterRuntimeCache(),
+    clearJustLendRuntimeCache(),
     clearRelayRuntimeCache(),
     clearJumperRuntimeCache(),
     clearAcrossRuntimeCache(),

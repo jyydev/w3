@@ -3,9 +3,16 @@ import path from "path";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ethers } from "ethers";
+import { TronWeb } from "tronweb";
 import baseHyperliquidVaults from "@/data/defi/hyperliquid";
+import {
+  tronEnergyStakeCoin,
+  tronEnergyStakeCoinE,
+} from "@/data/coins/tron";
 import { chainIds, defaultMulticallAddress, multicalls } from "@/data/basic";
 import getCoinM from "@/fn/getCoinM";
+import { getJustLendMarketData } from "@/fn/justLendMarketData";
+import { getTronStakeV2State } from "@/fn/tronStake";
 import { alchemyNetworks, rpcs, scanners, sets } from "@/sets";
 import {
   cleanErrorText,
@@ -19,7 +26,7 @@ const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
 const customCoinRootDir = path.join(process.cwd(), "data", "editor", "coins");
 const customDefiRootDir = path.join(process.cwd(), "data", "editor", "defi");
 export const defaultWalletType = "evm";
-export const walletTypes = ["evm", "solana"];
+export const walletTypes = ["evm", "solana", "tron"];
 const walletFileExt = ".json";
 const dexChainM = {
   BSC: "bsc",
@@ -32,6 +39,7 @@ const dexChainM = {
   WEMIX: "wemix",
   Avalanche: "avalanche",
   Solana: "solana",
+  Tron: "tron",
 };
 const llamaChainM = {
   BSC: "bsc",
@@ -44,6 +52,7 @@ const llamaChainM = {
   WEMIX: "wemix",
   Avalanche: "avax",
   Solana: "solana",
+  Tron: "tron",
 };
 const nativePriceTokenM = {
   BSC: {
@@ -76,6 +85,9 @@ const nativePriceTokenM = {
   Solana: {
     SOL: "So11111111111111111111111111111111111111112",
   },
+  Tron: {
+    TRX: "TNUC9Qb1rRpS5CbWLmNMxXBjyFoydXjWFR",
+  },
 };
 const stableCoins = new Set([
   "USDT",
@@ -89,6 +101,7 @@ const stableCoins = new Set([
   "USDT.E",
   "USDE",
   "USDS",
+  "USDD",
   "DAI.E",
   "KDAI",
   "FDUSD",
@@ -101,6 +114,18 @@ const stableCoins = new Set([
 const multicallChunkSize = 200;
 const solanaWalletChunkSize = 10;
 const solanaRpcTimeoutMs = 7000;
+const tronWalletChunkSize = 2;
+const tronApiTimeoutMs = 8000;
+const tronBalanceAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
+const tronTokenInfoChunkSize = 20;
 const priceFetchTimeoutMs = 3500;
 const alchemyFetchTimeoutMs = 10000;
 const alchemyWalletChunkSize = 2;
@@ -442,12 +467,32 @@ function isSolanaAddress(address) {
   return !!getSolanaPublicKey(address);
 }
 
+export function normalizeTronAddress(address = "") {
+  const text = String(address || "").trim();
+  if (!TronWeb.isAddress(text)) return "";
+
+  try {
+    return TronWeb.address.fromHex(TronWeb.address.toHex(text));
+  } catch {
+    return "";
+  }
+}
+
+export function isTronAddress(address = "") {
+  return !!normalizeTronAddress(address);
+}
+
 function isTokenAddress(chain, address) {
-  return chain == "Solana" ? isSolanaAddress(address) : ethers.isAddress(address);
+  if (chain == "Solana") return isSolanaAddress(address);
+  if (chain == "Tron") return isTronAddress(address);
+
+  return ethers.isAddress(address);
 }
 
 function normalizePriceAddress(chain, address) {
-  return chain == "Solana" ? address : address.toLowerCase();
+  return chain == "Solana" || chain == "Tron"
+    ? address
+    : address.toLowerCase();
 }
 
 function getPriceAddressCoins({
@@ -630,7 +675,7 @@ export async function getCoinUsdPrice({
   let priceM = await getPriceM({ chain, coinEntries, usdPriceQuery });
   let price = getUsdPrice(coin, priceM, { usdPriceQuery });
   if (price > 0) return price;
-  if (chain == "Solana") return 0;
+  if (chain == "Solana" || chain == "Tron") return 0;
 
   const chainE = getChainE(chain);
   if (!chainE) return 0;
@@ -914,7 +959,7 @@ export async function loadWallets(
 
     const address = String(entry.address || "").trim();
     const addressKey =
-      walletType == "solana" ? address : address.toLowerCase();
+      walletType == "evm" ? address.toLowerCase() : address;
     if (addressKey && seenAddresses.has(addressKey)) continue;
     if (addressKey) seenAddresses.add(addressKey);
     uniqueEntries.push(entry);
@@ -1016,7 +1061,9 @@ function isAlchemyEnabled(chain, useAlchemy = null) {
 
 function getAddressKey(chain, address) {
   const text = String(address || "").trim();
-  return chain == "Solana" ? text : text.toLowerCase();
+  return chain == "Solana" || chain == "Tron"
+    ? text
+    : text.toLowerCase();
 }
 
 function normalizeAlchemyTokenAddress(chain, address) {
@@ -1030,7 +1077,9 @@ function normalizeAlchemyTokenAddress(chain, address) {
   }
   if (!isTokenAddress(chain, text)) return "";
 
-  return chain == "Solana" ? text : text.toLowerCase();
+  return chain == "Solana" || chain == "Tron"
+    ? text
+    : text.toLowerCase();
 }
 
 function getAlchemyLocalLookup({ chain, coinEntries }) {
@@ -1228,7 +1277,7 @@ function getAlchemyLocalCoinEntry({ chain, token, lookup }) {
   return null;
 }
 
-function sanitizeAlchemySymbol(symbol = "") {
+function sanitizeDiscoveredSymbol(symbol = "") {
   const clean = String(symbol || "")
     .trim()
     .replace(/[^a-zA-Z0-9._-]+/g, "")
@@ -1247,7 +1296,9 @@ function makeDiscoveredCoinKey({
   const addressKey = tokenAddress || `native:${token.tokenMetadata?.symbol || ""}`;
   if (discoveredAddressM[addressKey]) return discoveredAddressM[addressKey];
 
-  const symbol = sanitizeAlchemySymbol(token.tokenMetadata?.symbol || token.tokenMetadata?.name);
+  const symbol = sanitizeDiscoveredSymbol(
+    token.tokenMetadata?.symbol || token.tokenMetadata?.name,
+  );
   let coin = symbol;
   if (coinInfoM[coin]) {
     const suffix = tokenAddress
@@ -1439,9 +1490,13 @@ export async function getAlchemyWalletTokenCache({
         ? isSolanaAddress(address)
           ? { name, address }
           : null
-        : ethers.isAddress(address)
-          ? { name, address: ethers.getAddress(address) }
-          : null,
+        : walletType == "tron"
+          ? isTronAddress(address)
+            ? { name, address: normalizeTronAddress(address) }
+            : null
+          : ethers.isAddress(address)
+            ? { name, address: ethers.getAddress(address) }
+            : null,
     )
     .filter(Boolean);
   if (!rows.length) return null;
@@ -1590,7 +1645,7 @@ async function applyFallbackPrices({
     };
   }
 
-  if (chain != "Solana" && provider && multicallAddress) {
+  if (chain != "Solana" && chain != "Tron" && provider && multicallAddress) {
     const missingExchangeCoinEntries = balanceCoinEntries.filter(
       ([coin]) => !hasUsdPrice(coin, nextPriceM, { usdPriceQuery }),
     );
@@ -1709,7 +1764,12 @@ async function buildAlchemyWalletResult({
     usdPriceQuery,
   });
 
-  if (chain != "Solana" && chainE && hasMissingBalancePrices(rows)) {
+  if (
+    chain != "Solana" &&
+    chain != "Tron" &&
+    chainE &&
+    hasMissingBalancePrices(rows)
+  ) {
     let provider;
     try {
       provider = await getProvider(chainE, { timeoutMs: priceFetchTimeoutMs });
@@ -2369,6 +2429,7 @@ function getAaveStakingRewardRequests(data = []) {
     if (
       !chain ||
       chain == "Solana" ||
+      chain == "Tron" ||
       chain == "Hyperliquid" ||
       chain == claimChain
     ) {
@@ -2991,6 +3052,757 @@ export async function getSolanaWalletBalances({
       rows: walletEntries.map(([name, address]) => ({ name, address, balances: {} })),
       source: "rpc",
       error: e?.message ?? "Solana wallet balance error",
+    };
+  }
+}
+
+function getTronGridHeaders(rpc = "") {
+  const apiKey = String(
+    process.env.TRONGRID_API_KEY || process.env.rpc_key_trongrid || "",
+  ).trim();
+
+  return apiKey && (!rpc || isTronGridAccountApi(rpc))
+    ? { "TRON-PRO-API-KEY": apiKey }
+    : {};
+}
+
+function parseTronAccountJson(text = "") {
+  return JSON.parse(
+    String(text).replace(
+      /("(?:balance|amount|unfreeze_amount|delegated_frozenV2_balance_for_(?:energy|bandwidth))"\s*:\s*)(-?\d+)/g,
+      '$1"$2"',
+    ),
+  );
+}
+
+async function getTronAccountFromApi(rpc, address) {
+  const base = String(rpc || "").replace(/\/+$/, "");
+  const res = await fetchWithTimeout(
+    `${base}/v1/accounts/${encodeURIComponent(address)}?only_confirmed=true`,
+    {
+      headers: {
+        accept: "application/json",
+        ...getTronGridHeaders(rpc),
+      },
+      cache: "no-store",
+    },
+    tronApiTimeoutMs,
+  );
+  const text = await res.text();
+  let data = {};
+
+  try {
+    data = parseTronAccountJson(text);
+  } catch {}
+
+  if (!res.ok || data?.success === false) {
+    throw new Error(
+      cleanErrorText(
+        data?.Error ||
+          data?.error ||
+          `${res.status} ${res.statusText}`,
+      ),
+    );
+  }
+
+  return data?.data?.[0] || null;
+}
+
+function isTronGridAccountApi(rpc = "") {
+  try {
+    const hostname = new URL(rpc).hostname.toLowerCase();
+    return hostname == "api.trongrid.io" || hostname.endsWith(".trongrid.io");
+  } catch {
+    return false;
+  }
+}
+
+function getWalletTronWeb(rpc, owner = "") {
+  const tronWeb = new TronWeb({
+    fullHost: rpc,
+    headers: getTronGridHeaders(rpc),
+  });
+  if (owner) tronWeb.setAddress(owner);
+
+  return tronWeb;
+}
+
+async function getTronAccountFromNode(rpc, address) {
+  const base = String(rpc || "").replace(/\/+$/, "");
+  const res = await fetchWithTimeout(
+    `${base}/wallet/getaccount`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        ...getTronGridHeaders(rpc),
+      },
+      body: JSON.stringify({ address, visible: true }),
+      cache: "no-store",
+    },
+    tronApiTimeoutMs,
+  );
+  const text = await res.text();
+  let data = {};
+
+  try {
+    data = parseTronAccountJson(text);
+  } catch {}
+  if (!res.ok || data?.Error || data?.error) {
+    throw new Error(
+      cleanErrorText(
+        data?.Error ||
+          data?.error ||
+          `${res.status} ${res.statusText}`,
+      ),
+    );
+  }
+
+  return data && typeof data == "object" ? data : null;
+}
+
+async function getTronAccount(chainE, address) {
+  let lastError;
+
+  for (const rpc of getLiveRpcs(chainE)) {
+    try {
+      const hasTokenSnapshot = isTronGridAccountApi(rpc);
+      const account = hasTokenSnapshot
+        ? await getTronAccountFromApi(rpc, address)
+        : await getTronAccountFromNode(rpc, address);
+
+      return { account, hasTokenSnapshot, rpc };
+    } catch (e) {
+      lastError = e;
+      failedRpcM.set(rpc, Date.now());
+      logRpcFailure({
+        scope: "wallet Tron",
+        chain: "Tron",
+        rpc,
+        error: e,
+      });
+    }
+  }
+
+  throw new Error(
+    cleanErrorText(lastError?.message) || "all Tron APIs failed",
+  );
+}
+
+async function getTronTokenBalanceFromNode({
+  rpc,
+  owner,
+  tokenAddress,
+} = {}) {
+  const tronWeb = getWalletTronWeb(rpc, owner);
+  const token = tronWeb.contract(tronBalanceAbi, tokenAddress);
+  const balance = await token.balanceOf(owner).call({ from: owner });
+
+  return BigInt(balance?.toString?.() ?? balance ?? 0);
+}
+
+function getTronTokenBalanceM(account = {}) {
+  const balanceM = {};
+
+  for (const entry of Array.isArray(account?.trc20) ? account.trc20 : []) {
+    for (const [address, raw] of Object.entries(entry || {})) {
+      const tokenAddress = normalizeTronAddress(address);
+      if (tokenAddress) balanceM[tokenAddress] = String(raw || "0");
+    }
+  }
+
+  return balanceM;
+}
+
+async function getTronAccountM({ chainE, rows }) {
+  const accountM = {};
+  const errorsM = Object.fromEntries(rows.map((row) => [row.name, {}]));
+
+  for (const batch of chunkList(rows, tronWalletChunkSize)) {
+    const results = await Promise.allSettled(
+      batch.map((row) => getTronAccount(chainE, row.address)),
+    );
+
+    results.forEach((result, index) => {
+      const row = batch[index];
+      if (result.status == "fulfilled") {
+        accountM[row.name] = result.value;
+      } else {
+        addError(
+          errorsM[row.name],
+          "Tron",
+          cleanErrorText(result.reason?.message) || "Tron balance error",
+        );
+      }
+    });
+  }
+
+  return { accountM, errorsM };
+}
+
+function getTronTokenInfoEntry(entry = {}) {
+  const address = normalizeTronAddress(
+    entry.contract_address || entry.contractAddress || entry.address,
+  );
+  const decimals = Number(entry.decimals);
+  if (!address || !Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+    return null;
+  }
+
+  return {
+    address,
+    decimals,
+    name: String(entry.name || "").trim(),
+    symbol: String(entry.symbol || "").trim(),
+    standard: String(entry.type || "").trim().toLowerCase(),
+  };
+}
+
+async function getTronTokenInfoM(rpc, addresses = []) {
+  const base = String(rpc || "").replace(/\/+$/, "");
+  const infoM = {};
+
+  for (const batch of chunkList(addresses, tronTokenInfoChunkSize)) {
+    const contractList = batch.map(encodeURIComponent).join(",");
+    const res = await fetchWithTimeout(
+      `${base}/v1/trc20/info?contract_list=${contractList}`,
+      {
+        headers: {
+          accept: "application/json",
+          ...getTronGridHeaders(rpc),
+        },
+        cache: "no-store",
+      },
+      tronApiTimeoutMs,
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) {
+      throw new Error(
+        cleanErrorText(
+          data?.Error ||
+            data?.error ||
+            `${res.status} ${res.statusText}`,
+        ),
+      );
+    }
+
+    for (const entry of data?.data || []) {
+      const info = getTronTokenInfoEntry(entry);
+      if (info) infoM[info.address] = info;
+    }
+  }
+
+  return infoM;
+}
+
+function makeTronDiscoveredCoinKey({
+  address,
+  info,
+  coinInfoM,
+  discoveredAddressM,
+}) {
+  if (discoveredAddressM[address]) return discoveredAddressM[address];
+
+  const symbol = sanitizeDiscoveredSymbol(info.symbol || info.name);
+  let coin = symbol;
+  if (coinInfoM[coin]) coin = `${symbol}_${address.slice(-4)}`;
+
+  let i = 2;
+  const baseCoin = coin;
+  while (coinInfoM[coin]) {
+    coin = `${baseCoin}_${i}`;
+    i += 1;
+  }
+
+  discoveredAddressM[address] = coin;
+  return coin;
+}
+
+function getTronDiscoveredCoinE({ address, coin, info }) {
+  const name = info.name || coin;
+  const text = `${coin} ${name}`.toLowerCase();
+
+  return {
+    address,
+    decimals: info.decimals,
+    name,
+    type: text.includes("justlend")
+      ? "lend"
+      : stableCoins.has(String(coin || "").toUpperCase()) ||
+          isUsdLikeCoin(coin, { name })
+        ? "stable"
+        : "token",
+    source: "trongrid",
+  };
+}
+
+async function getTronDiscoveredCoinEntries({
+  accountM,
+  allCoinEntries,
+}) {
+  const localAddressSet = new Set(
+    allCoinEntries
+      .map(([, coinE]) => normalizeTronAddress(coinE?.address))
+      .filter(Boolean),
+  );
+  const addressSet = new Set();
+  let rpc = "";
+
+  for (const accountE of Object.values(accountM)) {
+    if (!accountE?.hasTokenSnapshot) continue;
+    rpc ||= accountE.rpc;
+
+    for (const [address, raw] of Object.entries(
+      getTronTokenBalanceM(accountE.account),
+    )) {
+      if (getPositiveRaw(raw) > 0n && !localAddressSet.has(address)) {
+        addressSet.add(address);
+      }
+    }
+  }
+
+  const addresses = [...addressSet].sort();
+  if (!rpc || !addresses.length) {
+    return { coinEntries: [], discoveredCoins: [] };
+  }
+
+  let tokenInfoM;
+  try {
+    tokenInfoM = await getTronTokenInfoM(rpc, addresses);
+  } catch (error) {
+    logRpcFailure({
+      scope: "wallet Tron token metadata",
+      chain: "Tron",
+      rpc,
+      error,
+    });
+    return { coinEntries: [], discoveredCoins: [] };
+  }
+
+  const coinInfoM = Object.fromEntries(allCoinEntries);
+  const discoveredAddressM = {};
+  const coinEntries = [];
+  const discoveredCoins = [];
+
+  for (const address of addresses) {
+    const info = tokenInfoM[address];
+    if (!info || info.standard != "trc20") continue;
+
+    const coin = makeTronDiscoveredCoinKey({
+      address,
+      info,
+      coinInfoM,
+      discoveredAddressM,
+    });
+    const coinE = getTronDiscoveredCoinE({ address, coin, info });
+    coinInfoM[coin] = coinE;
+    coinEntries.push([coin, coinE]);
+    discoveredCoins.push(coin);
+  }
+
+  return { coinEntries, discoveredCoins };
+}
+
+async function getTronRowBalances({
+  row,
+  accountE,
+  coinEntries,
+  priceM,
+  usdPriceQuery = false,
+}) {
+  const balances = {};
+  const errors = {};
+  const account = accountE.account || {};
+  const tokenBalanceM = getTronTokenBalanceM(account);
+  const stakeState = getTronStakeV2State(account);
+
+  for (const [coin, coinE] of coinEntries) {
+    if (coinE.syntheticKind == tronEnergyStakeCoinE.syntheticKind) {
+      const raw = stakeState.energyStakeRaw;
+      if (raw > 0n) {
+        balances[coin] = {
+          ...getBalanceE({
+            raw,
+            coin,
+            coinE,
+            priceM,
+            usdPriceQuery,
+          }),
+          pendingUnstakeRaw: stakeState.pendingEnergyRaw.toString(),
+          withdrawableRaw: stakeState.withdrawableRaw.toString(),
+          nextClaimAt: stakeState.nextEnergyClaimAt,
+        };
+      }
+      continue;
+    }
+
+    if (coinE.native) {
+      const raw = BigInt(account?.balance || 0);
+      if (raw > 0n) {
+        balances[coin] = getBalanceE({
+          raw,
+          coin,
+          coinE,
+          priceM,
+          usdPriceQuery,
+        });
+      }
+      continue;
+    }
+
+    const tokenAddress = normalizeTronAddress(coinE.address);
+    if (!tokenAddress) {
+      addError(errors, coin, "invalid TRC-20 contract address");
+      continue;
+    }
+
+    let raw;
+    try {
+      raw = accountE.hasTokenSnapshot
+        ? BigInt(tokenBalanceM[tokenAddress] || 0)
+        : await getTronTokenBalanceFromNode({
+            rpc: accountE.rpc,
+            owner: row.address,
+            tokenAddress,
+          });
+    } catch (error) {
+      addError(errors, coin, cleanErrorText(error?.message) || "balance failed");
+      continue;
+    }
+
+    if (raw > 0n) {
+      balances[coin] = getBalanceE({
+        raw,
+        coin,
+        coinE,
+        priceM,
+        usdPriceQuery,
+      });
+    }
+  }
+
+  return { balances, errors };
+}
+
+async function getTronBalances({
+  chainE,
+  rows,
+  allCoinEntries,
+  disabledCoins = [],
+  priceM,
+  usdPriceQuery = false,
+}) {
+  const balancesM = Object.fromEntries(rows.map((row) => [row.name, {}]));
+  const { accountM, errorsM } = await getTronAccountM({ chainE, rows });
+  const discovery = await getTronDiscoveredCoinEntries({
+    accountM,
+    allCoinEntries,
+  });
+  const resolvedAllCoinEntries = dedupeCoinEntriesByAddress("Tron", [
+    ...allCoinEntries,
+    ...discovery.coinEntries,
+  ]);
+  const coinEntries = getActiveCoinEntries(
+    resolvedAllCoinEntries,
+    disabledCoins,
+  );
+
+  for (const batch of chunkList(rows, tronWalletChunkSize)) {
+    const results = await Promise.all(
+      batch.map((row) => {
+        const accountE = accountM[row.name];
+        if (!accountE) {
+          return { balances: {}, errors: errorsM[row.name] || {} };
+        }
+
+        return getTronRowBalances({
+          row,
+          accountE,
+          coinEntries,
+          priceM,
+          usdPriceQuery,
+        }).catch((e) => ({
+          balances: {},
+          errors: { Tron: e?.message || "Tron balance error" },
+        }));
+      }),
+    );
+
+    results.forEach((result, index) => {
+      const row = batch[index];
+      balancesM[row.name] = result.balances;
+      errorsM[row.name] = {
+        ...(errorsM[row.name] || {}),
+        ...(result.errors || {}),
+      };
+    });
+  }
+
+  return {
+    balancesM,
+    errorsM,
+    coinEntries,
+    allCoinEntries: resolvedAllCoinEntries,
+    coinInfoM: Object.fromEntries(resolvedAllCoinEntries),
+    discoveredCoins: discovery.discoveredCoins,
+  };
+}
+
+function applyTronEnergyStakePrices(
+  rows = [],
+  priceM = {},
+  { usdPriceQuery = false } = {},
+) {
+  for (const row of rows) {
+    const balance = row.balances?.[tronEnergyStakeCoin];
+    if (!balance) continue;
+
+    const price =
+      Number(row.balances?.TRX?.price || 0) ||
+      getUsdPrice("TRX", priceM, { usdPriceQuery });
+    balance.price = price;
+    balance.usd = price ? Number(balance.balance) * price : 0;
+  }
+}
+
+async function applyTronJustLendPrices({
+  rows = [],
+  coinEntries = [],
+  priceM = {},
+  trxCoinE = {},
+  usdPriceQuery = false,
+} = {}) {
+  const balanceCoinEntries = getBalanceCoinEntries({ rows, coinEntries });
+  const addressCoinM = Object.fromEntries(
+    balanceCoinEntries
+      .map(([coin, coinE]) => [
+        normalizeTronAddress(coinE?.address),
+        [coin, coinE],
+      ])
+      .filter(([address]) => address),
+  );
+  if (!Object.keys(addressCoinM).length) return;
+
+  let marketEntries;
+  try {
+    marketEntries = (await getJustLendMarketData()).entries;
+  } catch {
+    return;
+  }
+
+  const matches = (marketEntries || [])
+    .map((market) => {
+      const address = normalizeTronAddress(market?.address);
+      const coinEntry = addressCoinM[address];
+      return coinEntry ? { market, coinEntry } : null;
+    })
+    .filter(Boolean);
+  if (!matches.length) return;
+
+  let trxPrice = getUsdPrice("TRX", priceM, { usdPriceQuery });
+  if (!(trxPrice > 0) && trxCoinE) {
+    Object.assign(
+      priceM,
+      await getPriceM({
+        chain: "Tron",
+        coinEntries: [["TRX", trxCoinE]],
+        usdPriceQuery,
+      }),
+    );
+    trxPrice = getUsdPrice("TRX", priceM, { usdPriceQuery });
+  }
+
+  for (const { market, coinEntry } of matches) {
+    const [coin] = coinEntry;
+    const underlyingCoin = String(market.underlyingSymbol || "").trim();
+    const underlyingPerReceipt = Number(market.exchangeRate);
+    const underlyingPriceInTrx = Number(market.underlyingPriceInTrx);
+    let underlyingPrice = getUsdPrice(underlyingCoin, priceM, {
+      usdPriceQuery,
+    });
+    if (
+      !(underlyingPrice > 0) &&
+      trxPrice > 0 &&
+      underlyingPriceInTrx > 0
+    ) {
+      underlyingPrice = underlyingPriceInTrx * trxPrice;
+    }
+
+    const price = underlyingPerReceipt * underlyingPrice;
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    priceM[coin] = price;
+    for (const row of rows) {
+      const balance = row.balances?.[coin];
+      if (!balance) continue;
+
+      balance.price = price;
+      balance.usd = Number(balance.balance) * price;
+    }
+  }
+}
+
+export async function getTronWalletBalances({
+  walletFile = "",
+  walletAddress = "",
+  walletName = "",
+  walletEntryList = null,
+  customCoinM = {},
+  disabledCoins = [],
+  disabledWallets = [],
+  disabledWalletNames = [],
+  usdPriceQuery = false,
+} = {}) {
+  const chain = "Tron";
+  const chainE = getChainE(chain);
+  const wallets = await loadWallets(walletFile, "tron", {
+    walletAddress,
+    walletName,
+    walletEntryList,
+    disabledWallets,
+    disabledWalletNames,
+  });
+  const walletEntries = Object.entries(wallets);
+  const chainCoinM = {
+    ...getCoinM(chain),
+    ...(customCoinM &&
+    typeof customCoinM == "object" &&
+    !Array.isArray(customCoinM)
+      ? customCoinM
+      : {}),
+  };
+  const allCoinEntries = dedupeCoinEntriesByAddress(
+    chain,
+    Object.entries(chainCoinM),
+  );
+  const baseCoinEntries = getActiveCoinEntries(allCoinEntries, disabledCoins);
+  const baseAllCoins = baseCoinEntries.map(([coin]) => coin);
+  const baseCoinInfoM = Object.fromEntries(allCoinEntries);
+  const scanner = scanners?.[chain] ?? "";
+
+  if (!chainE) {
+    return {
+      chain,
+      coins: [],
+      allCoins: baseAllCoins,
+      coinInfoM: baseCoinInfoM,
+      scanner,
+      rows: [],
+      source: "api",
+      error: `unknown chain: ${chain}`,
+    };
+  }
+  if (!walletEntries.length) {
+    return {
+      chain,
+      coins: [],
+      allCoins: baseAllCoins,
+      coinInfoM: baseCoinInfoM,
+      scanner,
+      rows: [],
+      source: "api",
+    };
+  }
+  if (!getLiveRpcs(chainE).length) {
+    return {
+      chain,
+      coins: [],
+      allCoins: baseAllCoins,
+      coinInfoM: baseCoinInfoM,
+      scanner,
+      rows: [],
+      source: "api",
+      error: `missing api: ${chain}`,
+    };
+  }
+
+  try {
+    const rows = walletEntries.map(([name, address]) => {
+      const tronAddress = normalizeTronAddress(address);
+
+      return tronAddress
+        ? { name, address: tronAddress, balances: {} }
+        : { name, address, balances: {}, error: "invalid address" };
+    });
+    const validRows = rows.filter((row) => !row.error);
+    const {
+      balancesM,
+      errorsM,
+      coinEntries,
+      coinInfoM,
+      discoveredCoins,
+    } = await getTronBalances({
+      chainE,
+      rows: validRows,
+      allCoinEntries,
+      disabledCoins,
+      priceM: {},
+      usdPriceQuery,
+    });
+    const allCoins = coinEntries.map(([coin]) => coin);
+
+    for (const row of validRows) {
+      row.balances = balancesM[row.name] ?? {};
+      row.errors = errorsM[row.name] ?? {};
+      if (Object.keys(row.errors).length == coinEntries.length) {
+        row.error = Object.values(row.errors)[0];
+      }
+    }
+
+    const priceM = await applyFallbackPrices({
+      chain,
+      rows: validRows,
+      coinEntries,
+      usdPriceQuery,
+    });
+    await applyTronJustLendPrices({
+      rows: validRows,
+      coinEntries,
+      priceM,
+      trxCoinE: coinInfoM.TRX || baseCoinInfoM.TRX,
+      usdPriceQuery,
+    });
+    if (
+      validRows.some((row) => row.balances?.[tronEnergyStakeCoin]) &&
+      !hasUsdPrice("TRX", priceM, { usdPriceQuery })
+    ) {
+      Object.assign(
+        priceM,
+        await getPriceM({
+          chain,
+          coinEntries: [["TRX", coinInfoM.TRX || baseCoinInfoM.TRX]],
+          usdPriceQuery,
+        }),
+      );
+    }
+    applyTronEnergyStakePrices(validRows, priceM, { usdPriceQuery });
+    const coins = getReturnedCoins({ rows, coinEntries });
+
+    return {
+      chain,
+      coins,
+      allCoins,
+      coinInfoM,
+      discoveredCoins,
+      scanner,
+      rows,
+      source: "api",
+    };
+  } catch (e) {
+    return {
+      chain,
+      coins: [],
+      allCoins: baseAllCoins,
+      coinInfoM: baseCoinInfoM,
+      scanner,
+      rows: walletEntries.map(([name, address]) => ({
+        name,
+        address,
+        balances: {},
+      })),
+      source: "api",
+      error: e?.message ?? "Tron wallet balance error",
     };
   }
 }

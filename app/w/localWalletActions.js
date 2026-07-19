@@ -5,6 +5,7 @@ import { rpcs, sets } from "@/sets";
 import {
   getHyperliquidWalletBalances,
   getSolanaWalletBalances,
+  getTronWalletBalances,
   getWalletBalances,
   getWalletType,
 } from "./walletData";
@@ -69,7 +70,23 @@ export async function getLocalWalletBalanceData({
     ];
   }
 
-  const chainList = cleanChainList(chains).filter((chain) => chain != "Solana");
+  if (type == "tron") {
+    if (!rpcs?.Tron) return [];
+    return [
+      await getTronWalletBalances({
+        walletEntryList: entries,
+        customCoinM: customCoinM.Tron ?? {},
+        disabledCoins: disabledCoinM.Tron ?? [],
+        disabledWallets,
+        disabledWalletNames,
+        usdPriceQuery,
+      }),
+    ];
+  }
+
+  const chainList = cleanChainList(chains).filter(
+    (chain) => chain != "Solana" && chain != "Tron",
+  );
   return await Promise.all(
     chainList.map((chain) =>
       chain == "Hyperliquid"

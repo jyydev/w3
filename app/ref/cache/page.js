@@ -47,6 +47,10 @@ const serverCacheRows = [
     "server discovery cache map in app/t/_lend/jupiter/sv.js; keyed by chain.",
   ],
   [
+    "JustLend markets",
+    "server discovery cache map in app/t/_lend/justlend/sv.js; the official active Tron market list is cached for 1 hour.",
+  ],
+  [
     "Aave Staking markets",
     "server discovery cache map in app/t/_yield/aaveStaking/sv.js; keyed by chain.",
   ],
@@ -161,7 +165,7 @@ const cacheNotes = [
   "When the global server discovery cache exceeds 100 entries, expired entries are removed first, then the oldest remaining entries are removed.",
   "The wallet settings Etc tab can clear ALL, client, or server runtime cache.",
   "client clear affects the current browser tab's loaded client module caches, including wallet balance rows.",
-  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, Aave Staking, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
+  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, JustLend, Aave Staking, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
   "Local npm run dev cache resets on server restart and may reset on hot reload.",
   "On Vercel, memory cache is per warm runtime instance. Cold starts, different instances, and deployments start empty.",
   "Runtime cache should be treated as a speed helper. It must be safe for the app to refetch when empty.",

@@ -6,7 +6,7 @@ export function getFavAddrKey(type = "evm", address = "") {
   const clean = String(address || "").trim();
   if (!clean) return "";
 
-  return `${type}:${type == "solana" ? clean : clean.toLowerCase()}`;
+  return `${type}:${type == "evm" ? clean.toLowerCase() : clean}`;
 }
 
 export function parseFavAddrs(value) {
@@ -19,7 +19,9 @@ export function parseFavAddrs(value) {
 
     return favs
       .map((fav) => ({
-        type: fav?.type == "solana" ? "solana" : "evm",
+        type: ["evm", "solana", "tron"].includes(fav?.type)
+          ? fav.type
+          : "evm",
         name: String(fav?.name || ""),
         address: String(fav?.address || "").trim(),
       }))

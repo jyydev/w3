@@ -35,6 +35,11 @@ import {
   isJupiterCoin,
 } from "./jupiter/Client";
 import {
+  getJustLendUnderlyingCoin,
+  isJustLendChainAvailable,
+  isJustLendCoin,
+} from "./justlend/Client";
+import {
   isMorphoChainAvailable,
   isMorphoCoin,
 } from "./morpho/Client";
@@ -64,7 +69,11 @@ export function getUnderlyingCoin(chainE, lendCoin, protocol = "") {
   const lendE = coinInfoM[lendCoin] || {};
   const text = `${lendCoin} ${lendE.name || ""}`.toLowerCase();
   const protocolUnderlying =
-    protocol == "aave" ? getAaveUnderlyingCoin(lendCoin) : "";
+    protocol == "aave"
+      ? getAaveUnderlyingCoin(lendCoin)
+      : protocol == "justlend"
+        ? getJustLendUnderlyingCoin(lendCoin)
+        : "";
   const candidates = getChainCoins(chainE)
     .filter((coin) => coin != lendCoin)
     .filter((coin) => coinInfoM[coin]?.type != "lend")
@@ -94,6 +103,7 @@ export function isProtocolCoin(protocol, coin, coinE = {}) {
   if (protocol == "venus") return isVenusCoin(coin, coinE);
   if (protocol == "jupiter") return isJupiterCoin(coin, coinE);
   if (protocol == "morpho") return isMorphoCoin(coin, coinE);
+  if (protocol == "justlend") return isJustLendCoin(coin, coinE);
 
   return false;
 }
@@ -152,7 +162,14 @@ export function getInitialLendDefi(
 }
 
 export function getMarketSupplyApr({ chainE, defi, marketE, rawMarkets = [] } = {}) {
-  if (defi != "aave" && defi != "venus" && defi != "jupiter") return 0;
+  if (
+    defi != "aave" &&
+    defi != "venus" &&
+    defi != "jupiter" &&
+    defi != "justlend"
+  ) {
+    return 0;
+  }
   if (marketE?.supplyApr) return toNum(marketE.supplyApr);
 
   const lendAddress =
@@ -215,7 +232,8 @@ export function useLendDirectMarketBalance({
 
 export function isLendingProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return option.value == "jupiter";
-  if (option.value == "jupiter") return false;
+  if (walletType == "tron") return option.value == "justlend";
+  if (option.value == "jupiter" || option.value == "justlend") return false;
 
   return true;
 }
@@ -228,6 +246,9 @@ export function getLendMarketChains(chainList = [], chainMarketsM = {}, defi = "
         return isAaveChainAvailable(chainE.chain, chainMarkets);
       }
       if (defi == "jupiter") return isJupiterChainAvailable(chainE.chain);
+      if (defi == "justlend") {
+        return isJustLendChainAvailable(chainE.chain);
+      }
       if (defi == "morpho") {
         return isMorphoChainAvailable(chainE.chain, chainMarkets);
       }

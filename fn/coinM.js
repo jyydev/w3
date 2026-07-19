@@ -15,6 +15,7 @@ import polygon from "../data/coins/polygon.js";
 import scroll from "../data/coins/scroll.js";
 import sonic from "../data/coins/sonic.js";
 import solana from "../data/coins/solana.js";
+import tron from "../data/coins/tron.js";
 import soneium from "../data/coins/soneium.js";
 import wemix from "../data/coins/wemix.js";
 import xLayer from "../data/coins/xLayer.js";
@@ -51,6 +52,7 @@ const coinM = {
   zkSyncEra: coinListToM(zkSyncEra),
   Fantom: coinListToM(fantom),
   Solana: coinListToM(solana),
+  Tron: coinListToM(tron),
 };
 
 export default coinM;

@@ -71,6 +71,13 @@ import {
 } from "./relay/sv";
 import RelayClient, { signBrowserRelayItem } from "./relay/Client";
 import {
+  buildSunSwapTxs,
+  executeSunSwap,
+  getSunSwapPreview,
+  getSunTokenDiscovery,
+} from "./sun/sv";
+import SunClient from "./sun/Client";
+import {
   buildUniswapSwapTxs,
   executeUniswapSwap,
   getUniswapSwapPreview,
@@ -87,6 +94,7 @@ import {
 } from "../../_editorData/browserEditorStorage";
 import {
   cleanTradeInput,
+  completeTradeTransaction,
   cookieMaxAge,
   createTradeLoopResult,
   createTradeToast,
@@ -156,15 +164,24 @@ function getDexUrl(defi = "") {
   if (defi == "relay") return "https://relay.link/";
   if (defi == "jumper") return "https://jumper.exchange/";
   if (defi == "jupiter") return "https://jup.ag/swap";
+  if (defi == "sun") return "https://sun.io/";
   if (defi == "across") return "https://app.across.to/";
   if (defi == "uniswap") return "https://app.uniswap.org/";
   return "";
+}
+
+function getSwapWalletTypeForChain(chain = "") {
+  if (chain == "Solana") return "solana";
+  if (chain == "Tron") return "tron";
+
+  return "evm";
 }
 
 function isSwapRecipientAddressForChain(chain = "", address = "") {
   const clean = String(address || "").trim();
   if (!clean) return false;
   if (chain == "Solana") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(clean);
+  if (chain == "Tron") return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(clean);
 
   return /^0x[0-9a-fA-F]{40}$/.test(clean);
 }
@@ -199,9 +216,9 @@ export default function SwapPanel({
   );
   const sellChainNames = useMemo(
     () =>
-      walletType == "solana"
-        ? chainNames.filter((chain) => chain == "Solana")
-        : chainNames.filter((chain) => chain != "Solana"),
+      chainNames.filter(
+        (chain) => getSwapWalletTypeForChain(chain) == walletType,
+      ),
     [chainNames, walletType],
   );
   const initialDefi = getInitialSwapDex(initialCookieM, walletType);
@@ -471,9 +488,11 @@ export default function SwapPanel({
         ? JumperClient
         : defi == "jupiter"
           ? JupiterSwapClient
-          : defi == "uniswap"
-            ? UniswapClient
-            : RelayClient;
+          : defi == "sun"
+            ? SunClient
+            : defi == "uniswap"
+              ? UniswapClient
+              : RelayClient;
   const fromDiscoveryCoinE =
     selectedDiscoveryCoinM.from?.chain == fromChain
       ? selectedDiscoveryCoinM.from
@@ -532,11 +551,12 @@ export default function SwapPanel({
   const toCoinDecimals = Number.isInteger(toCoinInfo.decimals)
     ? toCoinInfo.decimals
     : 18;
-  const isSolanaBridge =
+  const isCrossWalletTypeRoute =
     !!fromChain &&
     !!toChain &&
     fromChain != toChain &&
-    (fromChain == "Solana" || toChain == "Solana");
+    getSwapWalletTypeForChain(fromChain) !=
+      getSwapWalletTypeForChain(toChain);
   const fromBalance = getWalletSelectedBalance(
     fromChainE,
     fromCoin,
@@ -645,22 +665,35 @@ export default function SwapPanel({
         selectedWalletEntry.address,
       )})`
     : selectedWalletEntry?.name || selectedWalletEntry?.label || "";
-  const needsPrivateKey = ["jupiter", "jumper", "relay", "uniswap", "across"].includes(defi);
+  const needsPrivateKey = [
+    "jupiter",
+    "jumper",
+    "relay",
+    "sun",
+    "uniswap",
+    "across",
+  ].includes(defi);
   const canBrowserSignEvm =
     selectedWalletEntry?.isBrowserWallet && selectedWalletEntry?.type == "evm";
   const canBrowserSignSolana =
     selectedWalletEntry?.isBrowserWallet &&
     selectedWalletEntry?.type == "solana" &&
     ["relay", "jumper", "across", "jupiter"].includes(defi);
-  const canBrowserSign = canBrowserSignEvm || canBrowserSignSolana;
+  const canBrowserSignTron =
+    selectedWalletEntry?.isBrowserWallet &&
+    selectedWalletEntry?.type == "tron" &&
+    ["relay", "jumper", "sun"].includes(defi);
+  const canBrowserSign =
+    canBrowserSignEvm || canBrowserSignSolana || canBrowserSignTron;
   const swapCanExecute =
     !needsPrivateKey || !!selectedWalletEntry?.hasPrivateKey || canBrowserSign;
   const canAutoApprove =
     !selectedWalletEntry?.isBrowserWallet &&
     fromChain != "Solana" &&
+    fromChain != "Tron" &&
     !!fromCoin &&
     !fromCoinInfo.native;
-  const recipientWalletType = toChain == "Solana" ? "solana" : "evm";
+  const recipientWalletType = getSwapWalletTypeForChain(toChain);
   const recipientWallets = useMemo(
     () =>
       getWalletOptions(
@@ -692,8 +725,9 @@ export default function SwapPanel({
   }, [swapSupportE.chains]);
   const fromDiscoveryChainEntries = useMemo(
     () =>
-      discoveryChainEntries.filter((entry) =>
-        walletType == "solana" ? entry.chain == "Solana" : entry.chain != "Solana",
+      discoveryChainEntries.filter(
+        (entry) =>
+          getSwapWalletTypeForChain(entry.chain) == walletType,
       ),
     [discoveryChainEntries, walletType],
   );
@@ -730,7 +764,10 @@ export default function SwapPanel({
   const toLazyTokenDiscoveryE =
     tokenDiscoveryM[toTokenDiscoveryKey] || emptyTokenDiscoveryE;
   const usesLazyTokenDiscovery =
-    defi == "relay" || defi == "jumper" || defi == "jupiter";
+    defi == "relay" ||
+    defi == "jumper" ||
+    defi == "jupiter" ||
+    defi == "sun";
   const fromTokenDiscoveryE =
     usesLazyTokenDiscovery
       ? fromLazyTokenDiscoveryE
@@ -972,12 +1009,12 @@ export default function SwapPanel({
   }, [fromChain, fromCoin, fromCoinDecimals, qtyInputSide, swapRate, toChain, toCoin]);
 
   useEffect(() => {
-    if (isSolanaBridge) return;
+    if (isCrossWalletTypeRoute) return;
     setRecipient(selectedWalletEntry?.address || "");
-  }, [isSolanaBridge, selectedWalletEntry?.address]);
+  }, [isCrossWalletTypeRoute, selectedWalletEntry?.address]);
 
   useEffect(() => {
-    if (!isSolanaBridge || recipientMode == "manual") return;
+    if (!isCrossWalletTypeRoute || recipientMode == "manual") return;
 
     const defaultKey = `${recipientWalletType}:${selectedWalletMatchName}`;
     const current = recipientWallets.find(
@@ -996,7 +1033,7 @@ export default function SwapPanel({
     setRecipientWallet(next?.value || "");
     setRecipient(next?.address || "");
   }, [
-    isSolanaBridge,
+    isCrossWalletTypeRoute,
     recipientMode,
     recipientWallet,
     recipientWalletType,
@@ -1012,7 +1049,7 @@ export default function SwapPanel({
     if (recipientMode == "manual") return;
 
     loadRecipientBalance({ silent: true });
-  }, [isSolanaBridge, recipientMode, recipient, toChain, toCoin]);
+  }, [isCrossWalletTypeRoute, recipientMode, recipient, toChain, toCoin]);
 
   useEffect(() => {
     function handleBalancePatch(e) {
@@ -1071,7 +1108,8 @@ export default function SwapPanel({
       address: String(entry.address || "").trim(),
       decimals: Number.isInteger(decimals) ? decimals : undefined,
       name: entry.name || getDiscoveryCoinSymbol(entry),
-      type: "token",
+      native: !!entry.native,
+      type: entry.native ? "native" : "token",
     };
   }
 
@@ -1123,7 +1161,7 @@ export default function SwapPanel({
 
   function isRecipientBalanceMode() {
     return !!(
-      isSolanaBridge &&
+      isCrossWalletTypeRoute &&
       recipient &&
       toChain &&
       toCoin &&
@@ -1186,7 +1224,7 @@ export default function SwapPanel({
     let buyCoin;
     let sellCoinE;
     let buyCoinE;
-    let routeIsSolanaBridge;
+    let routeUsesRecipient;
 
     const setSwapRoute = (nextSellSide) => {
       sellSide = nextSellSide == "to" ? "to" : "from";
@@ -1197,16 +1235,21 @@ export default function SwapPanel({
       buyCoin = sellSide == "to" ? fromCoin : toCoin;
       sellCoinE = getSelectedSwapCoinE(sellChain, sellCoin, sellSide);
       buyCoinE = getSelectedSwapCoinE(buyChain, buyCoin, buySide);
-      routeIsSolanaBridge =
+      routeUsesRecipient =
         !!sellChain &&
         !!buyChain &&
         sellChain != buyChain &&
-        (sellChain == "Solana" || buyChain == "Solana");
+        getSwapWalletTypeForChain(sellChain) !=
+          getSwapWalletTypeForChain(buyChain);
     };
 
     setSwapRoute(sellSide);
 
-    if (!["jupiter", "jumper", "relay", "uniswap", "across"].includes(defi)) {
+    if (
+      !["jupiter", "jumper", "relay", "sun", "uniswap", "across"].includes(
+        defi,
+      )
+    ) {
       tradeToast.show(`${defiE.label}: swap not wired yet`);
       return;
     }
@@ -1217,7 +1260,14 @@ export default function SwapPanel({
       walletEntry?.isBrowserWallet &&
       walletEntry?.type == "solana" &&
       ["jupiter", "jumper", "relay"].includes(defi);
-    const useBrowserWallet = useBrowserEvmWallet || useBrowserSolanaWallet;
+    const useBrowserTronWallet =
+      walletEntry?.isBrowserWallet &&
+      walletEntry?.type == "tron" &&
+      ["relay", "jumper", "sun"].includes(defi);
+    const useBrowserWallet =
+      useBrowserEvmWallet ||
+      useBrowserSolanaWallet ||
+      useBrowserTronWallet;
     if (!walletEntry?.hasPrivateKey && !useBrowserWallet) {
       if (walletEntry?.isBrowserWallet) {
         tradeToast.error(
@@ -1229,7 +1279,9 @@ export default function SwapPanel({
       const keyLabel =
         walletEntry?.type == "solana"
           ? `pk_sol_raw_${walletName} or pk_sol_${walletName}`
-          : `pk_raw_${walletName} or pk_${walletName}`;
+          : walletEntry?.type == "tron"
+            ? `pk_tron_raw_${walletName} or pk_tron_${walletName}`
+            : `pk_raw_${walletName} or pk_${walletName}`;
       tradeToast.error(`private key missing: ${keyLabel}`);
       return;
     }
@@ -1237,11 +1289,20 @@ export default function SwapPanel({
       if (defi == "jupiter" && (sellChain != "Solana" || buyChain != "Solana")) {
         return "Jupiter is for Solana swaps only";
       }
+      if (defi == "sun" && (sellChain != "Tron" || buyChain != "Tron")) {
+        return "SUN is for Tron swaps only";
+      }
       if (
         sellChain == "Solana" &&
         !["jupiter", "jumper", "relay", "across"].includes(defi)
       ) {
         return `${defiE.label} is not available for Solana-origin swaps`;
+      }
+      if (
+        (sellChain == "Tron" || buyChain == "Tron") &&
+        !["relay", "jumper", "sun"].includes(defi)
+      ) {
+        return "Relay, Jumper, or SUN is required for Tron swaps";
       }
       if (defi == "across" && sellChain == buyChain) {
         return "Across is for cross-chain swaps; choose a different buy chain";
@@ -1311,7 +1372,12 @@ export default function SwapPanel({
     }
 
     const autoApprovalAmount =
-      autoApproval && sellChain != "Solana" && !sellCoinE?.native ? amount : "";
+      autoApproval &&
+      sellChain != "Solana" &&
+      sellChain != "Tron" &&
+      !sellCoinE?.native
+        ? amount
+        : "";
     const getApprovalAmount = (approvalNeeded) => {
       if (!approvalNeeded) return "";
       return (
@@ -1323,7 +1389,9 @@ export default function SwapPanel({
       );
     };
     const toAddress =
-      routeIsSolanaBridge && sellSide == "from" ? recipient : walletEntry.address;
+      routeUsesRecipient && sellSide == "from"
+        ? recipient
+        : walletEntry.address;
     if (!useBrowserWallet && !skipConfirm) {
       const ok = window.confirm(
         `Execute ${defiE.label} swap?\n\nwallet: ${
@@ -1393,6 +1461,87 @@ export default function SwapPanel({
             amount,
           });
         }
+      } else if (defi == "sun") {
+        if (useBrowserWallet) {
+          tradeToast.loading("SUN: building wallet prompts...", {
+            id: toastId,
+          });
+          const built = await buildSunSwapTxs({
+            walletAddress: walletEntry.address,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
+            amount,
+            recipient: toAddress,
+          });
+          const txs = [];
+
+          const builtTxs = built.txs || [];
+          for (const [index, tx] of builtTxs.entries()) {
+            txs.push(
+              await sendBrowserTradeTx({
+                tx,
+                walletEntry,
+                tradeToast,
+                toastId,
+                message: `SUN: confirm ${tx.type}...`,
+                waitForConfirmation: index < builtTxs.length - 1,
+              }),
+            );
+          }
+          res = { ...built, txs };
+        } else {
+          let preview = { approvalNeeded: null };
+          if (!sellCoinE?.native) {
+            tradeToast.loading("SUN: checking route and allowance...", {
+              id: toastId,
+            });
+            preview = await getSunSwapPreview({
+              walletAddress: walletEntry.address,
+              fromChain: sellChain,
+              toChain: buyChain,
+              fromCoin: sellCoin,
+              toCoin: buyCoin,
+              fromCoinE: sellCoinE,
+              toCoinE: buyCoinE,
+              amount,
+              recipient: toAddress,
+            });
+          }
+          let approvalAmount = "";
+
+          if (preview.approvalNeeded) {
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
+            if (!approvalAmount) {
+              setSwapPending(false);
+              toast.dismiss(toastId);
+              return;
+            }
+          }
+
+          tradeToast.loading(
+            preview.approvalNeeded
+              ? "SUN: approving then swapping..."
+              : "SUN: submitting swap...",
+            { id: toastId },
+          );
+          res = await executeSunSwap({
+            walletName: walletEntry.name,
+            walletAddress: walletEntry.address,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
+            amount,
+            recipient: toAddress,
+            approvalAmount,
+          });
+        }
       } else if (defi == "jumper") {
         if (useBrowserWallet) {
           tradeToast.loading("Jumper: building wallet prompts...", {
@@ -1404,6 +1553,8 @@ export default function SwapPanel({
             toChain: buyChain,
             fromCoin: sellCoin,
             toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
             amount,
             recipient: toAddress,
           });
@@ -1431,6 +1582,8 @@ export default function SwapPanel({
             toChain: buyChain,
             fromCoin: sellCoin,
             toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
             amount,
             recipient: toAddress,
           });
@@ -1458,6 +1611,8 @@ export default function SwapPanel({
             toChain: buyChain,
             fromCoin: sellCoin,
             toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
             amount,
             recipient: toAddress,
             approvalAmount,
@@ -1703,12 +1858,18 @@ export default function SwapPanel({
           id: toastId,
         },
       );
-      onTxComplete({
-        ...res,
+      completeTradeTransaction({
+        result: res,
         refreshTargets: [
           getRefreshTarget(sellChain, sellCoin, walletEntry.address),
           getRefreshTarget(buyChain, buyCoin, toAddress),
         ],
+        onTxComplete,
+        onConfirmationError: (e) => {
+          tradeToast.error(e?.message || "Tron confirmation failed", {
+            id: toastId,
+          });
+        },
       });
       return res;
     } catch (e) {
@@ -2004,7 +2165,12 @@ export default function SwapPanel({
 
   function requestTokenDiscovery(chain = "", term = "", { force = false } = {}) {
     const currentDefi = defi;
-    if (!chain || !["relay", "jumper", "jupiter"].includes(currentDefi)) return;
+    if (
+      !chain ||
+      !["relay", "jumper", "jupiter", "sun"].includes(currentDefi)
+    ) {
+      return;
+    }
     const key = getTokenDiscoveryKey(currentDefi, chain, term);
     const current = tokenDiscoveryM[key] || emptyTokenDiscoveryE;
     if (!force && (current.loading || current.loaded)) return;
@@ -2061,9 +2227,11 @@ export default function SwapPanel({
     const discoveryRequest =
       currentDefi == "jupiter"
         ? getJupiterTokenDiscovery({ chain, term, refresh: force })
+        : currentDefi == "sun"
+          ? getSunTokenDiscovery({ chain, term, refresh: force })
         : currentDefi == "jumper"
           ? getJumperTokenDiscovery({ chain, term, refresh: force })
-        : getRelayCurrencyDiscovery({ chain, term, refresh: force });
+          : getRelayCurrencyDiscovery({ chain, term, refresh: force });
 
     tokenDiscoveryPromiseM[key] = discoveryRequest
       .then((res) => {
@@ -2132,7 +2300,7 @@ export default function SwapPanel({
   }
 
   function openTokenDiscoveryMenu(side = "from", chain = "") {
-    if (!["relay", "jumper", "jupiter"].includes(defi)) return;
+    if (!["relay", "jumper", "jupiter", "sun"].includes(defi)) return;
     requestTokenDiscovery(chain, tokenSearchM[side] || "");
   }
 
@@ -2163,6 +2331,18 @@ export default function SwapPanel({
     const coins = getChainCoins(chainE);
     const symbol = String(entry.symbol || "").trim();
     const address = getTokenAddressKey(chain, entry.address);
+
+    if (entry.native) {
+      return (
+        coins.find(
+          (coin) =>
+            chainE?.coinInfoM?.[coin]?.native &&
+            (!symbol || coin == symbol),
+        ) ||
+        coins.find((coin) => chainE?.coinInfoM?.[coin]?.native) ||
+        ""
+      );
+    }
 
     if (address) {
       return (
@@ -2875,7 +3055,7 @@ export default function SwapPanel({
         </div>
       </div>
 
-      {isSolanaBridge && (
+      {isCrossWalletTypeRoute && (
         <label className="swapRecipient" htmlFor="swapRecipient">
           <span className="gray">recipient:</span>
           <select
@@ -2898,10 +3078,19 @@ export default function SwapPanel({
               if (recipientMode == "manual") loadRecipientBalance();
             }}
             onKeyDown={handleRecipientKeyDown}
-            placeholder={toChain == "Solana" ? "Solana address" : "0x..."}
+            placeholder={
+              toChain == "Solana"
+                ? "Solana address"
+                : toChain == "Tron"
+                  ? "Tron address"
+                  : "0x..."
+            }
             style={{
               width: `${
-                Math.max(recipient.length || 0, toChain == "Solana" ? 32 : 12) +
+                Math.max(
+                  recipient.length || 0,
+                  toChain == "Solana" ? 32 : toChain == "Tron" ? 34 : 12,
+                ) +
                 2
               }ch`,
             }}

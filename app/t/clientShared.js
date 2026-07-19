@@ -11,6 +11,7 @@ import {
   makeDiscoveryCacheMeta,
 } from "@/fn/discoveryCache";
 import { pc } from "@/fn/basic";
+import { signBrowserTronTransaction } from "@/app/w/browserTronWallet";
 import {
   CustomPicker,
   CustomPickerButton,
@@ -30,7 +31,10 @@ import {
 import { dexs, lendings, scanners, yields } from "@/sets";
 import {
   confirmSolanaTransaction,
+  confirmTronTransaction,
+  refreshBrowserTronTransaction,
   sendSolanaRawTransaction,
+  sendTronRawTransaction,
 } from "./svShared";
 
 export const tradeShowCookie = "w3_trade_show";
@@ -165,17 +169,23 @@ function getPickerSortNumber(value) {
 }
 
 export function sameAddressText(a = "", b = "") {
-  return (
-    String(a || "").trim().toLowerCase() ==
-    String(b || "").trim().toLowerCase()
-  );
+  const addressA = String(a || "").trim();
+  const addressB = String(b || "").trim();
+  if (!addressA || !addressB) return false;
+  if (addressA == addressB) return true;
+
+  return addressA.startsWith("0x") && addressB.startsWith("0x")
+    ? addressA.toLowerCase() == addressB.toLowerCase()
+    : false;
 }
 
 export function getTokenAddressKey(chain = "", address = "") {
   const value = String(address || "").trim();
   if (!value) return "";
 
-  return chain == "Solana" ? value : value.toLowerCase();
+  return chain == "Solana" || chain == "Tron"
+    ? value
+    : value.toLowerCase();
 }
 
 export function getCoinTypeOptions(chainList = [], extraType = "") {
@@ -1988,20 +1998,74 @@ export async function sendBrowserTradeTx({
   toastId,
   message = "",
   solana = false,
+  waitForConfirmation = true,
 } = {}) {
   if (message) tradeToast?.loading(message, { id: toastId });
 
-  return solana || tx?.chain == "Solana" || tx?.format?.startsWith("solana:")
-    ? sendBrowserSolanaTx({
-        tx,
-        wallet: walletEntry.browserWallet,
-        address: walletEntry.address,
-      })
-    : sendBrowserTx({
+  if (solana || tx?.chain == "Solana" || tx?.format?.startsWith("solana:")) {
+    return sendBrowserSolanaTx({
         tx,
         wallet: walletEntry.browserWallet,
         address: walletEntry.address,
       });
+  }
+  if (tx?.chain == "Tron" || tx?.format?.startsWith("tron:")) {
+    return sendBrowserTronTx({
+      tx,
+      wallet: walletEntry.browserWallet,
+      address: walletEntry.address,
+      waitForConfirmation,
+    });
+  }
+
+  return sendBrowserTx({
+    tx,
+    wallet: walletEntry.browserWallet,
+    address: walletEntry.address,
+  });
+}
+
+export function completeTradeTransaction({
+  result = {},
+  refreshTargets = [],
+  onTxComplete = () => {},
+  onConfirmationError = () => {},
+} = {}) {
+  const completion = { ...result, refreshTargets };
+  const pendingTxs = (result.txs || []).filter(
+    (tx) => tx?.chain == "Tron" && tx?.pending && tx?.hash,
+  );
+
+  if (!pendingTxs.length) {
+    onTxComplete(completion);
+    return false;
+  }
+
+  // Start the normal immediate/delayed balance refreshes while Tron confirms.
+  onTxComplete(completion);
+
+  void Promise.all(
+    pendingTxs.map((tx) => confirmTronTransaction({ hash: tx.hash })),
+  )
+    .then((confirmations) => {
+      const confirmationM = new Map(
+        confirmations.map((confirmation) => [
+          confirmation.hash,
+          confirmation,
+        ]),
+      );
+      onTxComplete({
+        ...completion,
+        confirmationRefresh: true,
+        txs: (result.txs || []).map((tx) => ({
+          ...tx,
+          ...(confirmationM.get(tx?.hash) || {}),
+        })),
+      });
+    })
+    .catch(onConfirmationError);
+
+  return true;
 }
 
 export async function runTradeWalletLoop({
@@ -2018,7 +2082,11 @@ export async function runTradeWalletLoop({
 
   const seen = new Set();
   const walletEntries = [selectedWalletEntry, ...loopEntries].filter((entry) => {
-    const key = `${entry?.value || ""}:${String(entry?.address || "").toLowerCase()}`;
+    const address = String(entry?.address || "");
+    const addressKey = ["solana", "tron"].includes(entry?.type)
+      ? address
+      : address.toLowerCase();
+    const key = `${entry?.value || ""}:${addressKey}`;
     if (!entry?.address || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -2044,7 +2112,9 @@ export async function runTradeWalletLoop({
 }
 
 export function getTradeModeCookie(base = "", walletType = "evm") {
-  return `${base}_${walletType == "solana" ? "solana" : "evm"}`;
+  const mode = ["solana", "tron"].includes(walletType) ? walletType : "evm";
+
+  return `${base}_${mode}`;
 }
 
 export function emitTradeChainSelect(chain = "") {
@@ -2427,9 +2497,12 @@ export function sameAddress(a = "", b = "") {
   const addressB = String(b || "").trim();
   if (!addressA || !addressB) return false;
 
-  return (
-    addressA.toLowerCase() == addressB.toLowerCase() || addressA == addressB
-  );
+  if (addressA == addressB) return true;
+  if (addressA.startsWith("0x") && addressB.startsWith("0x")) {
+    return addressA.toLowerCase() == addressB.toLowerCase();
+  }
+
+  return false;
 }
 
 export function findWalletEntryByAddress(entries = [], address = "") {
@@ -3199,6 +3272,9 @@ function getSignedTransaction(result) {
 
 function getTxUrl(chain = "", hash = "") {
   if (chain == "Hyperliquid") return "";
+  if (chain == "Tron" && hash) {
+    return `https://tronscan.org/transaction/${hash}`;
+  }
 
   const scanner = scanners?.[chain];
   if (!scanner || !hash) return "";
@@ -3281,6 +3357,39 @@ export async function sendBrowserTx({ tx, wallet = "", address = "" }) {
     type: tx.type || "tx",
     hash: sent.hash,
     blockNumber: receipt?.blockNumber ?? null,
+  };
+}
+
+export async function sendBrowserTronTx({
+  tx,
+  wallet = "tronlink",
+  address = "",
+  waitForConfirmation = true,
+}) {
+  if (!tx?.transaction) throw new Error("Tron transaction missing");
+
+  const transaction = tx.refreshBlockRef
+    ? await refreshBrowserTronTransaction({
+        transaction: tx.transaction,
+      })
+    : tx.transaction;
+  const signed = await signBrowserTronTransaction({
+    wallet,
+    address,
+    transaction,
+  });
+
+  const sent = await sendTronRawTransaction({
+    transaction: signed,
+    waitForConfirmation,
+  });
+
+  return {
+    chain: "Tron",
+    type: tx.type || "tx",
+    hash: sent.hash,
+    blockNumber: sent.blockNumber ?? null,
+    pending: !!sent.pending,
   };
 }
 

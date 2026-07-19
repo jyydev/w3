@@ -19,6 +19,10 @@ const rpcRows = [
     "RPC fallback",
     "Chains not covered by Alchemy Portfolio, or chains where Alchemy fails, use the configured RPC list.",
   ],
+  [
+    "TronGrid",
+    "Tron is a separate wallet type. Each wallet uses one TronGrid account API request for native TRX and configured TRC-20 balances; an optional TRONGRID_API_KEY raises request limits.",
+  ],
   ["RPC order", "RPC URLs are tried one at a time in the order listed in sets.js."],
   [
     "RPC failure",
@@ -61,6 +65,7 @@ const sourceRows = [
   ["alchemy", "Alchemy Portfolio supplied the chain balances."],
   ["rpc", "The chain used the normal RPC balance path."],
   ["api", "The chain uses a protocol API, such as Hyperliquid."],
+  ["Tron api", "The Tron chain source is api because wallet balances come from TronGrid rather than the EVM RPC path."],
 ];
 
 function RpcRefPage() {

@@ -8,6 +8,7 @@ const walletRoutes = [
   ["/w/y", "load data/editor/wallets/evm/y.json, or y/ folder if selected"],
   ["/w/y/", "folder selection; loads all JSON files under y/"],
   ["/w?chain=solana", "Solana wallet view; uses data/editor/wallets/solana"],
+  ["/w?chain=tron", "Tron wallet view; uses data/editor/wallets/tron"],
   ["/w?w=NAME", "filter to one wallet name from the loaded wallet files"],
   ["/w?addr=ADDRESS", "load only one custom address"],
   ["/t", "wallet viewer plus the trade workspace"],
@@ -17,6 +18,7 @@ const walletRoutes = [
 const walletDataFiles = [
   ["data/editor/wallets/evm", "EVM wallet JSON files and folders"],
   ["data/editor/wallets/solana", "Solana wallet JSON files and folders"],
+  ["data/editor/wallets/tron", "Tron wallet JSON files and folders"],
   ["data/coins/CHAIN.js", "global tracked coin definitions"],
   ["data/editor/coins/CHAIN.json", "custom coin staging area from add coin"],
   ["data/defi/hyperliquid.js", "global Hyperliquid vault definitions"],
@@ -31,7 +33,7 @@ const walletNotes = [
   "The ref field is optional and editable from the address hover card.",
   "The all selection combines JSON files and excludes watch files/folders.",
   "A folder selection loads every JSON file under that folder.",
-  "Switching EVM and Solana remembers the last wallet selection for each type.",
+  "Switching EVM, Solana, and Tron remembers the last wallet selection for each type.",
   "walletNotes in sets.js is shown in the address hover card and under expanded wallet names.",
 ];
 
@@ -54,7 +56,7 @@ const tableNotes = [
 ];
 
 const actions = [
-  ["Address input", "enter 0x or Solana address; URL becomes /w?addr=ADDRESS"],
+  ["Address input", "enter an EVM, Solana, or Tron address; URL becomes /w?addr=ADDRESS"],
   ["Add wallet", "toggle add controls, choose wallet file, enter name/address, then save to wallet JSON"],
   ["Add coin", "choose chain, enter token contract/mint, save metadata to data/editor/coins/CHAIN.json"],
   ["Add vault", "Hyperliquid vault discovery saves custom vault metadata to data/editor/defi/hyperliquid.json"],
@@ -71,6 +73,7 @@ const balanceNotes = [
   "Native EVM balances use multicall getEthBalance.",
   "ERC-20 balances use balanceOf(address).",
   "Solana balances use @solana/web3.js and @solana/spl-token.",
+  "Tron balances use one TronGrid account request per wallet for native TRX and configured TRC-20 balances.",
   "Hyperliquid balances use public Hyperliquid API calls for spot balances and vault equity.",
   "Prices use DefiLlama first, DexScreener fallback, then RPC exchange-rate fallback for supported lending/yield tokens.",
   "Stablecoin price querying is optional in settings; when disabled, common USD stablecoins use $1 fallback pricing.",
@@ -80,7 +83,10 @@ const balanceNotes = [
 ];
 
 const tradePanels = [
-  ["Swap", "Relay, Jumper, Across.to, Uniswap, and Jupiter where supported by chain type"],
+  [
+    "Swap",
+    "Relay and Jumper (including EVM, Solana, and Tron), Across.to, Uniswap, Jupiter, and SUN for Tron",
+  ],
   ["Send", "single-chain wallet-to-wallet transfers with address whitelist support for local private-key mode"],
   ["Lend", "Aave, Venus, Morpho, and Jupiter lending markets"],
   ["Yield", "Spark, Venus Flux, and Hyperliquid vault/spot flows"],

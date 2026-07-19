@@ -1,6 +1,7 @@
 "use server";
 
 import { ethers } from "ethers";
+import { utils } from "tronweb";
 import coinM from "@/fn/coinM";
 import { chainById, chainIds } from "@/data/basic";
 import {
@@ -16,6 +17,7 @@ import {
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
+  executeTronTx,
   getApprovalAmount,
   getApproveTx,
   getChainRpc,
@@ -24,6 +26,9 @@ import {
   getSolanaKeypair,
   getSolanaPublicKey,
   getTradeCoinEntry,
+  getTronAddress,
+  getTronPrivateKey,
+  getTronWeb,
   getUnsignedTx,
   nativeEvmAddress,
 } from "../../sharedServer";
@@ -35,6 +40,8 @@ const jumperApiBase =
   "https://li.quest/v1";
 const defaultSlippage = "0.005";
 const nativeSolanaAddress = "11111111111111111111111111111111";
+const nativeTronAddress = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
+const defaultTronApproveFeeLimit = 100_000_000;
 const jumperDiscoveryCacheM = {};
 const jumperChainIds = {
   ...chainIds,
@@ -65,6 +72,7 @@ const jumperChainNameM = {
   scroll: "Scroll",
   sonic: "Sonic",
   solana: "Solana",
+  tron: "Tron",
   wemix: "WEMIX",
   zksync: "zkSyncEra",
   "zksync era": "zkSyncEra",
@@ -176,6 +184,14 @@ function getJumperTokenRows(data = {}) {
   );
 }
 
+function getJumperTokenAddressKey(chain = "", address = "") {
+  const text = String(address || "").trim();
+
+  return chain == "Solana" || chain == "Tron"
+    ? text
+    : text.toLowerCase();
+}
+
 function normalizeJumperToken(entry = {}, chainByIdM = {}) {
   const chainId = Number(entry.chainId ?? entry.chainID ?? entry.id);
   const chain = chainByIdM[chainId] || jumperChainById[chainId] || "";
@@ -186,14 +202,20 @@ function normalizeJumperToken(entry = {}, chainByIdM = {}) {
     chain == "Solana" &&
     address == nativeSolanaAddress &&
     !!coinInfoM[symbol]?.native;
+  const isNativeTron =
+    chain == "Tron" &&
+    address == nativeTronAddress &&
+    !!coinInfoM[symbol]?.native;
+  const addressKey = getJumperTokenAddressKey(chain, address);
   const added =
     isNativeSolana ||
+    isNativeTron ||
     !!(symbol && coinInfoM[symbol]) ||
     Object.values(coinInfoM).some(
       (coinE) =>
-        address &&
+        addressKey &&
         coinE?.address &&
-        String(coinE.address).toLowerCase() == address.toLowerCase(),
+        getJumperTokenAddressKey(chain, coinE.address) == addressKey,
     );
 
   return {
@@ -227,7 +249,7 @@ function filterJumperTokens(tokens = [], term = "") {
     .filter((entry) => {
       const key = [
         entry.chain || "",
-        String(entry.address || "").toLowerCase(),
+        getJumperTokenAddressKey(entry.chain, entry.address),
         entry.symbol || "",
       ].join(":");
       if (!entry.chain || !key || seen.has(key)) return false;
@@ -267,8 +289,8 @@ export async function clearJumperRuntimeCache() {
   return { ok: true };
 }
 
-function getJumperToken(chain = "", coin = "") {
-  const coinE = getTradeCoinEntry(chain, coin);
+function getJumperToken(chain = "", coin = "", dynamicCoinE = null) {
+  const coinE = getTradeCoinEntry(chain, coin, dynamicCoinE);
   if (chain == "Solana") {
     if (coinE.native) return nativeSolanaAddress;
     if (!coinE.address) throw new Error(`coin address missing: ${chain} ${coin}`);
@@ -277,6 +299,12 @@ function getJumperToken(chain = "", coin = "") {
       coinE.address,
       `Jumper ${coin} mint`,
     ).toBase58();
+  }
+  if (chain == "Tron") {
+    if (coinE.native) return nativeTronAddress;
+    if (!coinE.address) throw new Error(`coin address missing: ${chain} ${coin}`);
+
+    return getTronAddress(coinE.address, `Jumper ${coin} token`);
   }
   if (coinE.native) return nativeEvmAddress;
   if (!coinE.address || !ethers.isAddress(coinE.address)) {
@@ -288,15 +316,21 @@ function getJumperToken(chain = "", coin = "") {
 
 function getJumperAddress(chain = "", address = "", label = "Jumper address") {
   if (chain == "Solana") return getSolanaPublicKey(address, label).toBase58();
+  if (chain == "Tron") return getTronAddress(address, label);
   if (!ethers.isAddress(address)) throw new Error(`${label} must be EVM`);
 
   return ethers.getAddress(address);
 }
 
-function getJumperAmountIn({ chain = "", fromCoin = "", amount = "" } = {}) {
+function getJumperAmountIn({
+  chain = "",
+  fromCoin = "",
+  fromCoinE = null,
+  amount = "",
+} = {}) {
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
-    getCoinDecimals(chain, fromCoin),
+    getCoinDecimals(chain, fromCoin, fromCoinE),
   );
   if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
 
@@ -307,6 +341,7 @@ async function getJumperAllowanceInfo({
   walletAddress = "",
   fromChain = "",
   fromCoin = "",
+  fromCoinE = null,
   amountIn = 0n,
   quote = {},
 } = {}) {
@@ -320,7 +355,7 @@ async function getJumperAllowanceInfo({
     };
   }
 
-  const coinE = getTradeCoinEntry(fromChain, fromCoin);
+  const coinE = getTradeCoinEntry(fromChain, fromCoin, fromCoinE);
   const approvalAddress =
     quote.estimate?.approvalAddress ||
     quote.includedSteps?.find((step) => step?.estimate?.approvalAddress)
@@ -332,6 +367,31 @@ async function getJumperAllowanceInfo({
       token: "",
       spender: "",
       allowance: 0n,
+      amountIn,
+    };
+  }
+  if (fromChain == "Tron") {
+    const owner = getTronAddress(walletAddress, "Jumper sender");
+    const tokenAddress = getTronAddress(
+      coinE.address,
+      `Jumper ${fromCoin} token`,
+    );
+    const spender = getTronAddress(
+      approvalAddress,
+      "Jumper approval address",
+    );
+    const tronWeb = getTronWeb();
+    const token = await tronWeb.contract().at(tokenAddress);
+    const allowanceResult = await token
+      .allowance(owner, spender)
+      .call({ from: owner });
+    const allowance = BigInt(String(allowanceResult));
+
+    return {
+      needed: allowance < amountIn,
+      token: tokenAddress,
+      spender,
+      allowance,
       amountIn,
     };
   }
@@ -374,6 +434,8 @@ async function getJumperQuote({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
 } = {}) {
@@ -392,12 +454,17 @@ async function getJumperQuote({
     recipient || walletAddress,
     "Jumper recipient",
   );
-  const amountIn = getJumperAmountIn({ chain: fromChain, fromCoin, amount });
+  const amountIn = getJumperAmountIn({
+    chain: fromChain,
+    fromCoin,
+    fromCoinE,
+    amount,
+  });
   const quote = await jumperFetch("/quote", {
     fromChain: fromChainId,
     toChain: toChainId,
-    fromToken: getJumperToken(fromChain, fromCoin),
-    toToken: getJumperToken(toChain, toCoin),
+    fromToken: getJumperToken(fromChain, fromCoin, fromCoinE),
+    toToken: getJumperToken(toChain, toCoin, toCoinE),
     fromAmount: amountIn.toString(),
     fromAddress,
     toAddress,
@@ -411,7 +478,92 @@ async function getJumperQuote({
   return { amountIn, quote };
 }
 
-function getJumperUnsignedTx({ quote = {}, type = "swap" } = {}) {
+async function getJumperTronApproveTx({
+  owner = "",
+  token = "",
+  spender = "",
+  amount = 0n,
+} = {}) {
+  const tronWeb = getTronWeb();
+  const result = await tronWeb.transactionBuilder.triggerSmartContract(
+    getTronAddress(token, "Jumper approval token"),
+    "approve(address,uint256)",
+    {
+      feeLimit: defaultTronApproveFeeLimit,
+      callValue: 0,
+    },
+    [
+      {
+        type: "address",
+        value: getTronAddress(spender, "Jumper approval address"),
+      },
+      { type: "uint256", value: amount.toString() },
+    ],
+    getTronAddress(owner, "Jumper sender"),
+  );
+  if (!result?.transaction) {
+    throw new Error("Jumper Tron approval transaction unavailable");
+  }
+
+  return {
+    chain: "Tron",
+    chainId: jumperChainIds.Tron,
+    type: "approve",
+    transaction: result.transaction,
+    format: "tron:transaction",
+    refreshBlockRef: true,
+  };
+}
+
+async function getJumperTronUnsignedTx({
+  txData = {},
+  owner = "",
+  type = "swap",
+} = {}) {
+  const serialized = String(txData.data || "").replace(/^0x/i, "");
+  if (!serialized) throw new Error("Jumper quote returned no Tron tx");
+
+  const contractType =
+    txData.customData?.contractType || "TriggerSmartContract";
+  const rawData = utils.deserializeTx.deserializeTransaction(
+    contractType,
+    serialized,
+  );
+  const transactionOwner =
+    rawData?.contract?.[0]?.parameter?.value?.owner_address || "";
+  if (
+    getTronAddress(transactionOwner, "Jumper Tron transaction owner") !=
+    getTronAddress(owner, "Jumper sender")
+  ) {
+    throw new Error("Jumper Tron transaction owner mismatch");
+  }
+
+  const tronWeb = getTronWeb();
+  const transaction = await tronWeb.transactionBuilder.newTxID(
+    {
+      visible: false,
+      txID: "",
+      raw_data: rawData,
+      raw_data_hex: "",
+    },
+    { txLocal: true },
+  );
+
+  return {
+    chain: "Tron",
+    chainId: jumperChainIds.Tron,
+    type,
+    transaction,
+    format: "tron:transaction",
+    refreshBlockRef: true,
+  };
+}
+
+async function getJumperUnsignedTx({
+  quote = {},
+  owner = "",
+  type = "swap",
+} = {}) {
   const txData = quote.transactionRequest || {};
   const chainId = Number(txData.chainId || quote.action?.fromChainId);
   const chain = jumperChainById[chainId] || "";
@@ -426,6 +578,9 @@ function getJumperUnsignedTx({ quote = {}, type = "swap" } = {}) {
       transaction: txData.data,
       format: "solana:serialized",
     };
+  }
+  if (chain == "Tron") {
+    return getJumperTronUnsignedTx({ txData, owner, type });
   }
   if (!txData.to || !txData.data) throw new Error("Jumper quote returned no tx");
 
@@ -485,6 +640,18 @@ export async function getJumperSupportedBridge({ refresh = false } = {}) {
       publicRpcUrl: "",
     });
   }
+  if (!chains.some((entry) => entry.chain == "Tron")) {
+    chains.push({
+      chain: "Tron",
+      chainId: jumperChainIds.Tron,
+      name: "Tron",
+      added: !!coinM?.Tron,
+      disabled: false,
+      explorerUrl: "https://tronscan.org/#",
+      logoUrl: "",
+      publicRpcUrl: "",
+    });
+  }
 
   return setJumperDiscoveryCache(cacheKey, { chains, tokens: [] });
 }
@@ -528,6 +695,8 @@ export async function getJumperSwapPreview({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
 } = {}) {
@@ -537,6 +706,8 @@ export async function getJumperSwapPreview({
     toChain,
     fromCoin,
     toCoin,
+    fromCoinE,
+    toCoinE,
     amount,
     recipient,
   });
@@ -544,6 +715,7 @@ export async function getJumperSwapPreview({
     walletAddress,
     fromChain,
     fromCoin,
+    fromCoinE,
     amountIn,
     quote,
   });
@@ -568,6 +740,8 @@ export async function buildJumperSwapTxs({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
   approvalAmount = "",
@@ -579,6 +753,8 @@ export async function buildJumperSwapTxs({
     toChain,
     fromCoin,
     toCoin,
+    fromCoinE,
+    toCoinE,
     amount,
     recipient,
   });
@@ -587,6 +763,7 @@ export async function buildJumperSwapTxs({
     walletAddress,
     fromChain,
     fromCoin,
+    fromCoinE,
     amountIn,
     quote,
   });
@@ -598,30 +775,48 @@ export async function buildJumperSwapTxs({
       approvalAmount,
       amountIn,
       defaultAmount: amountIn,
+      decimals: getCoinDecimals(fromChain, fromCoin, fromCoinE),
     });
 
-    if (approval.allowance > 0n) {
+    if (fromChain == "Tron") {
+      txs.push(
+        await getJumperTronApproveTx({
+          owner: walletAddress,
+          token: approval.token,
+          spender: approval.spender,
+          amount: approveAmount,
+        }),
+      );
+    } else {
+      if (approval.allowance > 0n) {
+        txs.push(
+          getApproveTx({
+            chain: fromChain,
+            chainId: jumperChainIds[fromChain],
+            token: approval.token,
+            spender: approval.spender,
+            amount: 0n,
+          }),
+        );
+      }
       txs.push(
         getApproveTx({
           chain: fromChain,
           chainId: jumperChainIds[fromChain],
           token: approval.token,
           spender: approval.spender,
-          amount: 0n,
+          amount: approveAmount,
         }),
       );
     }
-    txs.push(
-      getApproveTx({
-        chain: fromChain,
-        chainId: jumperChainIds[fromChain],
-        token: approval.token,
-        spender: approval.spender,
-        amount: approveAmount,
-      }),
-    );
   }
-  txs.push(getJumperUnsignedTx({ quote, type: "swap" }));
+  txs.push(
+    await getJumperUnsignedTx({
+      quote,
+      owner: walletAddress,
+      type: "swap",
+    }),
+  );
 
   return {
     ok: true,
@@ -645,15 +840,27 @@ export async function executeJumperSwap({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
   recipient = "",
   approvalAmount = "",
 } = {}) {
-  const privateKey = fromChain == "Solana" ? "" : getPrivateKey(walletName);
+  const privateKey =
+    fromChain == "Solana" || fromChain == "Tron"
+      ? ""
+      : getPrivateKey(walletName);
   const solanaKeypair =
     fromChain == "Solana" ? getSolanaKeypair(walletName) : null;
-  if (fromChain != "Solana" && !privateKey) {
+  const tronPrivateKey =
+    fromChain == "Tron" ? getTronPrivateKey(walletName) : "";
+  if (fromChain != "Solana" && fromChain != "Tron" && !privateKey) {
     throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
+  }
+  if (fromChain == "Tron" && !tronPrivateKey) {
+    throw new Error(
+      `private key missing: pk_tron_raw_${walletName} or pk_tron_${walletName}`,
+    );
   }
   try {
     assertWhitelistedRecipient({ address: recipient || walletAddress });
@@ -672,6 +879,8 @@ export async function executeJumperSwap({
     toChain,
     fromCoin,
     toCoin,
+    fromCoinE,
+    toCoinE,
     amount,
     recipient,
     approvalAmount,
@@ -686,6 +895,14 @@ export async function executeJumperSwap({
       txs.push(
         await executeSolanaTx({
           keypair: solanaKeypair,
+          expectedAddress: walletAddress,
+          tx,
+        }),
+      );
+    } else if (tx.chain == "Tron" || tx.format?.startsWith("tron:")) {
+      txs.push(
+        await executeTronTx({
+          privateKey: tronPrivateKey,
           expectedAddress: walletAddress,
           tx,
         }),

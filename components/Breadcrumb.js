@@ -38,13 +38,14 @@ function getPathParts(pathname = "", routeBase = "") {
 }
 
 function getWalletType(searchParams) {
-  return String(searchParams.get("chain") || "").toLowerCase() == "solana"
-    ? "solana"
-    : "evm";
+  const type = String(searchParams.get("chain") || "").toLowerCase();
+  return ["solana", "tron"].includes(type) ? type : "evm";
 }
 
 function getTypeUrl(routeBase, walletType) {
-  return walletType == "solana" ? `${routeBase}?chain=solana` : routeBase;
+  return walletType == "evm"
+    ? routeBase
+    : `${routeBase}?chain=${encodeURIComponent(walletType)}`;
 }
 
 function getSiblings(parent) {
@@ -100,7 +101,13 @@ function getRootWalletOptions(routeBase, typeNode, childOptions = []) {
 function getWalletTypeOptions(routeBase, tree = []) {
   return tree.map((node) => ({
     value: node.walletType,
-    label: node.label || (node.walletType == "solana" ? "Solana" : "EVM"),
+    label:
+      node.label ||
+      (node.walletType == "solana"
+        ? "Solana"
+        : node.walletType == "tron"
+          ? "Tron"
+          : "EVM"),
     href: getTypeUrl(routeBase, node.walletType),
     children: getRootWalletOptions(routeBase, node, getSiblings(node)),
   }));

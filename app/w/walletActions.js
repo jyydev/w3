@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { projectFileWriteBlockedResult } from "../_editorData/projectFileWrites";
 
 const walletRootDir = path.join(process.cwd(), "data", "editor", "wallets");
-const walletTypes = new Set(["evm", "solana"]);
+const walletTypes = new Set(["evm", "solana", "tron"]);
 const walletFileExt = ".json";
 
 function getWalletType(walletType = "evm") {
@@ -85,9 +85,9 @@ function cleanWalletName(name = "") {
 function sameAddress(walletType, a = "", b = "") {
   const addressA = String(a || "").trim();
   const addressB = String(b || "").trim();
-  return getWalletType(walletType) == "solana"
-    ? addressA == addressB
-    : addressA.toLowerCase() == addressB.toLowerCase();
+  return getWalletType(walletType) == "evm"
+    ? addressA.toLowerCase() == addressB.toLowerCase()
+    : addressA == addressB;
 }
 
 export async function deleteWalletEntry({

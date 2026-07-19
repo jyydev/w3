@@ -17,12 +17,16 @@ function WalletInfo() {
         <span className="infoCardTitle">Wallet</span>
         <span>addr loads one custom wallet address.</span>
         <span>coin adds token metadata into data/editor/coins.</span>
-        <span>chain switch remembers the last wallet per EVM/Solana.</span>
+        <span>chain switch remembers the last wallet per EVM/Solana/Tron.</span>
         <span>Click addr, asset, sum, or coin headers to sort rows.</span>
         <span>Chain switches expand one chain and hide the others.</span>
         <span>Settings can disable chains and skip their RPC calls.</span>
         <span>
           Balance source: Alchemy Portfolio when enabled, with RPC fallback.
+        </span>
+        <span>
+          Tron uses TronGrid and supports TronLink, MetaMask, and Binance Wallet
+          for browser signing.
         </span>
         <span>
           Price source: Alchemy Portfolio when enabled, then DefiLlama,

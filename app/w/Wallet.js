@@ -105,9 +105,12 @@ function sameWalletAddress(a = "", b = "") {
   const addressB = String(b || "").trim();
   if (!addressA || !addressB) return false;
 
-  return (
-    addressA == addressB || addressA.toLowerCase() == addressB.toLowerCase()
-  );
+  if (addressA == addressB) return true;
+  if (addressA.startsWith("0x") && addressB.startsWith("0x")) {
+    return addressA.toLowerCase() == addressB.toLowerCase();
+  }
+
+  return false;
 }
 
 function hasWalletBalanceDataForAddress(
@@ -154,7 +157,9 @@ function filterWalletBalanceData(
 }
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
-  return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+  const addressKey = getTokenAddressKey(chain, address);
+
+  return `${chain}:${coin}:${addressKey}`;
 }
 
 function getClaimRewardKey({
@@ -172,7 +177,9 @@ function getTokenAddressKey(chain = "", address = "") {
   const value = String(address || "").trim();
   if (!value) return "";
 
-  return chain == "Solana" ? value : value.toLowerCase();
+  return chain == "Solana" || chain == "Tron"
+    ? value
+    : value.toLowerCase();
 }
 
 function hasPositiveBalance(balance = {}) {
@@ -314,9 +321,8 @@ function applyBalancePatches(data = [], patchM = {}) {
 }
 
 function getWalletAddressReloadKey(walletType = "evm", address = "") {
-  const cleanAddress = String(address || "")
-    .trim()
-    .toLowerCase();
+  const text = String(address || "").trim();
+  const cleanAddress = walletType == "evm" ? text.toLowerCase() : text;
   return cleanAddress ? `${walletType}:${cleanAddress}` : "";
 }
 
@@ -417,6 +423,7 @@ const chainTextIconM = {
   Kaia: "Ka",
   Optimism: "Op",
   Hyperliquid: "Hy",
+  Tron: "Tr",
   WEMIX: "We",
   zkSyncEra: "Zk",
 };
@@ -528,9 +535,10 @@ function getScannerTokenUrl(chainE, address) {
   const scanner = chainE.scanner.replace(/\/+$/, "");
   if (chainE.chain == "Hyperliquid") return `${scanner}/vaults/${address}`;
 
-  return chainE.chain == "Solana"
-    ? `${scanner}/token/${address}`
-    : `${scanner}/address/${address}`;
+  if (chainE.chain == "Solana") return `${scanner}/token/${address}`;
+  if (chainE.chain == "Tron") return `${scanner}/token20/${address}`;
+
+  return `${scanner}/address/${address}`;
 }
 
 function getScannerAccountUrl(chainE, address) {
@@ -543,15 +551,19 @@ function getScannerAccountUrl(chainE, address) {
     : `${scanner}/address/${address}`;
 }
 
-function getSolanaAccountUrl(scanner, address) {
-  return scanner && address
-    ? `${scanner.replace(/\/+$/, "")}/account/${address}`
-    : "";
+function getStandaloneAccountUrl(chain, scanner, address) {
+  if (!scanner || !address) return "";
+  const base = scanner.replace(/\/+$/, "");
+
+  return chain == "Solana"
+    ? `${base}/account/${address}`
+    : `${base}/address/${address}`;
 }
 
 const walletTypeList = [
   ["evm", "EVM"],
   ["solana", "Solana"],
+  ["tron", "Tron"],
 ];
 const coinLimitCookie = `${ckPrefix ?? ""}coinLimit`;
 const assetSortCookie = `${ckPrefix ?? ""}assetSort`;
@@ -4242,13 +4254,13 @@ function Wallet({
   }
 
   function getCoinEntryByAddress(chainE, address = "") {
-    const cleanAddress = String(address || "").toLowerCase();
+    const cleanAddress = getTokenAddressKey(chainE?.chain, address);
     if (!cleanAddress) return null;
 
     return (
       Object.entries(chainE?.coinInfoM || {}).find(
         ([, entry]) =>
-          String(entry?.address || "").toLowerCase() == cleanAddress,
+          getTokenAddressKey(chainE?.chain, entry?.address) == cleanAddress,
       ) || null
     );
   }
@@ -4290,17 +4302,29 @@ function Wallet({
       getWalletEntrySourcePath(entry),
     );
     const walletNote = walletNotes?.[row.name] || "";
-    const isSolana = walletType == "solana";
-    const solanaScanner = chainList.find(
-      (chainE) => chainE.chain == "Solana",
+    const standaloneChain =
+      walletType == "solana" ? "Solana" : walletType == "tron" ? "Tron" : "";
+    const standaloneScanner = chainList.find(
+      (chainE) => chainE.chain == standaloneChain,
     )?.scanner;
-    const profileUrl = isSolana
-      ? getSolanaAccountUrl(solanaScanner, row.address)
+    const profileUrl = standaloneChain
+      ? getStandaloneAccountUrl(
+          standaloneChain,
+          standaloneScanner,
+          row.address,
+        )
       : `https://debank.com/profile/${row.address}`;
-    const profileName = isSolana ? "Solscan" : "DeBank";
+    const profileName =
+      standaloneChain == "Solana"
+        ? "Solscan"
+        : standaloneChain == "Tron"
+          ? "Tronscan"
+          : "DeBank";
     const scannerLinks = chainList
       .filter((chainE) =>
-        isSolana ? chainE.chain == "Solana" : chainE.chain != "Solana",
+        standaloneChain
+          ? chainE.chain == standaloneChain
+          : chainE.chain != "Solana" && chainE.chain != "Tron",
       )
       .map((chainE) => ({
         chain: chainE.chain,
@@ -4435,7 +4459,7 @@ function Wallet({
             )}
           </span>
         </InteractiveInfoCard>
-        {!isSolana && (
+        {!standaloneChain && (
           <a
             href={profileUrl}
             target="_blank"
@@ -5048,7 +5072,11 @@ function Wallet({
                 value={customAddress}
                 onChange={(e) => setCustomAddress(e.target.value)}
                 placeholder={
-                  walletType == "solana" ? "Solana address" : "0x..."
+                  walletType == "solana"
+                    ? "Solana address"
+                    : walletType == "tron"
+                      ? "Tron address"
+                      : "0x..."
                 }
                 style={{
                   width: `${Math.max(customAddress.length || 0, 12) + 2}ch`,
@@ -5168,7 +5196,9 @@ function Wallet({
                         ? "vault addr"
                         : customCoinChainValue == "Solana"
                           ? "mint"
-                          : "coin addr"
+                          : customCoinChainValue == "Tron"
+                            ? "TRC-20 contract"
+                            : "coin addr"
                     }
                     style={{
                       width: `${

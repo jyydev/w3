@@ -33,6 +33,7 @@ import {
   getHyperliquidWalletBalances,
   getWalletBalances,
   getSolanaWalletBalances,
+  getTronWalletBalances,
   getWalletType,
   loadWalletEntries,
   listWalletFiles,
@@ -96,9 +97,20 @@ function dedupeCoinInfoMByAddress(coinInfoM = {}) {
 function hasWalletPrivateKey(name = "", walletType = defaultWalletType) {
   if (!name) return false;
 
-  return walletType == "solana"
-    ? !!process.env[`pk_sol_raw_${name}`] || !!process.env[`pk_sol_${name}`]
-    : !!process.env[`pk_raw_${name}`] || !!process.env[`pk_${name}`];
+  if (walletType == "solana") {
+    return (
+      !!process.env[`pk_sol_raw_${name}`] ||
+      !!process.env[`pk_sol_${name}`]
+    );
+  }
+  if (walletType == "tron") {
+    return (
+      !!process.env[`pk_tron_raw_${name}`] ||
+      !!process.env[`pk_tron_${name}`]
+    );
+  }
+
+  return !!process.env[`pk_raw_${name}`] || !!process.env[`pk_${name}`];
 }
 
 function getWalletPrivateKeyM(...entryGroups) {
@@ -247,10 +259,13 @@ async function WPage({
       : "";
   const selectedWalletAddress = rawWalletAddress || walletNameAddress;
   const selectedWalletName = walletNameAddress ? "" : rawWalletName;
-  const evmRpcChains = Object.keys(coinM).filter((chain) => rpcs?.[chain]);
+  const rpcChains = Object.keys(coinM).filter((chain) => rpcs?.[chain]);
+  const evmRpcChains = rpcChains.filter(
+    (chain) => chain != "Solana" && chain != "Tron",
+  );
   const hyperliquidChain = "Hyperliquid";
   const claimChain = "Claim";
-  const availableChains = [...evmRpcChains, hyperliquidChain, claimChain];
+  const availableChains = [...rpcChains, hyperliquidChain, claimChain];
   const customCoinM = await readCustomCoinM(availableChains);
   const availableCoinM = Object.fromEntries(
     availableChains.map((chain) => {
@@ -317,28 +332,30 @@ async function WPage({
     parseSortingMode(cookieStore.get(sortingModeCookie)?.value) ||
     defaultSortingMode;
   const disabledChainM = new Set([...disabledChains, ...offChains]);
+  const walletTypeChainM = { solana: "Solana", tron: "Tron" };
+  const requestedWalletChain = walletTypeChainM[requestedWalletType] || "";
   const selectedWalletType =
-    requestedWalletType == "solana" && disabledChainM.has("Solana")
+    requestedWalletChain && disabledChainM.has(requestedWalletChain)
       ? defaultWalletType
       : requestedWalletType;
-  const chains = evmRpcChains.filter(
-    (chain) => chain != "Solana" && !disabledChainM.has(chain),
-  );
+  const chains = evmRpcChains.filter((chain) => !disabledChainM.has(chain));
   const includeHyperliquid =
-    selectedWalletType != "solana" && !disabledChainM.has(hyperliquidChain);
+    selectedWalletType == "evm" && !disabledChainM.has(hyperliquidChain);
   const walletTypeOptions = [
     ["evm", "EVM"],
     ...(!disabledChainM.has("Solana") ? [["solana", "Solana"]] : []),
+    ...(!disabledChainM.has("Tron") ? [["tron", "Tron"]] : []),
   ];
-  const customCoinChains =
-    selectedWalletType == "solana"
-      ? disabledChainM.has("Solana")
-        ? []
-        : ["Solana"]
-      : [...chains, ...(includeHyperliquid ? [hyperliquidChain] : [])];
+  const selectedStandaloneChain = walletTypeChainM[selectedWalletType] || "";
+  const customCoinChains = selectedStandaloneChain
+    ? disabledChainM.has(selectedStandaloneChain)
+      ? []
+      : [selectedStandaloneChain]
+    : [...chains, ...(includeHyperliquid ? [hyperliquidChain] : [])];
   const walletFilesM = {
     evm: await listWalletFiles("evm"),
     solana: await listWalletFiles("solana"),
+    tron: await listWalletFiles("tron"),
   };
   const walletFiles = walletFilesM[selectedWalletType] ?? [];
   const allWalletEntries = await loadWalletEntries("", selectedWalletType);
@@ -376,6 +393,7 @@ async function WPage({
     ? {
         evm: await loadWalletEntries("", "evm"),
         solana: await loadWalletEntries("", "solana"),
+        tron: await loadWalletEntries("", "tron"),
       }
     : {};
   const walletEntries = await loadWalletEntries(
@@ -391,6 +409,7 @@ async function WPage({
     { type: selectedWalletType, entries: walletEntries },
     { type: "evm", entries: tradeWalletEntriesM.evm },
     { type: "solana", entries: tradeWalletEntriesM.solana },
+    { type: "tron", entries: tradeWalletEntriesM.tron },
     selectedWalletName
       ? {
           type: selectedWalletType,
@@ -403,7 +422,9 @@ async function WPage({
       ? disabledChainM.has("Solana")
         ? []
         : ["Solana"]
-      : chains;
+      : selectedWalletType == "evm"
+        ? chains
+        : [];
   const alchemyTokenCache = await getAlchemyWalletTokenCache({
     chains: alchemyTokenCacheChains,
     walletFile: selectedWalletFile,
@@ -415,30 +436,50 @@ async function WPage({
     disabledWalletNames: offAddrs,
     useAlchemy,
   }).catch(() => null);
-  const data =
-    selectedWalletType == "solana"
-      ? disabledChainM.has("Solana")
-        ? []
-        : [
-            await getSolanaWalletBalances({
-              walletFile: selectedWalletFile,
-              walletAddress: selectedWalletAddress,
-              walletName: selectedWalletName,
-              walletEntryList,
-              customCoinM: customCoinM.Solana ?? {},
-              disabledCoins: [
-                ...(disabledCoinM.Solana ?? []),
-                ...(offCoinM.Solana ?? []),
-              ],
-              disabledWallets,
-              disabledWalletNames: offAddrs,
-              useAlchemy,
-              alchemyMinUsd,
-              usdPriceQuery,
-              alchemyTokenCache,
-            }),
-          ]
-      : await Promise.all(
+  let data;
+  if (selectedWalletType == "solana") {
+    data = disabledChainM.has("Solana")
+      ? []
+      : [
+          await getSolanaWalletBalances({
+            walletFile: selectedWalletFile,
+            walletAddress: selectedWalletAddress,
+            walletName: selectedWalletName,
+            walletEntryList,
+            customCoinM: customCoinM.Solana ?? {},
+            disabledCoins: [
+              ...(disabledCoinM.Solana ?? []),
+              ...(offCoinM.Solana ?? []),
+            ],
+            disabledWallets,
+            disabledWalletNames: offAddrs,
+            useAlchemy,
+            alchemyMinUsd,
+            usdPriceQuery,
+            alchemyTokenCache,
+          }),
+        ];
+  } else if (selectedWalletType == "tron") {
+    data = disabledChainM.has("Tron")
+      ? []
+      : [
+          await getTronWalletBalances({
+            walletFile: selectedWalletFile,
+            walletAddress: selectedWalletAddress,
+            walletName: selectedWalletName,
+            walletEntryList,
+            customCoinM: customCoinM.Tron ?? {},
+            disabledCoins: [
+              ...(disabledCoinM.Tron ?? []),
+              ...(offCoinM.Tron ?? []),
+            ],
+            disabledWallets,
+            disabledWalletNames: offAddrs,
+            usdPriceQuery,
+          }),
+        ];
+  } else {
+    data = await Promise.all(
           [
             ...chains.map((chain) =>
               getWalletBalances({
@@ -481,8 +522,9 @@ async function WPage({
               : []),
           ],
         );
+  }
   const claimData =
-    selectedWalletType == "solana" || disabledChainM.has(claimChain)
+    selectedWalletType != "evm" || disabledChainM.has(claimChain)
       ? null
       : await getClaimBalances({
           data,
@@ -506,6 +548,8 @@ async function WPage({
           ? "api"
           : chain == claimChain
             ? "api"
+          : chain == "Tron"
+            ? "api"
           : useAlchemy && alchemyChainM[chain]
             ? "alchemy"
             : "rpc");
@@ -513,7 +557,7 @@ async function WPage({
       return [chain, source];
     }),
   );
-  const tradeData = evmRpcChains
+  const tradeData = rpcChains
     .filter((chain) => !disabledChainM.has(chain))
     .map((chain) => {
       const loaded = dataByChain.get(chain);
@@ -533,7 +577,9 @@ async function WPage({
 
       return { chain, coins: [], allCoins, coinInfoM, scanner: "", rows: [] };
     });
-  const initialTradePickerData = await getInitialTradePickerData(!!afterWallet);
+  const initialTradePickerData = await getInitialTradePickerData(
+    !!afterWallet && selectedWalletType != "tron",
+  );
 
   return (
     <div>

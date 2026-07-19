@@ -6,6 +6,12 @@ const storageKey = `${ckPrefix ?? ""}editorFiles`;
 const navFavStoragePrefix = `${ckPrefix ?? ""}navFavs:`;
 export const localEditorStorageEvent = `${ckPrefix ?? ""}editorStorageChange`;
 const allowedEditorExts = new Set([".json", ".txt", ".js"]);
+const walletTypes = new Set(["evm", "solana", "tron"]);
+
+function cleanWalletType(walletType = "evm") {
+  const type = String(walletType || "evm").toLowerCase();
+  return walletTypes.has(type) ? type : "evm";
+}
 
 export function isLocalEditorHost(hostname = "") {
   const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
@@ -265,10 +271,10 @@ function writeLocalWalletEntries(file, entries = []) {
 }
 
 function sameAddress(walletType, a = "", b = "") {
-  return walletType == "solana"
-    ? String(a || "").trim() == String(b || "").trim()
-    : String(a || "").trim().toLowerCase() ==
-        String(b || "").trim().toLowerCase();
+  return cleanWalletType(walletType) == "evm"
+    ? String(a || "").trim().toLowerCase() ==
+        String(b || "").trim().toLowerCase()
+    : String(a || "").trim() == String(b || "").trim();
 }
 
 function parseLineValues(txt = "", availableValues = []) {
@@ -294,7 +300,7 @@ export function addLocalWalletEntry({
   name = "",
   address = "",
 } = {}) {
-  const type = walletType == "solana" ? "solana" : "evm";
+  const type = cleanWalletType(walletType);
   const cleanSource = String(source || "").trim().replace(/\.(txt|json)$/i, "");
   const cleanName = String(name || "").trim();
   const cleanAddress = String(address || "").trim();
@@ -334,7 +340,7 @@ export function deleteLocalWalletEntry({
   name = "",
   address = "",
 } = {}) {
-  const type = walletType == "solana" ? "solana" : "evm";
+  const type = cleanWalletType(walletType);
   const cleanSource = String(source || "").trim().replace(/\.(txt|json)$/i, "");
   const cleanName = String(name || "").trim();
   const cleanAddress = String(address || "").trim();
@@ -373,7 +379,7 @@ export function updateLocalWalletEntryRef({
   address = "",
   ref = "",
 } = {}) {
-  const type = walletType == "solana" ? "solana" : "evm";
+  const type = cleanWalletType(walletType);
   const cleanSource = String(source || "").trim().replace(/\.(txt|json)$/i, "");
   const cleanName = String(name || "").trim();
   const cleanAddress = String(address || "").trim();
@@ -404,7 +410,7 @@ export function updateLocalWalletEntryRef({
 }
 
 function getLocalWalletPrefix(walletType = "evm") {
-  return `wallets/${walletType == "solana" ? "solana" : "evm"}/`;
+  return `wallets/${cleanWalletType(walletType)}/`;
 }
 
 function getLocalWalletSource(file, walletType = "evm") {
@@ -425,7 +431,7 @@ function getLocalWalletFile(type = "evm", source = "") {
     .trim()
     .replace(/\.(txt|json)$/i, "")
     .replace(/\/+$/, "");
-  return `wallets/${type == "solana" ? "solana" : "evm"}/${cleanSource}.json`;
+  return `wallets/${cleanWalletType(type)}/${cleanSource}.json`;
 }
 
 function getExistingLocalWalletFile(type = "evm", source = "") {
@@ -437,7 +443,7 @@ function readLocalWalletFileEntries(file) {
 }
 
 export function listLocalWalletFileRecords(walletType = "evm") {
-  const type = walletType == "solana" ? "solana" : "evm";
+  const type = cleanWalletType(walletType);
   const prefix = getLocalWalletPrefix(type);
   const files = readLocalEditorFiles();
   const recordM = new Map();
@@ -492,7 +498,7 @@ export function readLocalWalletEntries(
   source = "",
   { includeReserved = false, uniqueNames = true } = {},
 ) {
-  const type = walletType == "solana" ? "solana" : "evm";
+  const type = cleanWalletType(walletType);
   const cleanSource = String(source || "").trim().replace(/\/+$/, "");
   const matchingRecords = listLocalWalletFileRecords(type)
     .filter((record) => {

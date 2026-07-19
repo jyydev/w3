@@ -5,8 +5,15 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
+import { TronWeb } from "tronweb";
 import coinM from "@/fn/coinM";
 import getCoinM from "@/fn/getCoinM";
+import {
+  getUnsignedTronTransaction,
+  refreshTronTransaction,
+} from "@/fn/tronTx";
+import { getTronStakeV2State } from "@/fn/tronStake";
+import { tronEnergyStakeCoinE } from "@/data/coins/tron";
 import { chainById, chainIds } from "@/data/basic";
 import { onWhitelist, rpcs, whitelists } from "@/sets";
 import {
@@ -34,6 +41,18 @@ export const erc20Abi = [
   "function transfer(address to,uint256 amount) returns (bool)",
 ];
 export const erc20Interface = new ethers.Interface(erc20Abi);
+const trc20BalanceAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
+const rpcFailureCooldownMs = 60_000;
+const failedRpcM = globalThis.__w3FailedRpcM || new Map();
+globalThis.__w3FailedRpcM = failedRpcM;
 
 export function withTimeout(promise, ms, message) {
   let timer;
@@ -83,6 +102,9 @@ function getWhitelistAddressKey(address = "") {
   const value = String(address || "").trim();
   if (!value) return "";
   if (ethers.isAddress(value)) return `evm:${ethers.getAddress(value).toLowerCase()}`;
+  if (TronWeb.isAddress(value)) {
+    return `tron:${TronWeb.address.fromHex(TronWeb.address.toHex(value))}`;
+  }
 
   try {
     return `solana:${new PublicKey(value).toBase58()}`;
@@ -204,6 +226,15 @@ function normalizeTradeCoinAddress(chain = "", address = "") {
       return "";
     }
   }
+  if (chain == "Tron") {
+    try {
+      return TronWeb.isAddress(text)
+        ? TronWeb.address.fromHex(TronWeb.address.toHex(text))
+        : "";
+    } catch {
+      return "";
+    }
+  }
 
   if (!/^0x[0-9a-fA-F]{40}$/.test(text)) return "";
 
@@ -291,6 +322,30 @@ export async function getTradeCoinBalance({
         return sum + BigInt(amount);
       }, 0n);
     }
+  } else if (chain == "Tron") {
+    const owner = getTronAddress(address, "Tron recipient address");
+
+    raw = await runTronRpc({
+      scope: "trade Tron balance",
+      action: async (tronWeb) => {
+        if (coinE.syntheticKind == tronEnergyStakeCoinE.syntheticKind) {
+          const account = await tronWeb.trx.getAccount(owner);
+          return getTronStakeV2State(account).energyStakeRaw;
+        }
+        if (coinE.native) {
+          return BigInt(await tronWeb.trx.getBalance(owner));
+        }
+
+        const tokenAddress = getTronAddress(
+          coinE.address,
+          "TRC-20 token address",
+        );
+        tronWeb.setAddress(owner);
+        const token = tronWeb.contract(trc20BalanceAbi, tokenAddress);
+        const balance = await token.balanceOf(owner).call({ from: owner });
+        return BigInt(balance?.toString?.() ?? balance ?? 0);
+      },
+    });
   } else {
     if (!ethers.isAddress(address)) throw new Error("EVM recipient address invalid");
     const rpc = getUsableChainRpc(chain);
@@ -331,7 +386,13 @@ export async function getTradeCoinBalance({
     address,
     decimals: coinE.decimals,
   });
-  const price = await getCoinUsdPrice({ chain, coin, coinE }).catch(() => 0);
+  const isTronEnergyStake =
+    coinE.syntheticKind == tronEnergyStakeCoinE.syntheticKind;
+  const price = await getCoinUsdPrice({
+    chain,
+    coin: isTronEnergyStake ? "TRX" : coin,
+    coinE: isTronEnergyStake ? resolveTradeCoinEntry(chain, "TRX") : coinE,
+  }).catch(() => 0);
 
   return {
     ...balanceE,
@@ -363,6 +424,14 @@ export function getSolanaPrivateKey(walletName = "") {
     String(process.env[`pk_sol_raw_${walletName}`] || "").trim() ||
     decodeEnvPrivateKey(process.env[`pk_sol_${walletName}`])
   );
+}
+
+export function getTronPrivateKey(walletName = "") {
+  const key =
+    String(process.env[`pk_tron_raw_${walletName}`] || "").trim() ||
+    decodeEnvPrivateKey(process.env[`pk_tron_${walletName}`]);
+
+  return String(key || "").trim().replace(/^0x/i, "");
 }
 
 function base58ToBytes(text = "") {
@@ -444,7 +513,7 @@ export function getSolanaKeypair(walletName = "") {
   return parseSolanaSecretKey(secret);
 }
 
-export function getChainRpc(chain = "") {
+function getConfiguredChainRpcs(chain = "") {
   const chainRpc = rpcs?.[chain];
   const list = Array.isArray(chainRpc)
     ? chainRpc
@@ -454,26 +523,35 @@ export function getChainRpc(chain = "") {
         ? chainRpc.rpcs
         : [chainRpc?.rpc ?? chainRpc?.rpcs ?? chainRpc];
 
-  return list.find(Boolean);
-}
-
-export function getUsableChainRpc(chain = "") {
-  const chainRpc = rpcs?.[chain];
-  const list = Array.isArray(chainRpc)
-    ? chainRpc
-    : Array.isArray(chainRpc?.rpc)
-      ? chainRpc.rpc
-      : Array.isArray(chainRpc?.rpcs)
-        ? chainRpc.rpcs
-        : [chainRpc?.rpc ?? chainRpc?.rpcs ?? chainRpc];
-
-  return list.find(
+  return list.filter(
     (rpc) =>
       rpc &&
       !String(rpc).includes("undefined") &&
       !String(rpc).includes("YOUR_KEY") &&
       !String(rpc).match(/\/v2\/?$/),
   );
+}
+
+export function getChainRpc(chain = "") {
+  return getConfiguredChainRpcs(chain)[0];
+}
+
+export function getUsableChainRpcs(chain = "") {
+  const now = Date.now();
+
+  return getConfiguredChainRpcs(chain).filter((rpc) => {
+    const failedAt = failedRpcM.get(rpc) || 0;
+    if (!failedAt || now - failedAt > rpcFailureCooldownMs) {
+      if (failedAt) failedRpcM.delete(rpc);
+      return true;
+    }
+
+    return false;
+  });
+}
+
+export function getUsableChainRpc(chain = "") {
+  return getUsableChainRpcs(chain)[0];
 }
 
 export function getSolanaPublicKey(address = "", label = "Solana address") {
@@ -516,6 +594,93 @@ export function getSolanaConnection() {
   });
 }
 
+function isTronGridRpc(rpc = "") {
+  try {
+    const hostname = new URL(rpc).hostname.toLowerCase();
+    return hostname == "api.trongrid.io" || hostname.endsWith(".trongrid.io");
+  } catch {
+    return false;
+  }
+}
+
+function getTronGridHeaders(rpc = "") {
+  const apiKey = String(
+    process.env.TRONGRID_API_KEY || process.env.rpc_key_trongrid || "",
+  ).trim();
+
+  return apiKey && (!rpc || isTronGridRpc(rpc))
+    ? { "TRON-PRO-API-KEY": apiKey }
+    : {};
+}
+
+export function getTronAddress(address = "", label = "Tron address") {
+  const text = String(address || "").trim();
+  if (!TronWeb.isAddress(text)) throw new Error(`${label} invalid`);
+
+  return TronWeb.address.fromHex(TronWeb.address.toHex(text));
+}
+
+export function getTronWeb(privateKey = "", rpcOverride = "") {
+  const rpc = rpcOverride || getUsableChainRpc("Tron");
+  if (!rpc) throw new Error("Tron API not configured");
+
+  return new TronWeb({
+    fullHost: rpc,
+    headers: getTronGridHeaders(rpc),
+    ...(privateKey ? { privateKey } : {}),
+  });
+}
+
+function isRetryableTronRpcError(error) {
+  const status = Number(error?.response?.status || error?.status || 0);
+  if ([401, 403, 408, 425, 429].includes(status) || status >= 500) return true;
+
+  const code = String(error?.code || "").toUpperCase();
+  if (
+    [
+      "ECONNABORTED",
+      "ECONNREFUSED",
+      "ECONNRESET",
+      "ENETUNREACH",
+      "ENOTFOUND",
+      "ERR_NETWORK",
+      "ETIMEDOUT",
+    ].includes(code)
+  ) {
+    return true;
+  }
+
+  return /(?:403|408|429|5\d\d|network|socket|timeout|timed out|fetch failed|gateway)/i.test(
+    String(error?.message || ""),
+  );
+}
+
+export async function runTronRpc({
+  action,
+  privateKey = "",
+  scope = "trade Tron",
+} = {}) {
+  if (typeof action != "function") throw new Error("Tron RPC action missing");
+
+  const rpcList = getUsableChainRpcs("Tron");
+  if (!rpcList.length) throw new Error("Tron API temporarily unavailable");
+
+  let lastError;
+  for (const rpc of rpcList) {
+    try {
+      return await action(getTronWeb(privateKey, rpc), rpc);
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableTronRpcError(error)) throw error;
+
+      failedRpcM.set(rpc, Date.now());
+      logRpcFailure({ scope, chain: "Tron", rpc, error });
+    }
+  }
+
+  throw toCleanError(lastError, `${scope} failed`);
+}
+
 export function getCoinDecimals(chain = "", coin = "", dynamicCoinE = null) {
   const decimals = resolveTradeCoinEntry(chain, coin, dynamicCoinE)?.decimals;
   if (!Number.isInteger(decimals)) {
@@ -554,6 +719,21 @@ export function assertSolanaWalletMatches(keypair, expectedAddress = "") {
   if (actual != expected) {
     throw new Error(`pk_sol private key does not match ${expectedAddress}`);
   }
+}
+
+export function assertTronWalletMatches(privateKey = "", expectedAddress = "") {
+  if (!privateKey) throw new Error("Tron private key missing");
+
+  const actual = TronWeb.address.fromPrivateKey(privateKey);
+  if (!actual) throw new Error("Tron private key invalid");
+  if (
+    expectedAddress &&
+    actual != getTronAddress(expectedAddress, "Tron wallet address")
+  ) {
+    throw new Error(`pk_tron private key does not match ${expectedAddress}`);
+  }
+
+  return actual;
 }
 
 function positiveBigInt(value) {
@@ -674,6 +854,37 @@ export async function executeSolanaTx({ keypair, expectedAddress, tx }) {
     type: tx.type || "tx",
     hash: sent.hash,
     blockNumber: null,
+  };
+}
+
+export async function executeTronTx({
+  privateKey = "",
+  expectedAddress = "",
+  tx,
+  waitForConfirmation = true,
+}) {
+  assertTronWalletMatches(privateKey, expectedAddress);
+  if (!tx?.transaction) throw new Error("Tron transaction missing");
+
+  const tronWeb = getTronWeb(privateKey);
+  const transaction = tx.refreshBlockRef
+    ? await refreshTronTransaction(tronWeb, tx.transaction)
+    : tx.transaction;
+  const signed = await tronWeb.trx.sign(
+    getUnsignedTronTransaction(transaction),
+    privateKey,
+  );
+  const sent = await sendTronRawTransaction({
+    transaction: signed,
+    waitForConfirmation,
+  });
+
+  return {
+    chain: "Tron",
+    type: tx.type || "tx",
+    hash: sent.hash,
+    blockNumber: sent.blockNumber ?? null,
+    pending: !!sent.pending,
   };
 }
 
@@ -851,4 +1062,127 @@ export async function confirmSolanaTransaction({ signature = "" } = {}) {
   }
 
   return { ok: true, chain: "Solana", hash: signature };
+}
+
+function decodeTronMessage(value = "") {
+  const text = String(value || "");
+  if (!/^[0-9a-f]+$/i.test(text)) return text;
+
+  try {
+    return Buffer.from(text, "hex").toString("utf8");
+  } catch {
+    return text;
+  }
+}
+
+function getTronFailureReason(info = {}) {
+  const contractResult = String(info?.contractResult?.[0] || "")
+    .trim()
+    .replace(/^0x/i, "");
+
+  if (contractResult.startsWith("08c379a0")) {
+    try {
+      return String(
+        ethers.AbiCoder.defaultAbiCoder().decode(
+          ["string"],
+          `0x${contractResult.slice(8)}`,
+        )[0] || "",
+      ).trim();
+    } catch {}
+  }
+
+  const message = decodeTronMessage(info?.resMessage).trim();
+  return message && message != "REVERT opcode executed" ? message : "";
+}
+
+async function pollTronTransaction(tronWeb, hash = "") {
+  const deadline = Date.now() + 60_000;
+
+  while (Date.now() < deadline) {
+    try {
+      const info = await tronWeb.trx.getTransactionInfo(hash);
+      if (info?.id || info?.receipt) {
+        const result = info?.receipt?.result;
+        if (result && result != "SUCCESS") {
+          const reason = getTronFailureReason(info);
+          throw new Error(
+            `Tron transaction failed: ${result}${reason ? `: ${reason}` : ""} (tx ${hash})`,
+          );
+        }
+
+        return info;
+      }
+    } catch (e) {
+      if (String(e?.message || "").startsWith("Tron transaction failed:")) {
+        throw e;
+      }
+    }
+
+    await sleep(1200);
+  }
+
+  throw new Error("Tron transaction confirmation timeout");
+}
+
+export async function confirmTronTransaction({ hash = "" } = {}) {
+  const cleanHash = String(hash || "").trim();
+  if (!cleanHash) throw new Error("Tron transaction hash missing");
+
+  const info = await pollTronTransaction(getTronWeb(), cleanHash);
+
+  return {
+    ok: true,
+    chain: "Tron",
+    hash: cleanHash,
+    blockNumber: info?.blockNumber ?? null,
+    pending: false,
+  };
+}
+
+export async function sendTronRawTransaction({
+  transaction = null,
+  waitForConfirmation = true,
+} = {}) {
+  if (!transaction || typeof transaction != "object") {
+    throw new Error("signed Tron transaction missing");
+  }
+
+  const tronWeb = getTronWeb();
+  const result = await tronWeb.trx.sendRawTransaction(transaction);
+  const hash = result?.txid || transaction?.txID || "";
+  if (!result?.result || !hash) {
+    throw new Error(
+      decodeTronMessage(result?.message) ||
+        result?.code ||
+        "Tron transaction broadcast failed",
+    );
+  }
+
+  if (!waitForConfirmation) {
+    return {
+      ok: true,
+      chain: "Tron",
+      hash,
+      blockNumber: null,
+      pending: true,
+    };
+  }
+
+  const info = await pollTronTransaction(tronWeb, hash);
+
+  return {
+    ok: true,
+    chain: "Tron",
+    hash,
+    blockNumber: info?.blockNumber ?? null,
+    pending: false,
+  };
+}
+
+export async function refreshBrowserTronTransaction({
+  transaction = null,
+} = {}) {
+  if (!transaction?.raw_data) throw new Error("Tron transaction missing");
+
+  return refreshTronTransaction(getTronWeb(), transaction);
 }

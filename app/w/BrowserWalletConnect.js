@@ -10,6 +10,15 @@ import {
   readStoredWallet,
   saveStoredWallet,
 } from "./browserWalletStorage";
+import {
+  connectBrowserTronWallet,
+  disconnectBrowserTronWallet,
+  getBrowserTronAddress,
+  getBrowserTronProvider,
+  getBrowserTronProviderReady,
+  subscribeBrowserTronAccounts,
+  tronBrowserWallets,
+} from "./browserTronWallet";
 
 const eip6963ProviderDetails = [];
 let eip6963Listening = false;
@@ -33,8 +42,8 @@ function getAddressKey(type = "evm", address = "") {
   const clean = String(address || "").trim();
   if (!clean) return "";
 
-  const cleanType = type == "solana" ? "solana" : "evm";
-  return `${cleanType}:${cleanType == "solana" ? clean : clean.toLowerCase()}`;
+  const cleanType = ["solana", "tron"].includes(type) ? type : "evm";
+  return `${cleanType}:${cleanType == "evm" ? clean.toLowerCase() : clean}`;
 }
 
 function findWalletEntryByAddress(
@@ -470,13 +479,14 @@ function getWalletUrl({ routeBase = "/w", walletType = "evm", address = "" }) {
 function getProviderForMeta(meta) {
   if (!meta) return null;
 
-  return meta.type == "solana"
-    ? getSolanaProvider(meta.wallet)
-    : getEvmProvider(meta.wallet);
+  if (meta.type == "solana") return getSolanaProvider(meta.wallet);
+  if (meta.type == "tron") return getBrowserTronProvider(meta.wallet);
+
+  return getEvmProvider(meta.wallet);
 }
 
 function getConnectType(walletType = "evm") {
-  return walletType == "solana" ? "solana" : "evm";
+  return ["solana", "tron"].includes(walletType) ? walletType : "evm";
 }
 
 function readWalletMeta(type = "") {
@@ -496,13 +506,17 @@ async function refreshWalletMeta(meta) {
     meta.provider ||
     (meta.type == "solana"
       ? await getSolanaProviderReady(meta.wallet)
-      : await getEvmProviderReady(meta.wallet));
+      : meta.type == "tron"
+        ? await getBrowserTronProviderReady(meta.wallet)
+        : await getEvmProviderReady(meta.wallet));
   if (!provider) return meta;
 
   const currentAddress =
     meta.type == "solana"
       ? getCurrentSolanaAddress(provider)
-      : await getCurrentEvmAddress(provider);
+      : meta.type == "tron"
+        ? getBrowserTronAddress(provider, meta.wallet)
+        : await getCurrentEvmAddress(provider);
   const nextMeta = {
     ...meta,
     provider,
@@ -557,6 +571,25 @@ async function getSameWalletMetaForType(sourceMeta, targetType) {
       : null;
   }
 
+  if (targetType == "tron") {
+    const walletEntry = tronBrowserWallets.find(
+      ([wallet]) => wallet == sourceMeta.wallet,
+    );
+    if (!walletEntry) return null;
+
+    const provider = await getBrowserTronProviderReady(sourceMeta.wallet);
+    const address = getBrowserTronAddress(provider, sourceMeta.wallet);
+    return address
+      ? {
+          type: "tron",
+          wallet: sourceMeta.wallet,
+          label: walletEntry[1],
+          address,
+          provider,
+        }
+      : null;
+  }
+
   const provider = await getSolanaProviderReady(sourceMeta.wallet);
   const address = getCurrentSolanaAddress(provider);
   return address
@@ -599,8 +632,13 @@ function BrowserWalletConnect({
   const walletLoadingTimerRef = useRef(null);
   const pendingWalletLoadingUrlRef = useRef("");
   const displayAddress = connected;
+  const selectedType = connectedWallet?.type || walletType;
   const currentType =
-    (connectedWallet?.type || walletType) == "solana" ? "Solana" : "EVM";
+    selectedType == "solana"
+      ? "Solana"
+      : selectedType == "tron"
+        ? "Tron"
+        : "EVM";
   const savedWalletEntry = findWalletEntryByAddress(
     walletEntries,
     connectedWallet?.type || walletType,
@@ -623,6 +661,7 @@ function BrowserWalletConnect({
     ],
     [],
   );
+  const tronWallets = useMemo(() => tronBrowserWallets, []);
 
   function stopWalletLoading() {
     clearTimeout(walletLoadingTimerRef.current);
@@ -702,6 +741,11 @@ function BrowserWalletConnect({
 
       openAddress(address, "solana", connectedWallet);
     };
+    const handleTronAccounts = (address = "") => {
+      if (!address) return disconnect(false);
+
+      openAddress(address, "tron", connectedWallet);
+    };
 
     if (connectedWallet.type == "evm" && provider.on) {
       provider.on("accountsChanged", handleEvmAccounts);
@@ -719,6 +763,14 @@ function BrowserWalletConnect({
         provider.off?.("accountChanged", handleSolanaAccount);
         provider.off?.("accountsChanged", handleSolanaAccounts);
       };
+    }
+
+    if (connectedWallet.type == "tron") {
+      return subscribeBrowserTronAccounts({
+        provider,
+        wallet: connectedWallet.wallet,
+        onChange: handleTronAccounts,
+      });
     }
   }, [connectedWallet]);
 
@@ -819,9 +871,35 @@ function BrowserWalletConnect({
     }
   }
 
+  async function connectTron(wallet, label) {
+    const toastId = toast.loading(`connecting ${label} Tron...`);
+
+    try {
+      const { provider, address } = await connectBrowserTronWallet(wallet);
+
+      toast.success(`connected ${label}`, { id: toastId });
+      openAddress(address, "tron", {
+        type: "tron",
+        wallet,
+        label,
+        provider,
+      });
+    } catch (e) {
+      toast.error(e?.message || `${label} Tron connect failed`, {
+        id: toastId,
+      });
+    }
+  }
+
   function disconnect(closeCard = true) {
     try {
-      const disconnectResult = connectedWallet?.provider?.disconnect?.();
+      const disconnectResult =
+        connectedWallet?.type == "tron"
+          ? disconnectBrowserTronWallet({
+              provider: connectedWallet.provider,
+              wallet: connectedWallet.wallet,
+            })
+          : connectedWallet?.provider?.disconnect?.();
       disconnectResult?.catch?.(() => {});
     } catch {}
     setConnected("");
@@ -912,6 +990,21 @@ function BrowserWalletConnect({
                     ? connectPhantom()
                     : connectSolana(value, label)
                 }
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+        </span>
+        <span className="walletConnectGroup">
+          <span className="walletConnectGroupTitle">Tron</span>
+          <span className="walletConnectOptionGrid">
+            {tronWallets.map(([value, label]) => (
+              <button
+                type="button"
+                className="walletConnectOption"
+                key={value}
+                onClick={() => connectTron(value, label)}
               >
                 {label}
               </button>

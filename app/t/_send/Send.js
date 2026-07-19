@@ -41,6 +41,7 @@ import {
 } from "./Client";
 import {
   cleanTradeInput,
+  completeTradeTransaction,
   cookieMaxAge,
   createTradeLoopResult,
   createTradeToast,
@@ -119,7 +120,11 @@ export default function SendPanel({
       chainList
         .map((chainE) => chainE.chain)
         .filter((chain) =>
-          walletType == "solana" ? chain == "Solana" : chain != "Solana",
+          walletType == "solana"
+            ? chain == "Solana"
+            : walletType == "tron"
+              ? chain == "Tron"
+              : chain != "Solana" && chain != "Tron",
         ),
     [chainList, walletType],
   );
@@ -1229,6 +1234,7 @@ export default function SendPanel({
               tradeToast,
               toastId,
               message: `Send: confirm ${tx.chain} ${tx.type}...`,
+              waitForConfirmation: tx.chain != "Tron",
             }),
           );
         }
@@ -1254,12 +1260,18 @@ export default function SendPanel({
       tradeToast.success(`Send submitted ${res.txs?.length || 0} tx`, {
         id: toastId,
       });
-      onTxComplete({
-        ...res,
+      completeTradeTransaction({
+        result: res,
         refreshTargets: [
           getSendRefreshTarget(senderEntry.address),
           getSendRefreshTarget(recipientEntry.address),
         ],
+        onTxComplete,
+        onConfirmationError: (e) => {
+          tradeToast.error(e?.message || "Tron confirmation failed", {
+            id: toastId,
+          });
+        },
       });
       return res;
     } catch (e) {

@@ -32,6 +32,7 @@ export const chainIds = {
   Katana: 747474,
   Kaia: 8217,
   Harmony: 1666600000,
+  Tron: 728126428,
   Solana: 792703809,
 };
 

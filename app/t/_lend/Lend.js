@@ -57,6 +57,14 @@ import {
 } from "./jupiter/sv";
 import JupiterLendClient from "./jupiter/Client";
 import {
+  buildJustLendTxs,
+  executeJustLend,
+  getJustLendAllMarkets,
+  getJustLendMarketBalance,
+  getJustLendPreview,
+} from "./justlend/sv";
+import JustLendClient from "./justlend/Client";
+import {
   buildMorphoLendTxs,
   executeMorphoLend,
   getMorphoAllMarkets,
@@ -89,6 +97,7 @@ import {
   createTradeToast,
   CustomCoinConfirmModal,
   canonicalizeTradeMarketEntry,
+  completeTradeTransaction,
   emitTradeChainSelect,
   fmt,
   fmtPrice,
@@ -236,6 +245,7 @@ function getLendProtocolLabel(defi = "") {
   if (defi == "venus") return "Venus";
   if (defi == "morpho") return "Morpho";
   if (defi == "jupiter") return "Jupiter";
+  if (defi == "justlend") return "JustLend";
   return "Aave";
 }
 
@@ -243,6 +253,7 @@ function getLendProtocolUrl(defi = "") {
   if (defi == "venus") return "https://app.venus.io/";
   if (defi == "morpho") return "https://app.morpho.org/";
   if (defi == "jupiter") return "https://jup.ag/lend";
+  if (defi == "justlend") return "https://justlend.org/";
   if (defi == "aave") return "https://app.aave.com/markets/";
   return "";
 }
@@ -257,6 +268,9 @@ function getLendProtocolChainUrl(defi = "", entry = {}) {
     return chainId
       ? `https://venus.io/#/markets/any?chainId=${encodeURIComponent(chainId)}`
       : "https://venus.io/#/markets";
+  }
+  if (defi == "justlend" && entry.chain == "Tron") {
+    return "https://justlend.org/";
   }
   return "";
 }
@@ -308,11 +322,12 @@ export default function LendPanel({
     () =>
       (Array.isArray(data) ? data : data ? [data] : [])
         .filter(Boolean)
-        .filter((chainE) =>
-          walletType == "solana"
-            ? chainE.chain == "Solana"
-            : chainE.chain != "Solana",
-        ),
+        .filter((chainE) => {
+          if (walletType == "solana") return chainE.chain == "Solana";
+          if (walletType == "tron") return chainE.chain == "Tron";
+
+          return chainE.chain != "Solana" && chainE.chain != "Tron";
+        }),
     [data, walletType],
   );
   const initialChainMarketsM = useMemo(() => {
@@ -546,9 +561,11 @@ export default function LendPanel({
       ? VenusClient
       : defi == "jupiter"
         ? JupiterLendClient
-        : defi == "morpho"
-          ? MorphoClient
-          : AaveClient;
+        : defi == "justlend"
+          ? JustLendClient
+          : defi == "morpho"
+            ? MorphoClient
+            : AaveClient;
   const markets = chainMarketsM[chainE?.chain] || [];
   const addedMarkets = markets;
   const addedMarketAddressM = useMemo(() => {
@@ -570,15 +587,21 @@ export default function LendPanel({
     return entries;
   }, [chainE?.chain, chainE?.coinInfoM]);
   const hasProtocolAllMarkets =
-    defi == "aave" || defi == "venus" || defi == "jupiter" || defi == "morpho";
+    defi == "aave" ||
+    defi == "venus" ||
+    defi == "jupiter" ||
+    defi == "morpho" ||
+    defi == "justlend";
   const allProtocolLabel =
     defi == "venus"
       ? "Venus"
       : defi == "jupiter"
         ? "Jupiter"
-        : defi == "morpho"
-          ? "Morpho"
-          : "Aave";
+        : defi == "justlend"
+          ? "JustLend"
+          : defi == "morpho"
+            ? "Morpho"
+            : "Aave";
   const allMarketKey =
     defi == "jupiter"
       ? chainE?.chain == "Solana"
@@ -591,9 +614,11 @@ export default function LendPanel({
       ? getVenusAllMarkets
       : defi == "jupiter"
         ? getJupiterAllMarkets
-        : defi == "morpho"
-          ? getMorphoAllMarkets
-          : getAaveAllMarkets;
+        : defi == "justlend"
+          ? getJustLendAllMarkets
+          : defi == "morpho"
+            ? getMorphoAllMarkets
+            : getAaveAllMarkets;
   const {
     markets: rawAllMarkets,
     loading: allLoading,
@@ -907,6 +932,7 @@ export default function LendPanel({
     (defi == "jupiter" ||
       defi == "morpho" ||
       defi == "venus" ||
+      defi == "justlend" ||
       !!marketE?.underlyingAddress);
   const directBalanceKey = usesDirectMarket
     ? [
@@ -917,16 +943,24 @@ export default function LendPanel({
         marketE.lendAddress,
       ].join(":")
     : "";
-  const localUnderlyingBalance = getSelectedBalance(
-    chainE,
-    underlyingCoin,
-    selectedWalletEntry,
-  );
-  const localReceiptBalance = getSelectedBalance(
-    chainE,
-    lendCoin,
-    selectedWalletEntry,
-  );
+  const localUnderlyingBalance =
+    defi == "justlend"
+      ? getMarketCoinBalance(
+          chainE,
+          underlyingCoin,
+          marketE?.underlyingAddress,
+          selectedWalletEntry,
+        )
+      : getSelectedBalance(chainE, underlyingCoin, selectedWalletEntry);
+  const localReceiptBalance =
+    defi == "justlend"
+      ? getMarketCoinBalance(
+          chainE,
+          lendCoin,
+          marketE?.lendAddress,
+          selectedWalletEntry,
+        )
+      : getSelectedBalance(chainE, lendCoin, selectedWalletEntry);
   const hasLocalUnderlyingBalance = hasLoadedBalance(localUnderlyingBalance);
   const hasLocalReceiptBalance = hasLoadedBalance(localReceiptBalance);
   const needsDirectBalance =
@@ -991,16 +1025,27 @@ export default function LendPanel({
         decimals: marketE?.lendDecimals ?? lendCoinE.decimals,
       }
     : null;
-  const marketPreviewKey = `${defi}:${chainE?.chain || ""}:${underlyingCoin}:${lendCoin}`;
+  const marketPreviewKey = `${defi}:${chainE?.chain || ""}:${underlyingCoin}:${lendCoin}:${marketE?.lendAddress || ""}`;
   const marketPreview = marketPreviewM[marketPreviewKey];
   const marketPreviewLoaded = marketPreview !== undefined;
   const marketLoading = !!marketLoadingM[marketPreviewKey];
   const marketReceiptRate =
-    defi == "venus" || defi == "jupiter" || defi == "morpho"
-      ? toNum(marketPreview?.receiptPerUnderlying)
+    defi == "venus" ||
+    defi == "jupiter" ||
+    defi == "morpho" ||
+    defi == "justlend"
+      ? toNum(
+          marketPreview?.receiptPerUnderlying ??
+            marketE?.receiptPerUnderlying,
+        )
       : 0;
   const underlyingListPrice = toNum(underlyingBalance.price);
   const receiptListPrice = toNum(receiptBalance.price);
+  const justLendUnderlyingPrice =
+    defi == "justlend"
+      ? toNum(marketE?.underlyingPriceInTrx) *
+        toNum(getSelectedBalance(chainE, "TRX", selectedWalletEntry).price)
+      : 0;
   const {
     fallbackPrice: underlyingFallbackPrice,
     loading: underlyingPriceLoading,
@@ -1022,12 +1067,18 @@ export default function LendPanel({
       getPrice: getTradeCoinPrice,
     });
   const underlyingPrice =
-    underlyingListPrice || toNum(underlyingFallbackPrice) || 0;
+    underlyingListPrice ||
+    justLendUnderlyingPrice ||
+    toNum(underlyingFallbackPrice) ||
+    0;
   const receiptPrice =
     receiptListPrice ||
     toNum(receiptFallbackPrice) ||
     (defi == "aave" && underlyingPrice ? underlyingPrice : 0) ||
-    ((defi == "venus" || defi == "jupiter" || defi == "morpho") &&
+    ((defi == "venus" ||
+      defi == "jupiter" ||
+      defi == "morpho" ||
+      defi == "justlend") &&
     underlyingPrice &&
     marketReceiptRate
       ? underlyingPrice / marketReceiptRate
@@ -1035,7 +1086,10 @@ export default function LendPanel({
   const receiptRate =
     defi == "aave"
       ? 1
-      : (defi == "venus" || defi == "jupiter" || defi == "morpho") &&
+      : (defi == "venus" ||
+            defi == "jupiter" ||
+            defi == "morpho" ||
+            defi == "justlend") &&
           marketReceiptRate
         ? marketReceiptRate
         : underlyingPrice && receiptPrice
@@ -1089,6 +1143,7 @@ export default function LendPanel({
     if (defi == "venus") return getVenusMarketBalance;
     if (defi == "jupiter") return getJupiterMarketBalance;
     if (defi == "morpho") return getMorphoMarketBalance;
+    if (defi == "justlend") return getJustLendMarketBalance;
     return getAaveMarketBalance;
   }
 
@@ -1405,11 +1460,19 @@ export default function LendPanel({
         ? savedMarket
         : marketCookieValues[0];
       setMarket(nextMarket || "");
-    } else if (!markets.length && !allMarkets.length && market) {
+    } else if (
+      (!hasProtocolAllMarkets || allLoaded) &&
+      !savedMarketPending &&
+      !markets.length &&
+      !allMarkets.length &&
+      market
+    ) {
       setMarket("");
     }
   }, [
     allMarkets.length,
+    allLoaded,
+    hasProtocolAllMarkets,
     market,
     marketExistsForActiveChain,
     marketCookieValues,
@@ -1456,7 +1519,10 @@ export default function LendPanel({
 
   useEffect(() => {
     if (
-      (defi != "venus" && defi != "jupiter" && defi != "morpho") ||
+      (defi != "venus" &&
+        defi != "jupiter" &&
+        defi != "morpho" &&
+        defi != "justlend") ||
       !chainE?.chain ||
       !marketBelongsToActiveChain ||
       !underlyingCoin ||
@@ -1475,9 +1541,11 @@ export default function LendPanel({
     const getLendPreview =
       defi == "jupiter"
         ? getJupiterLendPreview
-        : defi == "morpho"
-          ? getMorphoLendPreview
-          : getVenusLendPreview;
+        : defi == "justlend"
+          ? getJustLendPreview
+          : defi == "morpho"
+            ? getMorphoLendPreview
+            : getVenusLendPreview;
     getLendPreview({
       walletAddress: selectedWalletEntry.address,
       chain: chainE.chain,
@@ -2184,6 +2252,8 @@ export default function LendPanel({
                     ? "DeFi: Morpho"
                     : defi == "aave"
                       ? "1:1, increasing qty"
+                      : defi == "justlend"
+                        ? "DeFi: JustLend"
                       : res.entry?.ref,
               },
             }
@@ -2219,8 +2289,9 @@ export default function LendPanel({
     const isVenus = defi == "venus";
     const isJupiter = defi == "jupiter";
     const isMorpho = defi == "morpho";
+    const isJustLend = defi == "justlend";
 
-    if (!isAave && !isVenus && !isJupiter && !isMorpho) {
+    if (!isAave && !isVenus && !isJupiter && !isMorpho && !isJustLend) {
       tradeToast.show(`${lendingE.label}: lending not wired yet`);
       return;
     }
@@ -2228,19 +2299,27 @@ export default function LendPanel({
       ? "Venus"
       : isJupiter
         ? "Jupiter"
-        : isMorpho
-          ? "Morpho"
-          : "Aave";
+        : isJustLend
+          ? "JustLend"
+          : isMorpho
+            ? "Morpho"
+            : "Aave";
     if (!walletEntry?.address) {
       tradeToast.error("wallet missing");
       return;
     }
     if (
       walletEntry?.isBrowserWallet &&
-      walletEntry.type != (isJupiter ? "solana" : "evm")
+      walletEntry.type !=
+        (isJupiter ? "solana" : isJustLend ? "tron" : "evm")
     ) {
+      const requiredWalletType = isJupiter
+        ? "Solana"
+        : isJustLend
+          ? "Tron"
+          : "EVM";
       tradeToast.error(
-        `${protocol} needs a ${isJupiter ? "Solana" : "EVM"} browser wallet`,
+        `${protocol} needs a ${requiredWalletType} browser wallet`,
       );
       return;
     }
@@ -2307,25 +2386,32 @@ export default function LendPanel({
       ? buildVenusLendTxs
       : isJupiter
         ? buildJupiterLendTxs
-        : isMorpho
-          ? buildMorphoLendTxs
-          : buildAaveLendTxs;
+        : isJustLend
+          ? buildJustLendTxs
+          : isMorpho
+            ? buildMorphoLendTxs
+            : buildAaveLendTxs;
     const executeLend = isVenus
       ? executeVenusLend
       : isJupiter
         ? executeJupiterLend
-        : isMorpho
-          ? executeMorphoLend
-          : executeAaveLend;
+        : isJustLend
+          ? executeJustLend
+          : isMorpho
+            ? executeMorphoLend
+            : executeAaveLend;
     const previewLend = isVenus
       ? getVenusLendPreview
       : isJupiter
         ? getJupiterLendPreview
-        : isMorpho
-          ? getMorphoLendPreview
-          : getAaveLendPreview;
+        : isJustLend
+          ? getJustLendPreview
+          : isMorpho
+            ? getMorphoLendPreview
+            : getAaveLendPreview;
     const directMarketArgs =
-      (isAave || isVenus || isJupiter || isMorpho) && usesDirectMarket
+      (isAave || isVenus || isJupiter || isMorpho || isJustLend) &&
+      usesDirectMarket
         ? {
             underlyingAddress: marketE.underlyingAddress,
             underlyingDecimals: marketE.underlyingDecimals,
@@ -2363,7 +2449,8 @@ export default function LendPanel({
         });
         const txs = [];
 
-        for (const tx of built.txs || []) {
+        const builtTxs = built.txs || [];
+        for (const [index, tx] of builtTxs.entries()) {
           txs.push(
             await sendBrowserTradeTx({
               tx,
@@ -2372,6 +2459,8 @@ export default function LendPanel({
               toastId,
               message: `${protocol}: confirm ${tx.type}...`,
               solana: isJupiter,
+              waitForConfirmation:
+                !isJustLend || index < builtTxs.length - 1,
             }),
           );
         }
@@ -2436,8 +2525,11 @@ export default function LendPanel({
       if (usesDirectMarket && directBalanceKey) {
         clearDirectBalance();
       }
-      const getRefreshTarget = (coin) => {
-        const coinE = chainE?.coinInfoM?.[coin];
+      const getRefreshTarget = (coin, side) => {
+        const coinE =
+          defi == "justlend"
+            ? getMarketCoinE(side)
+            : chainE?.coinInfoM?.[coin] || getMarketCoinE(side);
         if (!coinE) return null;
         const decimals = Number(coinE.decimals);
         const refreshCoinE = {
@@ -2454,16 +2546,23 @@ export default function LendPanel({
         };
       };
       const refreshTargets = [
-        getRefreshTarget(underlyingCoin),
-        getRefreshTarget(lendCoin),
+        getRefreshTarget(underlyingCoin, "underlying"),
+        getRefreshTarget(lendCoin, "lend"),
       ].filter(Boolean);
       tradeToast.success(
         `${protocol} ${submitAction} submitted ${res.txs?.length || 0} tx`,
         { id: toastId },
       );
-      onTxComplete({
-        ...res,
+      completeTradeTransaction({
+        result: res,
         refreshTargets,
+        onTxComplete,
+        onConfirmationError: (error) =>
+          tradeToast.error(
+            `${protocol} confirmation failed: ${
+              error?.message || "transaction failed"
+            }`,
+          ),
       });
       return res;
     } catch (e) {

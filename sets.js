@@ -7,6 +7,7 @@ exports.dexs = [
   { value: "relay", label: "Relay.link", bridge: true },
   { value: "jumper", label: "Jumper", bridge: true },
   { value: "jupiter", label: "Jupiter", bridge: false },
+  { value: "sun", label: "SUN", bridge: false },
   { value: "across", label: "Across.to", bridge: true },
   { value: "uniswap", label: "Uniswap", bridge: false },
   // { value: "pancake", label: "PancakeSwap", bridge: false },
@@ -17,16 +18,18 @@ exports.lendings = [
   { value: "venus", label: "Venus" },
   { value: "morpho", label: "Morpho" },
   { value: "jupiter", label: "Jupiter" },
+  { value: "justlend", label: "JustLend", url: "https://justlend.org/" },
 ];
 
 exports.yields = [
+  { value: "tronStaking", label: "TRX Staking" },
   { value: "spark", label: "Spark" },
   { value: "aaveStaking", label: "Aave Staking" },
   { value: "venusFlux", label: "Venus Flux" },
   { value: "hyperliquid", label: "Hyperliquid" },
 ];
 
-exports.walletChainFilterPriority = ["Hyperliquid", "Claim", "Solana"];
+exports.walletChainFilterPriority = ["Hyperliquid", "Claim", "Solana", "Tron"];
 
 exports.sets = {
   useAlchemy: 1,
@@ -50,6 +53,7 @@ exports.alchemyNetworks = {
   Scroll: "scroll-mainnet",
   zkSyncEra: "zksync-mainnet",
   Solana: "solana-mainnet",
+  Tron: "tron-mainnet",
   // Fantom: "fantom-mainnet", ////Unsupported network
   // Sonic: "sonic-mainnet", //Unsupported network
   // Metis: "metis-mainnet", //Unsupported network
@@ -64,6 +68,11 @@ function alchemyRpc(network) {
 }
 
 exports.rpcs = {
+  Tron: [
+    "https://api.trongrid.io",
+    "https://tron.api.pocket.network",
+    alchemyRpc("tron-mainnet"),
+  ],
   Solana: [
     "https://solana-rpc.publicnode.com",
     "https://api.mainnet.solana.com",
@@ -233,6 +242,7 @@ exports.scanners = {
   WEMIX: "https://explorer.wemix.com",
   zkSyncEra: "https://explorer.zksync.io",
   Solana: "https://solscan.io",
+  Tron: "https://tronscan.org/#",
   Hyperliquid: "https://app.hyperliquid.xyz",
 };
 

@@ -10,6 +10,7 @@ import {
   getMint,
 } from "@solana/spl-token";
 import { ethers } from "ethers";
+import { TronWeb } from "tronweb";
 import baseHyperliquidVaults from "@/data/defi/hyperliquid";
 import baseCoinM from "@/fn/coinM";
 import { rpcs } from "@/sets";
@@ -37,6 +38,13 @@ const erc20MetaAbi = [
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
 ];
+const trc20MetaAbi = ["name", "symbol", "decimals"].map((name) => ({
+  type: "function",
+  name,
+  stateMutability: "view",
+  inputs: [],
+  outputs: [{ name: "", type: name == "decimals" ? "uint8" : "string" }],
+}));
 const tokenTypeAbi = [
   "function token0() view returns (address)",
   "function token1() view returns (address)",
@@ -138,6 +146,39 @@ async function withSolanaConnection(chain, fn) {
   throw toCleanError(lastError, `missing rpc: ${chain}`);
 }
 
+function getTronGridHeaders() {
+  const apiKey = String(
+    process.env.TRONGRID_API_KEY || process.env.rpc_key_trongrid || "",
+  ).trim();
+
+  return apiKey ? { "TRON-PRO-API-KEY": apiKey } : {};
+}
+
+async function withTronWeb(chain, fn) {
+  let lastError;
+
+  for (const rpc of getRpcs(chain)) {
+    try {
+      return await fn(
+        new TronWeb({
+          fullHost: rpc,
+          headers: getTronGridHeaders(),
+        }),
+      );
+    } catch (e) {
+      lastError = e;
+      logRpcFailure({
+        scope: "coin settings",
+        chain,
+        rpc,
+        error: e,
+      });
+    }
+  }
+
+  throw toCleanError(lastError, `missing rpc: ${chain}`);
+}
+
 async function readCustomCoins(chain) {
   try {
     return normalizeCustomCoinM(
@@ -219,6 +260,10 @@ function cleanVaultCoin(value = "", address = "") {
 function sameAddress(a, b) {
   if (!a || !b) return false;
 
+  const aTron = getTronAddress(a);
+  const bTron = getTronAddress(b);
+  if (aTron && bTron) return aTron == bTron;
+
   const aSol = getSolanaPublicKey(a);
   const bSol = getSolanaPublicKey(b);
   if (aSol && bSol) return aSol.equals(bSol);
@@ -236,6 +281,17 @@ function getSolanaPublicKey(address) {
 
 function isSolanaAddress(address) {
   return !!getSolanaPublicKey(address);
+}
+
+function getTronAddress(address) {
+  const text = String(address || "").trim();
+  if (!TronWeb.isAddress(text)) return "";
+
+  try {
+    return TronWeb.address.fromHex(TronWeb.address.toHex(text));
+  } catch {
+    return "";
+  }
 }
 
 async function tryCall(contract, fn, args = []) {
@@ -618,8 +674,14 @@ function validateCoinAddress({ chain, address } = {}) {
   }
   const solanaMint =
     selectedChain == "Solana" ? getSolanaPublicKey(address) : null;
+  const tronAddress =
+    selectedChain == "Tron" ? getTronAddress(address) : "";
   const validAddress =
-    selectedChain == "Solana" ? !!solanaMint : ethers.isAddress(address);
+    selectedChain == "Solana"
+      ? !!solanaMint
+      : selectedChain == "Tron"
+        ? !!tronAddress
+        : ethers.isAddress(address);
   if (!validAddress) {
     return { error: "invalid token contract address" };
   }
@@ -627,40 +689,64 @@ function validateCoinAddress({ chain, address } = {}) {
   const tokenAddress =
     selectedChain == "Solana"
       ? solanaMint.toBase58()
-      : ethers.getAddress(address);
+      : selectedChain == "Tron"
+        ? tronAddress
+        : ethers.getAddress(address);
 
   return { selectedChain, tokenAddress };
 }
 
 async function getTokenMeta(selectedChain, tokenAddress) {
-  return selectedChain == "Solana"
-    ? await withSolanaConnection(selectedChain, (connection) =>
-        getSolanaMetadata(connection, tokenAddress),
-      )
-    : await withProvider(selectedChain, async (provider) => {
-        const token = new ethers.Contract(
-          tokenAddress,
-          erc20MetaAbi,
-          provider,
-        );
-        const [name, symbol, decimals] = await Promise.all([
-          token.name(),
-          token.symbol(),
-          token.decimals(),
-        ]);
+  if (selectedChain == "Solana") {
+    return withSolanaConnection(selectedChain, (connection) =>
+      getSolanaMetadata(connection, tokenAddress),
+    );
+  }
 
-        return {
-          name,
-          symbol,
-          decimals: Number(decimals),
-          type: await detectCoinType({
-            provider,
-            address: tokenAddress,
-            name,
-            symbol,
-          }),
-        };
-      });
+  if (selectedChain == "Tron") {
+    return withTronWeb(selectedChain, async (tronWeb) => {
+      tronWeb.setAddress(tokenAddress);
+      const token = tronWeb.contract(trc20MetaAbi, tokenAddress);
+      const [name, symbol, decimals] = await Promise.all([
+        token.name().call(),
+        token.symbol().call(),
+        token.decimals().call(),
+      ]);
+      const cleanName = cleanText(name);
+      const cleanSymbol = cleanText(symbol);
+
+      return {
+        name: cleanName,
+        symbol: cleanSymbol,
+        decimals: Number(decimals?.toString?.() ?? decimals),
+        type: detectTextType({
+          name: cleanName,
+          symbol: cleanSymbol,
+        }),
+      };
+    });
+  }
+
+  return withProvider(selectedChain, async (provider) => {
+    const token = new ethers.Contract(tokenAddress, erc20MetaAbi, provider);
+    const [name, symbol, decimals] = await Promise.all([
+      token.name(),
+      token.symbol(),
+      token.decimals(),
+    ]);
+
+    return {
+      name,
+      symbol,
+      decimals: Number(decimals),
+      type: await detectCoinType({
+        provider,
+        address: tokenAddress,
+        name,
+        symbol,
+      }),
+    };
+  });
 }
 
 async function addHyperliquidVault({

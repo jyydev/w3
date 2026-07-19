@@ -40,6 +40,10 @@ import {
   isVenusFluxChainAvailable,
   isVenusFluxCoin,
 } from "./venusFlux/Client";
+import {
+  isTronStakingChainAvailable,
+  isTronStakingCoin,
+} from "./tronStaking/Client";
 
 export {
   getCoinTypeOptions,
@@ -55,6 +59,8 @@ export {
 
 export function isYieldProtocolSupportedForWallet(option = {}, walletType = "evm") {
   if (walletType == "solana") return false;
+  if (walletType == "tron") return option.value == "tronStaking";
+  if (option.value == "tronStaking") return false;
   if (option.value == "spark") return true;
   if (option.value == "aaveStaking") return true;
   if (option.value == "venusFlux") return true;
@@ -159,6 +165,7 @@ export function isProtocolCoin(protocol, coin, coinE = {}) {
   if (protocol == "spark") return isSparkCoin(coin, coinE);
   if (protocol == "aaveStaking") return isAaveStakingCoin(coin, coinE);
   if (protocol == "venusFlux") return isVenusFluxCoin(coin, coinE);
+  if (protocol == "tronStaking") return isTronStakingCoin(coin, coinE);
 
   return false;
 }
@@ -175,6 +182,9 @@ export function getYieldMarketChains(chainList = [], chainMarketsM = {}, defi = 
       }
       if (defi == "aaveStaking") {
         return isAaveStakingChainAvailable(chainE.chain, chainMarkets);
+      }
+      if (defi == "tronStaking") {
+        return isTronStakingChainAvailable(chainE.chain, chainMarkets);
       }
 
       return isVenusFluxChainAvailable(chainE.chain, chainMarkets);

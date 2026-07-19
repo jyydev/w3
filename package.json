@@ -12,6 +12,7 @@
     "@noble/curves": "^1.2.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
+    "@tronweb3/tronwallet-adapter-metamask-tron": "^1.1.0",
     "axios": "^1.7.7",
     "cheerio": "^1.0.0",
     "cookies-next": "^5.0.2",
@@ -21,6 +22,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
+    "tronweb": "^6.4.0",
     "uuid": "^11.0.3",
     "ygb": "^2.5.10"
   },

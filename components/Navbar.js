@@ -11,11 +11,13 @@ import HoverMenu from "./HoverMenu";
 const walletTypeLabels = {
   evm: "EVM",
   solana: "Solana",
+  tron: "Tron",
 };
 const refPageFilePattern = /^page\.(?:js|jsx|ts|tsx)$/i;
 
 function getWalletType(folder = "") {
-  return folder.toLowerCase() == "solana" ? "solana" : "evm";
+  const type = folder.toLowerCase();
+  return ["evm", "solana", "tron"].includes(type) ? type : "evm";
 }
 
 function getWalletTypeLabel(type = "") {
@@ -119,9 +121,8 @@ async function getWalletNavTree() {
   const entries = await fs
     .readdir(root, { withFileTypes: true })
     .catch((e) => (e.code == "ENOENT" ? [] : Promise.reject(e)));
-  const order = ["evm", "solana"];
-
-  return Promise.all(
+  const order = ["evm", "solana", "tron"];
+  const nodes = await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
       .sort((a, b) => {
@@ -144,6 +145,17 @@ async function getWalletNavTree() {
           ),
         };
       }),
+  );
+
+  return order.map(
+    (walletType) =>
+      nodes.find((node) => node.walletType == walletType) || {
+        type: "folder",
+        label: getWalletTypeLabel(walletType),
+        walletType,
+        filePath: "",
+        children: [],
+      },
   );
 }
 

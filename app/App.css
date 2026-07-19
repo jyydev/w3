@@ -542,6 +542,10 @@ img.assetIcon {
   background: #7bff00;
   color: black;
 }
+.chainIcon-tron {
+  background: #ff0013;
+  color: white;
+}
 .chainIcon-missing {
   border: 1px solid var(--gray);
   color: white;

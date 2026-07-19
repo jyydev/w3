@@ -27,7 +27,7 @@ function getAddressKey(address = "", walletType = "evm") {
   const text = String(address || "").trim();
   if (!text) return "";
 
-  return getWalletTypeKey(walletType) == "solana" ? text : text.toLowerCase();
+  return getWalletTypeKey(walletType) == "evm" ? text.toLowerCase() : text;
 }
 
 function getWalletBalancePatchKey(patch = {}, walletType = "evm") {

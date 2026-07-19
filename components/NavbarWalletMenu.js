@@ -70,7 +70,7 @@ function flattenFavs(tree = [], routeBase = "") {
 }
 
 function getWalletTypeLabel(type = "") {
-  return type == "solana" ? "Solana" : "EVM";
+  return type == "solana" ? "Solana" : type == "tron" ? "Tron" : "EVM";
 }
 
 function mergeNode(target, source) {
@@ -173,7 +173,7 @@ function addLocalWalletFile(typeNode, record) {
 export function getLocalWalletTree() {
   if (!shouldUseLocalStorageEditor()) return [];
 
-  return ["evm", "solana"]
+  return ["evm", "solana", "tron"]
     .map((walletType) => {
       const records = listLocalWalletFileRecords(walletType);
       const typeNode = {
@@ -200,7 +200,7 @@ export function mergeTrees(baseTree = [], localTree = []) {
   }
 
   return merged.sort((a, b) => {
-    const order = { evm: 0, solana: 1 };
+    const order = { evm: 0, solana: 1, tron: 2 };
     return (order[a.walletType] ?? 99) - (order[b.walletType] ?? 99);
   });
 }

@@ -1,17 +1,17 @@
 # W3
 
-W3 is a personal wallet dashboard and trading workspace built with Next.js. It can view EVM and Solana wallet balances, organize wallet lists, add custom tokens, and run local-only trade tooling from the same interface.
+W3 is a personal wallet dashboard and trading workspace built with Next.js. It can view EVM, Solana, and Tron wallet balances, organize wallet lists, add custom tokens, and run local-only trade tooling from the same interface.
 
 ## Features
 
-- Wallet balance tables for EVM chains, Solana, and Hyperliquid.
+- Wallet balance tables for EVM chains, Solana, Tron, and Hyperliquid.
 - Multi-wallet views with `favs`, `all`, folder-based wallet files, direct `?w=walletName`, and direct `?addr=ADDRESS` loading.
 - Token metadata from project coin files plus custom coins added through the UI.
 - Hyperliquid vault metadata from project defi files plus custom vaults added through the UI.
 - Alchemy Portfolio support when enabled, with fallback to the normal RPC/token-list method.
 - Price display using DefiLlama first, DexScreener fallback, and RPC exchange-rate fallback where supported.
 - Optional stablecoin USD price querying from the settings card.
-- Browser wallet connection for EVM and Solana wallets, with the connected address refreshed from the extension on page load.
+- Browser wallet connection for EVM, Solana, and Tron through TronLink, MetaMask, and Binance Wallet, with the connected address refreshed from the extension on page load.
 - Trade workspace under `/t` with Swap, Send, Lend, and Yield panes.
 - Loop-wallet execution for supported Trade actions after user confirmation.
 - Simple app login using the app-specific `w3_login` cookie.
@@ -91,6 +91,7 @@ Examples:
 ```txt
 data/editor/wallets/evm/*.json
 data/editor/wallets/solana/*.json
+data/editor/wallets/tron/*.json
 data/editor/coins/*.json
 data/editor/defi/*.json
 data/editor/cookie/*.txt
@@ -113,8 +114,10 @@ This means:
 
 The `/t` workspace shares the wallet table with `/w` and adds trade panes:
 
-- Swap - Relay, Jumper, Across.to, Uniswap, and Jupiter where supported.
-- Send - wallet-to-wallet transfers.
+- Swap - Relay, Jumper, Across.to, Uniswap, Jupiter, and SUN where supported.
+  Relay and Jumper include EVM, Solana, and Tron routes exposed by their APIs;
+  SUN provides same-chain Tron swaps.
+- Send - wallet-to-wallet transfers, including native TRX and TRC-20 on Tron.
 - Lend - Aave, Venus, Morpho, and Jupiter lending markets.
 - Yield - Spark, Venus Flux, and Hyperliquid flows.
 
@@ -124,13 +127,14 @@ Pane, protocol, chain, coin, approval, and visibility selections are remembered 
 
 Private-key based trading is for local `npm run dev` only.
 
-Do not commit private keys. Do not configure `pk_raw_*`, or `pk_sol_raw_*` private keys in public deployments. Public/deployed usage should rely on connected browser wallets for signing.
+Do not commit private keys. Do not configure `pk_raw_*`, `pk_sol_raw_*`, or `pk_tron_raw_*` private keys in public deployments. Public/deployed usage should rely on connected browser wallets for signing.
 
 Optional local-only private key env names:
 
 ```txt
 pk_raw_walletName=
 pk_sol_raw_walletName=
+pk_tron_raw_walletName=
 ```
 
 If `onWhitelist` is enabled in private local settings, private-key sends and bridge recipient addresses are restricted to configured whitelist addresses. Connected browser-wallet signing is not restricted by that local private-key whitelist.

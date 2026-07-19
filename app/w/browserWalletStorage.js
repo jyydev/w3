@@ -7,7 +7,9 @@ function cleanWalletMeta(meta) {
   }
 
   return {
-    type: meta.type == "solana" ? "solana" : "evm",
+    type: ["evm", "solana", "tron"].includes(meta.type)
+      ? meta.type
+      : "evm",
     wallet: String(meta.wallet),
     label: String(meta.label),
     address: String(meta.address),
@@ -42,7 +44,7 @@ export function readStoredWallet(type = "") {
   if (typeof window == "undefined") return null;
 
   const store = readWalletStore();
-  const cleanType = type == "solana" ? "solana" : type == "evm" ? "evm" : "";
+  const cleanType = ["evm", "solana", "tron"].includes(type) ? type : "";
   if (cleanType) return store.wallets[cleanType] || null;
 
   return store.current;
@@ -73,7 +75,7 @@ export function saveStoredWallet(meta) {
 export function clearStoredWallet(type = "") {
   if (typeof window == "undefined") return;
 
-  const cleanType = type == "solana" ? "solana" : type == "evm" ? "evm" : "";
+  const cleanType = ["evm", "solana", "tron"].includes(type) ? type : "";
   if (!cleanType) {
     window.localStorage.removeItem(walletConnectStorageKey);
     window.dispatchEvent(new CustomEvent(walletConnectEvent));

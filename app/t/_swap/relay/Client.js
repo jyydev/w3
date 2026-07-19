@@ -1,5 +1,6 @@
 "use client";
 
+import { chainIds } from "@/data/basic";
 import { ethers } from "ethers";
 import {
   base64ToBytes,
@@ -45,9 +46,13 @@ function isRelaySolanaSignatureItem(item = {}) {
   const signatureKind = String(item?.sign?.signatureKind || "").toLowerCase();
 
   return (
-    Number(item?.chainId) == 792703809 ||
+    Number(item?.chainId) == chainIds.Solana ||
     ["ed25519", "solana", "svm"].some((key) => signatureKind.includes(key))
   );
+}
+
+function isRelayTronSignatureItem(item = {}) {
+  return Number(item?.chainId) == chainIds.Tron;
 }
 
 async function signBrowserRelaySolanaItem({ item, wallet = "", address = "" }) {
@@ -88,6 +93,9 @@ export async function signBrowserRelayItem({
 }) {
   if (isRelaySolanaSignatureItem(item)) {
     return signBrowserRelaySolanaItem({ item, wallet, address });
+  }
+  if (isRelayTronSignatureItem(item)) {
+    throw new Error("Relay Tron message signing is not supported");
   }
 
   const signer = await getBrowserSigner({

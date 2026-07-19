@@ -12,6 +12,10 @@ const coreRows = [
     "Alchemy API key for Alchemy RPC URLs and Portfolio balance requests, including Solana.",
   ],
   [
+    "TRONGRID_API_KEY",
+    "Optional TronGrid API key used for Tron wallet reads, TRC-20 metadata, and transaction requests. Public TronGrid works without it at lower limits.",
+  ],
+  [
     "W3_DISABLE_FILE_WRITES",
     "Set to any value to block server project-file writes and force blocked-write responses.",
   ],
@@ -41,6 +45,12 @@ const swapApiRows = [
   ["JUPITER_API_KEY", "Optional Jupiter API key."],
   ["JUPITER_API_BASE", "Optional Jupiter swap API base URL override."],
   ["JUPITER_TOKEN_API_BASE", "Optional Jupiter token API base URL override."],
+  ["SUN_API_KEY", "Optional SUN.io API key for higher request limits."],
+  ["SUN_API_BASE", "Optional SUN.io token API base URL override."],
+  [
+    "SUN_ROUTER_API_BASE",
+    "Optional SUN.io Smart Router calculation API base URL override.",
+  ],
 ];
 
 const protocolApiRows = [
@@ -58,7 +68,11 @@ const privateKeyRows = [
     "Optional raw Solana private key for local/server private-key mode. Accepts supported secret-key formats.",
   ],
   [
-    "pk_walletName / pk_sol_walletName",
+    "pk_tron_raw_walletName",
+    "Optional raw hexadecimal Tron private key for local/server Send actions. The walletName must match the Tron wallet entry name.",
+  ],
+  [
+    "pk_walletName / pk_sol_walletName / pk_tron_walletName",
     "Legacy encoded private-key values. These are decoded by swapping the 4th and 6th characters back before use.",
   ],
   [
@@ -74,7 +88,7 @@ const setConfigRows = [
   ],
   [
     "whitelists",
-    "Local set.js array of allowed EVM or Solana addresses used when onWhitelist is true.",
+    "Local set.js array of allowed EVM, Solana, or Tron addresses used when onWhitelist is true.",
   ],
   [
     "connected wallet",
@@ -82,7 +96,7 @@ const setConfigRows = [
   ],
   [
     "matching",
-    "EVM addresses are checksum-normalized; Solana addresses are normalized to base58 before comparison.",
+    "EVM addresses are checksum-normalized. Solana and Tron addresses retain canonical case-sensitive base58 form.",
   ],
 ];
 

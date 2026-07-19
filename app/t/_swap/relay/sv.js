@@ -22,6 +22,7 @@ import {
   erc20Abi,
   executeRawEvmTx,
   executeSolanaTx,
+  executeTronTx,
   getApprovalAmount,
   getApproveTx,
   getChainRpc,
@@ -31,6 +32,9 @@ import {
   getSolanaKeypair,
   getSolanaPublicKey,
   getTradeCoinEntry,
+  getTronAddress,
+  getTronPrivateKey,
+  getTronWeb,
   getUnsignedTx,
   nativeEvmAddress,
 } from "../../sharedServer";
@@ -39,6 +43,7 @@ import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 const relayApiBase = "https://api.relay.link";
 const relayDiscoveryCacheM = {};
 const nativeSolanaAddress = "11111111111111111111111111111111";
+const nativeTronAddress = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 const relayChainNameM = {
   "arbitrum one": "Arbitrum",
   arbitrum: "Arbitrum",
@@ -61,6 +66,7 @@ const relayChainNameM = {
   scroll: "Scroll",
   solana: "Solana",
   sonic: "Sonic",
+  tron: "Tron",
   wemix: "WEMIX",
   zksync: "zkSyncEra",
   "zksync era": "zkSyncEra",
@@ -75,18 +81,35 @@ function isSolanaAddress(address = "") {
   }
 }
 
+function isTronAddress(address = "") {
+  try {
+    getTronAddress(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getRelayUserAddress(chain = "", address = "") {
-  return chain == "Solana"
-    ? getSolanaPublicKey(address, "Solana wallet address").toBase58()
-    : ethers.getAddress(address);
+  if (chain == "Solana") {
+    return getSolanaPublicKey(address, "Solana wallet address").toBase58();
+  }
+  if (chain == "Tron") return getTronAddress(address, "Tron wallet address");
+
+  return ethers.getAddress(address);
 }
 
 function getRelayRecipientAddress(chain = "", address = "") {
   if (!address) return "";
 
-  return chain == "Solana"
-    ? getSolanaPublicKey(address, "Solana recipient address").toBase58()
-    : ethers.getAddress(address);
+  if (chain == "Solana") {
+    return getSolanaPublicKey(address, "Solana recipient address").toBase58();
+  }
+  if (chain == "Tron") {
+    return getTronAddress(address, "Tron recipient address");
+  }
+
+  return ethers.getAddress(address);
 }
 
 function decodeSolanaInstructionData(data = "") {
@@ -151,9 +174,62 @@ async function getSolanaUnsignedTx({ txData = {}, user = "", type = "swap" }) {
   };
 }
 
+function decodeTronTriggerMessage(value = "") {
+  const text = String(value || "");
+  if (!/^[0-9a-f]+$/i.test(text)) return text;
+
+  try {
+    return Buffer.from(text, "hex").toString("utf8");
+  } catch {
+    return text;
+  }
+}
+
+async function getTronUnsignedTx({ txData = {}, user = "", type = "swap" }) {
+  if (txData.type != "TriggerSmartContract") {
+    throw new Error(`Relay Tron transaction unsupported: ${txData.type || "unknown"}`);
+  }
+
+  const parameter = txData.parameter || {};
+  const owner = getTronAddress(parameter.owner_address, "Relay Tron owner");
+  if (owner != getTronAddress(user, "Tron wallet address")) {
+    throw new Error("Relay Tron transaction owner mismatch");
+  }
+
+  const tronWeb = getTronWeb();
+  const result = await tronWeb.fullNode.request(
+    "wallet/triggersmartcontract",
+    {
+      owner_address: parameter.owner_address,
+      contract_address: parameter.contract_address,
+      data: String(parameter.data || "").replace(/^0x/i, ""),
+      call_value: parameter.call_value ?? 0,
+      visible: false,
+      fee_limit: 30_000_000,
+    },
+    "post",
+  );
+  if (!result?.transaction) {
+    throw new Error(
+      `Relay Tron trigger failed: ${
+        decodeTronTriggerMessage(result?.result?.message) || "unknown error"
+      }`,
+    );
+  }
+
+  return {
+    chain: "Tron",
+    chainId: chainIds.Tron,
+    type,
+    transaction: result.transaction,
+    format: "tron:transaction",
+  };
+}
+
 function getRelayCurrency(chain = "", coin = "", dynamicCoinE = null) {
   const coinE = getTradeCoinEntry(chain, coin, dynamicCoinE);
   if (chain == "Solana" && coinE.native) return nativeSolanaAddress;
+  if (chain == "Tron" && coinE.native) return nativeTronAddress;
   if (coinE.native) return nativeEvmAddress;
   if (!coinE.address) throw new Error(`coin address missing: ${chain} ${coin}`);
 
@@ -181,7 +257,7 @@ function getRelayApprovalTarget({
   fromCoinE = null,
   items = [],
 } = {}) {
-  if (fromChain == "Solana") return null;
+  if (fromChain == "Solana" || fromChain == "Tron") return null;
 
   const coinE = getTradeCoinEntry(fromChain, fromCoin, fromCoinE);
   if (!coinE || coinE.native) return null;
@@ -321,20 +397,22 @@ function getRelayLocalChain(entry = {}) {
 function normalizeRelayToken(token = {}, chain = "", chainId = "") {
   const symbol = String(token.symbol || "").trim();
   const coinInfoM = coinM?.[chain] || {};
+  const tokenAddress = String(token.address || "");
   const added =
     !!(symbol && coinInfoM[symbol]) ||
     Object.values(coinInfoM).some(
       (coinE) =>
-        token.address &&
+        tokenAddress &&
         coinE?.address &&
-        String(coinE.address).toLowerCase() ==
-          String(token.address).toLowerCase(),
+        (chain == "Solana" || chain == "Tron"
+          ? String(coinE.address) == tokenAddress
+          : String(coinE.address).toLowerCase() == tokenAddress.toLowerCase()),
     );
 
   return {
     chain,
     chainId,
-    address: token.address || "",
+    address: tokenAddress,
     symbol,
     name: token.name || "",
     decimals: Number(token.decimals),
@@ -456,7 +534,11 @@ export async function getRelayCurrencyDiscovery({
 
   if (cleanTerm) {
     const isAddress =
-      chain == "Solana" ? isSolanaAddress(cleanTerm) : ethers.isAddress(cleanTerm);
+      chain == "Solana"
+        ? isSolanaAddress(cleanTerm)
+        : chain == "Tron"
+          ? isTronAddress(cleanTerm)
+          : ethers.isAddress(cleanTerm);
     body[isAddress ? "address" : "term"] = cleanTerm;
   } else {
     body.defaultList = true;
@@ -577,6 +659,8 @@ async function executeRelaySignatureStep({ privateKey = "", solanaKeypair = null
       solanaKeypair.secretKey.slice(0, 32),
     );
     signature = bytesToBase58(signed);
+  } else if (item?.chainId == chainIds.Tron) {
+    throw new Error("Relay Tron message signing is not supported");
   } else if (sign.signatureKind == "eip191") {
     const wallet = new ethers.Wallet(privateKey);
     const message = sign.message || "";
@@ -610,15 +694,30 @@ export async function executeRelaySwap({
   recipient = "",
   approvalAmount = "",
 } = {}) {
-  if (fromChain != "Solana" && !ethers.isAddress(walletAddress)) {
+  if (
+    fromChain != "Solana" &&
+    fromChain != "Tron" &&
+    !ethers.isAddress(walletAddress)
+  ) {
     throw new Error("EVM wallet address required");
   }
+  if (fromChain == "Tron") getTronAddress(walletAddress, "Tron wallet address");
 
-  const privateKey = fromChain == "Solana" ? "" : getPrivateKey(walletName);
+  const privateKey =
+    fromChain == "Solana" || fromChain == "Tron"
+      ? ""
+      : getPrivateKey(walletName);
   const solanaKeypair =
     fromChain == "Solana" ? getSolanaKeypair(walletName) : null;
-  if (fromChain != "Solana" && !privateKey) {
+  const tronPrivateKey =
+    fromChain == "Tron" ? getTronPrivateKey(walletName) : "";
+  if (fromChain != "Solana" && fromChain != "Tron" && !privateKey) {
     throw new Error(`private key missing: pk_raw_${walletName} or pk_${walletName}`);
+  }
+  if (fromChain == "Tron" && !tronPrivateKey) {
+    throw new Error(
+      `private key missing: pk_tron_raw_${walletName} or pk_tron_${walletName}`,
+    );
   }
   try {
     assertWhitelistedRecipient({ address: recipient || walletAddress });
@@ -656,6 +755,17 @@ export async function executeRelaySwap({
         txs.push(
           await executeSolanaTx({
             keypair: solanaKeypair,
+            expectedAddress: walletAddress,
+            tx: item.tx,
+          }),
+        );
+      } else if (
+        item.tx.chain == "Tron" ||
+        item.tx.format?.startsWith("tron:")
+      ) {
+        txs.push(
+          await executeTronTx({
+            privateKey: tronPrivateKey,
             expectedAddress: walletAddress,
             tx: item.tx,
           }),
@@ -710,9 +820,14 @@ export async function buildRelaySwapSteps({
   approvalAmount = "",
   includeApprovals = true,
 } = {}) {
-  if (fromChain != "Solana" && !ethers.isAddress(walletAddress)) {
+  if (
+    fromChain != "Solana" &&
+    fromChain != "Tron" &&
+    !ethers.isAddress(walletAddress)
+  ) {
     throw new Error("EVM wallet address required");
   }
+  if (fromChain == "Tron") getTronAddress(walletAddress, "Tron wallet address");
 
   const originChainId = chainIds[fromChain];
   const destinationChainId = chainIds[toChain];
@@ -769,6 +884,12 @@ export async function buildRelaySwapSteps({
                   user,
                   type: step.id || "swap",
                 })
+              : chain == "Tron" || txData.type == "TriggerSmartContract"
+                ? await getTronUnsignedTx({
+                    txData,
+                    user,
+                    type: step.id || "swap",
+                  })
               : getUnsignedTx({
                   chain,
                   chainId,

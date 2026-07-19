@@ -46,12 +46,20 @@ const lendRows = [
     "Jupiter Lend",
     "Jupiter API and Solana RPC are used for Solana lending market discovery and execution data.",
   ],
+  [
+    "JustLend chains",
+    "local/static config. JustLend is available on Tron without a chain-discovery request.",
+  ],
+  [
+    "JustLend markets",
+    "official JustLend contracts/OpenAPI data filtered to active markets and cached server-side for 1 hour. Live balances, previews, approvals, supplies, and redeems use Tron RPC.",
+  ],
 ];
 
 const yieldRows = [
   [
     "Spark markets",
-    "local/static known market config plus on-chain RPC metadata. Savings-rate API is cached for 10 minutes.",
+    "local/static known market config plus on-chain RPC metadata. Savings-rate API is cached for 1 hour.",
   ],
   [
     "Venus Flux markets",
@@ -68,10 +76,20 @@ const yieldRows = [
 ];
 
 const swapRows = [
-  ["Relay", "Relay.link API for supported routes, token discovery, quotes, and steps."],
-  ["Jumper", "LiFi/Jumper API for supported chains, tokens, quotes, and transactions."],
+  [
+    "Relay",
+    "Relay.link API for EVM, Solana, and Tron supported routes, token discovery, quotes, and transaction steps.",
+  ],
+  [
+    "Jumper",
+    "LiFi/Jumper API for EVM, Solana, and Tron supported routes, token discovery, quotes, approvals, and transactions.",
+  ],
   ["Across.to", "Across API for supported bridge chains/tokens and quote data."],
   ["Jupiter Swap", "Jupiter APIs for Solana token discovery, quotes, and swap transactions."],
+  [
+    "SUN",
+    "SUN.io API for Tron token discovery and Smart Router route calculation, followed by on-chain Smart Router approvals and swaps.",
+  ],
   [
     "Uniswap",
     "local/static supported chain/token config plus on-chain/router execution paths. No general public token-list API is used here.",

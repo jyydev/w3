@@ -63,10 +63,16 @@ import {
   tradeShowCookie,
 } from "./clientShared";
 
+const evmTradeTypes = ["Swap", "Lend", "Yield", "Send"];
+const tronTradeTypes = ["Swap", "Lend", "Yield", "Send"];
+
 function getEntryKey(entry = {}) {
-  return `${entry.source || ""}:${entry.name || ""}:${String(
-    entry.address || "",
-  ).toLowerCase()}`;
+  const address = String(entry.address || "");
+  const addressKey = ["solana", "tron"].includes(entry.type)
+    ? address
+    : address.toLowerCase();
+
+  return `${entry.source || ""}:${entry.name || ""}:${addressKey}`;
 }
 
 function mergeWalletEntries(...lists) {
@@ -86,7 +92,9 @@ function isReservedWalletSource(source = "") {
   return String(source || "")
     .split(/[\\/]+/)
     .filter(Boolean)
-    .some((part) => part.replace(/\.(txt|json)$/i, "").toLowerCase() == "watch");
+    .some(
+      (part) => part.replace(/\.(txt|json)$/i, "").toLowerCase() == "watch",
+    );
 }
 
 function filterReservedWalletEntries(entries = []) {
@@ -167,7 +175,8 @@ function normalizeTradeCoinAliases(data = []) {
         const nextBalance = { ...balance, coin: canonicalCoin };
         const prevBalance = balances[canonicalCoin];
         balances[canonicalCoin] =
-          !prevBalance || (!hasPositiveBalance(prevBalance) && hasPositiveBalance(nextBalance))
+          !prevBalance ||
+          (!hasPositiveBalance(prevBalance) && hasPositiveBalance(nextBalance))
             ? nextBalance
             : prevBalance;
       }
@@ -189,11 +198,14 @@ function normalizeTradeCoinAliases(data = []) {
 }
 
 function getBalancePatchKey({ chain = "", coin = "", address = "" } = {}) {
-  return `${chain}:${coin}:${String(address || "").toLowerCase()}`;
+  return `${chain}:${coin}:${getTokenAddressKey(chain, address)}`;
 }
 
 function getCanonicalPatchCoin(data = [], target = {}) {
-  const tokenAddressKey = getTokenAddressKey(target.chain, target.coinE?.address);
+  const tokenAddressKey = getTokenAddressKey(
+    target.chain,
+    target.coinE?.address,
+  );
   if (!tokenAddressKey) return target.coin;
 
   const chainE = (Array.isArray(data) ? data : []).find(
@@ -329,7 +341,7 @@ function Panels({
   initialTradePickerData = {},
 }) {
   const router = useRouter();
-  const tradeTypes = ["Swap", "Lend", "Yield", "Send"];
+  const tradeTypes = walletType == "tron" ? tronTradeTypes : evmTradeTypes;
   const paneTypes = tradeTypes;
   const initialLeftPane = getInitialCookie(initialCookieM, tradeLeftPaneCookie);
   const initialRightPane = getInitialCookie(
@@ -342,7 +354,9 @@ function Panels({
   );
   const [paneOrder, setPaneOrder] = useState(() =>
     normalizeSelectionOrder(
-      parseSelectionOrder(getInitialCookie(initialCookieM, tradePaneOrderCookie)),
+      parseSelectionOrder(
+        getInitialCookie(initialCookieM, tradePaneOrderCookie),
+      ),
       tradeTypes,
     ),
   );
@@ -362,6 +376,7 @@ function Panels({
   const [localWalletEntriesM, setLocalWalletEntriesM] = useState({
     evm: [],
     solana: [],
+    tron: [],
   });
   const [localFavAddrs, setLocalFavAddrs] = useState([]);
   const [localCustomCoinM, setLocalCustomCoinM] = useState({});
@@ -375,7 +390,8 @@ function Panels({
     [data],
   );
   const walletBaseData = useMemo(
-    () => (Array.isArray(walletData) ? walletData : walletData ? [walletData] : []),
+    () =>
+      Array.isArray(walletData) ? walletData : walletData ? [walletData] : [],
     [walletData],
   );
   const baseChainNames = useMemo(
@@ -383,14 +399,13 @@ function Panels({
     [baseData],
   );
   const balanceChainNames = useMemo(
-    () =>
-      [
-        ...new Set(
-          [...baseData, ...walletBaseData]
-            .map((chainE) => chainE.chain)
-            .filter(Boolean),
-        ),
-      ],
+    () => [
+      ...new Set(
+        [...baseData, ...walletBaseData]
+          .map((chainE) => chainE.chain)
+          .filter(Boolean),
+      ),
+    ],
     [baseData, walletBaseData],
   );
   const balanceChainNameKey = balanceChainNames.join("|");
@@ -417,7 +432,9 @@ function Panels({
 
         return {
           ...chainE,
-          allCoins: [...new Set([...(chainE.allCoins || []), ...localCoinNames])],
+          allCoins: [
+            ...new Set([...(chainE.allCoins || []), ...localCoinNames]),
+          ],
           coins: [...new Set([...(chainE.coins || []), ...localCoinNames])],
           coinInfoM: {
             ...(chainE.coinInfoM || {}),
@@ -426,11 +443,21 @@ function Panels({
         };
       });
 
-    return normalizeTradeCoinAliases(applyBalancePatches(mergedData, balancePatchM));
-  }, [balancePatchM, baseChainNames, baseData, effectiveCustomCoinM, localWalletData]);
+    return normalizeTradeCoinAliases(
+      applyBalancePatches(mergedData, balancePatchM),
+    );
+  }, [
+    balancePatchM,
+    baseChainNames,
+    baseData,
+    effectiveCustomCoinM,
+    localWalletData,
+  ]);
   const effectiveYieldData = useMemo(() => {
     const sourceData = localWalletData || walletBaseData;
-    const hyperliquidE = sourceData.find((chainE) => chainE.chain == "Hyperliquid");
+    const hyperliquidE = sourceData.find(
+      (chainE) => chainE.chain == "Hyperliquid",
+    );
     if (!hyperliquidE) return effectiveData;
 
     const hasHyperliquid = effectiveData.some(
@@ -487,6 +514,10 @@ function Panels({
       solana: mergeWalletEntries(
         walletEntriesM.solana || [],
         filterReservedWalletEntries(localWalletEntriesM.solana || []),
+      ),
+      tron: mergeWalletEntries(
+        walletEntriesM.tron || [],
+        filterReservedWalletEntries(localWalletEntriesM.tron || []),
       ),
     }),
     [walletEntriesM, localWalletEntriesM],
@@ -620,15 +651,18 @@ function Panels({
       : initialRightPaneVisible == "1",
   );
   const [loopWallets, setLoopWallets] = useState(false);
-  const [pane, setPane] = useState(
-    () =>
-      paneTypes.includes(initialRightPane)
-        ? initialRightPane
-        : paneTypes.includes("Lend")
-          ? "Lend"
-          : paneTypes[0],
+  const [pane, setPane] = useState(() =>
+    paneTypes.includes(initialRightPane)
+      ? initialRightPane
+      : paneTypes.includes("Lend")
+        ? "Lend"
+        : paneTypes[0],
   );
   const [paneCookiesLoaded, setPaneCookiesLoaded] = useState(false);
+  const activeTradeType = tradeTypes.includes(tradeType)
+    ? tradeType
+    : tradeTypes[0];
+  const activePane = paneTypes.includes(pane) ? pane : paneTypes[0];
   const [wallet, setWallet] = useState(wallets[0]?.value || "");
   const [connectedAutoSelected, setConnectedAutoSelected] = useState(false);
   const selectedIndex = Math.max(
@@ -664,7 +698,7 @@ function Panels({
 
   useEffect(() => {
     if (!shouldUseLocalStorageEditor()) {
-      setLocalWalletEntriesM({ evm: [], solana: [] });
+      setLocalWalletEntriesM({ evm: [], solana: [], tron: [] });
       setLocalFavAddrs([]);
       setLocalCustomCoinM({});
       setLocalOffAddrs([]);
@@ -677,6 +711,7 @@ function Panels({
       setLocalWalletEntriesM({
         evm: readLocalWalletEntries("evm", "", { includeReserved: true }),
         solana: readLocalWalletEntries("solana", "", { includeReserved: true }),
+        tron: readLocalWalletEntries("tron", "", { includeReserved: true }),
       });
       setLocalFavAddrs(parseFavAddrs(getCookie(favAddrCookie)));
       setLocalCustomCoinM(getAllLocalCustomCoinM(balanceChainNames));
@@ -727,7 +762,8 @@ function Panels({
       cachedEntries.map((entry) => getFavAddrKey(walletType, entry.address)),
     );
     const fetchEntries = localSelectedWalletEntries.filter(
-      (entry) => !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
+      (entry) =>
+        !cachedAddressSet.has(getFavAddrKey(walletType, entry.address)),
     );
     const cachedData = getWalletBalanceClientCacheData({
       walletType,
@@ -851,6 +887,12 @@ function Panels({
   }, [connectedWallet?.address, selectedAddress]);
 
   useEffect(() => {
+    setPaneOrder((order) => normalizeSelectionOrder(order, tradeTypes));
+    if (!tradeTypes.includes(tradeType)) setTradeType(tradeTypes[0]);
+    if (!paneTypes.includes(pane)) setPane(paneTypes[0]);
+  }, [pane, paneTypes, tradeType, tradeTypes, walletType]);
+
+  useEffect(() => {
     setShow(getCookie(tradeShowCookie) == "1");
     const rightPaneCookie = getCookie(tradeRightPaneCookie);
     if (rightPaneCookie !== undefined) {
@@ -930,9 +972,12 @@ function Panels({
     const values = getHistoryCycleValues(tradeHistoryTypes, tradeTypes);
     if (!values.length) return;
     const index = values.indexOf(tradeType);
-    selectTradeType(values[(index + direction + values.length) % values.length], {
-      rememberOrder: false,
-    });
+    selectTradeType(
+      values[(index + direction + values.length) % values.length],
+      {
+        rememberOrder: false,
+      },
+    );
   }
 
   function removePaneHistory(value) {
@@ -986,69 +1031,81 @@ function Panels({
     );
   }
 
-  const refreshWalletBalances = useCallback((res = {}) => {
-    const rawTargets = Array.isArray(res?.refreshTargets)
-      ? res.refreshTargets
-      : [];
-    const targetM = new Map();
+  const refreshWalletBalances = useCallback(
+    (res = {}) => {
+      const rawTargets = Array.isArray(res?.refreshTargets)
+        ? res.refreshTargets
+        : [];
+      const targetM = new Map();
 
-    for (const target of rawTargets) {
-      const clean = {
-        chain: String(target?.chain || "").trim(),
-        coin: String(target?.coin || "").trim(),
-        address: String(target?.address || "").trim(),
-      };
-      if (target?.coinE && typeof target.coinE == "object") {
-        const decimals = Number(target.coinE.decimals);
-        clean.coinE = {
-          address: target.coinE.address ? String(target.coinE.address) : "",
-          native: !!target.coinE.native,
+      for (const target of rawTargets) {
+        const clean = {
+          chain: String(target?.chain || "").trim(),
+          coin: String(target?.coin || "").trim(),
+          address: String(target?.address || "").trim(),
         };
-        if (Number.isInteger(decimals)) clean.coinE.decimals = decimals;
+        if (target?.coinE && typeof target.coinE == "object") {
+          const decimals = Number(target.coinE.decimals);
+          clean.coinE = {
+            address: target.coinE.address ? String(target.coinE.address) : "",
+            native: !!target.coinE.native,
+          };
+          if (Number.isInteger(decimals)) clean.coinE.decimals = decimals;
+        }
+        clean.coin = getCanonicalPatchCoin(effectiveData, clean);
+        const key = getBalancePatchKey(clean);
+        if (clean.chain && clean.coin && clean.address && !targetM.has(key)) {
+          targetM.set(key, clean);
+        }
       }
-      clean.coin = getCanonicalPatchCoin(effectiveData, clean);
-      const key = getBalancePatchKey(clean);
-      if (clean.chain && clean.coin && clean.address && !targetM.has(key)) {
-        targetM.set(key, clean);
+
+      const targets = [...targetM.values()];
+      if (
+        !targets.length ||
+        targets.some((target) => target.chain == "Hyperliquid")
+      ) {
+        router.refresh();
+        return;
       }
-    }
 
-    const targets = [...targetM.values()];
-    if (!targets.length || targets.some((target) => target.chain == "Hyperliquid")) {
-      router.refresh();
-      return;
-    }
+      const txs = Array.isArray(res?.txs) ? res.txs : [];
+      const hasStandaloneTx =
+        txs.some((tx) => tx?.chain == "Solana" || tx?.chain == "Tron") ||
+        targets.some(
+          (target) => target.chain == "Solana" || target.chain == "Tron",
+        );
+      const delays = res?.confirmationRefresh
+        ? [0]
+        : hasStandaloneTx
+          ? [0, 2500, 7000, 14000]
+          : [0, 4000];
 
-    const txs = Array.isArray(res?.txs) ? res.txs : [];
-    const hasSolanaTx =
-      txs.some((tx) => tx?.chain == "Solana") ||
-      targets.some((target) => target.chain == "Solana");
-    const delays = hasSolanaTx ? [0, 2500, 7000, 14000] : [0, 4000];
+      async function refreshTargets() {
+        const patches = (
+          await Promise.all(
+            targets.map(async (target) => {
+              try {
+                const balance = await getTradeCoinBalance(target);
+                return { ...target, balance };
+              } catch (e) {
+                console.error(e);
+                return null;
+              }
+            }),
+          )
+        ).filter(Boolean);
 
-    async function refreshTargets() {
-      const patches = (
-        await Promise.all(
-          targets.map(async (target) => {
-            try {
-              const balance = await getTradeCoinBalance(target);
-              return { ...target, balance };
-            } catch (e) {
-              console.error(e);
-              return null;
-            }
-          }),
-        )
-      ).filter(Boolean);
+        if (!patches.length) return;
+        emitWalletBalancePatches(patches);
+      }
 
-      if (!patches.length) return;
-      emitWalletBalancePatches(patches);
-    }
-
-    delays.forEach((delay) => {
-      if (delay) setTimeout(refreshTargets, delay);
-      else refreshTargets();
-    });
-  }, [effectiveData, router]);
+      delays.forEach((delay) => {
+        if (delay) setTimeout(refreshTargets, delay);
+        else refreshTargets();
+      });
+    },
+    [effectiveData, router],
+  );
 
   function renderTradePane(panelType, setPanelType, cyclePanelType) {
     return panelType == "Swap" ? (
@@ -1157,10 +1214,7 @@ function Panels({
             onOpenChange={setShowTradeSettings}
             className="tradeSettingsInfo"
           >
-            <button
-              type="button"
-              className="tradeSettingsLabel"
-            >
+            <button type="button" className="tradeSettingsLabel">
               Trade
             </button>
             <span className="infoCard tradeSettingsCard">
@@ -1259,7 +1313,7 @@ function Panels({
             <span>
               <span className="gray">pane:</span>
               <TradeSelectionPicker
-                selectedValue={pane}
+                selectedValue={activePane}
                 historyOptions={tradeHistoryTypes}
                 allOptions={paneTypes}
                 showMenu={showPaneMenu}
@@ -1314,7 +1368,9 @@ function Panels({
                         <span className="gray swapHashFull">
                           {entry.address}
                         </span>
-                        {!canLoop && <span className="red">no private key</span>}
+                        {!canLoop && (
+                          <span className="red">no private key</span>
+                        )}
                       </span>
                     </HoverInfoCard>
                   );
@@ -1322,8 +1378,13 @@ function Panels({
               </div>
             )}
             <div className="flex gap2 tradePanelBody">
-              {renderTradePane(tradeType, selectTradeType, cycleTradeType)}
-              {showRightPane && renderTradePane(pane, selectPane, cyclePane)}
+              {renderTradePane(
+                activeTradeType,
+                selectTradeType,
+                cycleTradeType,
+              )}
+              {showRightPane &&
+                renderTradePane(activePane, selectPane, cyclePane)}
             </div>
           </>
         )}

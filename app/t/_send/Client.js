@@ -60,7 +60,13 @@ export function getBalanceKey(
 ) {
   if (!selectedChain || !selectedCoin || !address) return "";
 
-  return `${selectedChain}:${selectedCoin}:${String(address).toLowerCase()}`;
+  const addressText = String(address);
+  const addressKey =
+    selectedChain == "Solana" || selectedChain == "Tron"
+      ? addressText
+      : addressText.toLowerCase();
+
+  return `${selectedChain}:${selectedCoin}:${addressKey}`;
 }
 
 export function findBalanceRow(chainEntry, walletEntry) {
