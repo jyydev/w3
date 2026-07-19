@@ -608,6 +608,7 @@ async function WPage({
           routeBase={routeBase}
           walletType={selectedWalletType}
           selectedAddress={selectedWalletAddress}
+          hasWalletSelection={!!selectedWalletFile || !!selectedWalletName}
           walletEntries={allWalletEntries}
         />
       </div>

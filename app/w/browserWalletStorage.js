@@ -1,5 +1,10 @@
 export const walletConnectStorageKey = "w3_walletConnect";
 export const walletConnectEvent = "w3_walletConnectChange";
+const walletTypes = ["evm", "solana", "tron"];
+
+function cleanWalletType(type = "") {
+  return walletTypes.includes(type) ? type : "";
+}
 
 function cleanWalletMeta(meta) {
   if (!meta?.type || !meta?.wallet || !meta?.label || !meta?.address) {
@@ -7,9 +12,7 @@ function cleanWalletMeta(meta) {
   }
 
   return {
-    type: ["evm", "solana", "tron"].includes(meta.type)
-      ? meta.type
-      : "evm",
+    type: cleanWalletType(meta.type) || "evm",
     wallet: String(meta.wallet),
     label: String(meta.label),
     address: String(meta.address),
@@ -26,9 +29,17 @@ function readWalletStore() {
       ...(data?.wallets || {}),
       ...(current ? { [current.type]: current } : {}),
     };
+    const blockedTypes = [
+      ...new Set(
+        (Array.isArray(data?.blockedTypes) ? data.blockedTypes : [])
+          .map(cleanWalletType)
+          .filter(Boolean),
+      ),
+    ];
 
     return {
       current,
+      blockedTypes,
       wallets: Object.fromEntries(
         Object.entries(wallets)
           .map(([type, meta]) => [type, cleanWalletMeta({ ...meta, type })])
@@ -36,7 +47,7 @@ function readWalletStore() {
       ),
     };
   } catch {
-    return { current: null, wallets: {} };
+    return { current: null, blockedTypes: [], wallets: {} };
   }
 }
 
@@ -44,10 +55,17 @@ export function readStoredWallet(type = "") {
   if (typeof window == "undefined") return null;
 
   const store = readWalletStore();
-  const cleanType = ["evm", "solana", "tron"].includes(type) ? type : "";
+  const cleanType = cleanWalletType(type);
   if (cleanType) return store.wallets[cleanType] || null;
 
   return store.current;
+}
+
+export function isWalletTypeInferenceBlocked(type = "") {
+  if (typeof window == "undefined") return false;
+
+  const cleanType = cleanWalletType(type);
+  return !!cleanType && readWalletStore().blockedTypes.includes(cleanType);
 }
 
 export function saveStoredWallet(meta) {
@@ -61,11 +79,15 @@ export function saveStoredWallet(meta) {
     ...store.wallets,
     [cleanMeta.type]: cleanMeta,
   };
+  const blockedTypes = store.blockedTypes.filter(
+    (type) => type != cleanMeta.type,
+  );
 
   window.localStorage.setItem(
     walletConnectStorageKey,
     JSON.stringify({
       ...cleanMeta,
+      blockedTypes,
       wallets,
     }),
   );
@@ -75,7 +97,7 @@ export function saveStoredWallet(meta) {
 export function clearStoredWallet(type = "") {
   if (typeof window == "undefined") return;
 
-  const cleanType = ["evm", "solana", "tron"].includes(type) ? type : "";
+  const cleanType = cleanWalletType(type);
   if (!cleanType) {
     window.localStorage.removeItem(walletConnectStorageKey);
     window.dispatchEvent(new CustomEvent(walletConnectEvent));
@@ -85,21 +107,19 @@ export function clearStoredWallet(type = "") {
   const store = readWalletStore();
   const wallets = { ...store.wallets };
   delete wallets[cleanType];
+  const blockedTypes = [...new Set([...store.blockedTypes, cleanType])];
   const current =
     store.current?.type == cleanType
       ? Object.values(wallets)[0] || null
       : store.current;
 
-  if (!current && !Object.keys(wallets).length) {
-    window.localStorage.removeItem(walletConnectStorageKey);
-  } else {
-    window.localStorage.setItem(
-      walletConnectStorageKey,
-      JSON.stringify({
-        ...(current || {}),
-        wallets,
-      }),
-    );
-  }
+  window.localStorage.setItem(
+    walletConnectStorageKey,
+    JSON.stringify({
+      ...(current || {}),
+      blockedTypes,
+      wallets,
+    }),
+  );
   window.dispatchEvent(new CustomEvent(walletConnectEvent));
 }

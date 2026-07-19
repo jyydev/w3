@@ -3013,7 +3013,12 @@ function Wallet({
     );
     saveCurrentWalletSelection();
 
-    const nextSelection = getLastWalletSelection(nextType);
+    const nextConnectedWallet = connectedSelected
+      ? readStoredWallet(nextType)
+      : null;
+    const nextSelection = nextConnectedWallet?.address
+      ? { type: "addr", value: nextConnectedWallet.address }
+      : getLastWalletSelection(nextType);
     setLoadingWallet(true);
     router.push(getWalletSelectionUrl(nextSelection, nextType));
   }

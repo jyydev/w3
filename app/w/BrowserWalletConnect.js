@@ -7,6 +7,7 @@ import useCgb from "@/app/context";
 import { InteractiveInfoCard } from "@/components/Shared";
 import {
   clearStoredWallet,
+  isWalletTypeInferenceBlocked,
   readStoredWallet,
   saveStoredWallet,
 } from "./browserWalletStorage";
@@ -607,12 +608,13 @@ async function resolveWalletMeta(walletType = "evm") {
   const targetType = getConnectType(walletType);
   const stored = await refreshWalletMeta(readWalletMeta(targetType));
   if (stored) return stored;
+  if (isWalletTypeInferenceBlocked(targetType)) return null;
 
   const current = await refreshWalletMeta(readWalletMeta());
   const sameWalletMeta = await getSameWalletMetaForType(current, targetType);
   if (sameWalletMeta) {
     saveStoredWallet(sameWalletMeta);
-    return sameWalletMeta;
+    return { ...sameWalletMeta, inferredFromConnectedType: true };
   }
 
   return null;
@@ -622,6 +624,7 @@ function BrowserWalletConnect({
   routeBase = "/w",
   walletType = "evm",
   selectedAddress = "",
+  hasWalletSelection = false,
   walletEntries = [],
 }) {
   const router = useRouter();
@@ -708,6 +711,16 @@ function BrowserWalletConnect({
       const meta = await resolveWalletMeta(walletType);
       if (cancelled) return;
 
+      if (
+        meta?.inferredFromConnectedType &&
+        meta.address &&
+        !selectedAddress &&
+        !hasWalletSelection
+      ) {
+        openAddress(meta.address, walletType, meta);
+        return;
+      }
+
       setConnected(meta?.address || "");
       setConnectedWallet(meta);
     }
@@ -717,7 +730,7 @@ function BrowserWalletConnect({
     return () => {
       cancelled = true;
     };
-  }, [selectedAddress, walletType]);
+  }, [hasWalletSelection, selectedAddress, walletType]);
 
   useEffect(() => {
     const provider = connectedWallet?.provider;
