@@ -96,7 +96,7 @@ import {
   getVenusFluxMarketBalance,
 } from "./venusFlux/sv";
 import VenusFluxClient from "./venusFlux/Client";
-import { getTradeCoinBalance, getTradeCoinPrice } from "./sv";
+import { getTradeCoinBalance, getTradeCoinPrice } from "../svShared";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,

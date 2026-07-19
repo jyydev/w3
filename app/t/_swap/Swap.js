@@ -86,7 +86,7 @@ import UniswapClient from "./uniswap/Client";
 import {
   getTradeCoinBalance,
   getTradeCoinPrice,
-} from "./sv";
+} from "../svShared";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,

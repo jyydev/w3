@@ -82,7 +82,7 @@ import {
   getVenusSupportedChains,
 } from "./venus/sv";
 import VenusClient from "./venus/Client";
-import { getTradeCoinBalance, getTradeCoinPrice } from "./sv";
+import { getTradeCoinBalance, getTradeCoinPrice } from "../svShared";
 import { addCustomCoin, previewCustomCoin } from "../../w/coinActions";
 import {
   addLocalCustomCoin,

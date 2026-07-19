@@ -25,9 +25,8 @@ import {
 import {
   buildSendTx,
   executeSend,
-  getTradeCoinBalance,
-  getTradeCoinPrice,
 } from "./sv";
+import { getTradeCoinBalance, getTradeCoinPrice } from "../svShared";
 import {
   PickerSortHeader,
   cycleWalletSelection,

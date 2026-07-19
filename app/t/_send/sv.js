@@ -24,18 +24,8 @@ import {
   getTronPrivateKey,
   getTronWeb,
   getTradeCoinEntry,
-  getTradeCoinBalance as getTradeCoinBalanceShared,
-  getTradeCoinPrice as getTradeCoinPriceShared,
   getUnsignedTx,
 } from "../sharedServer";
-
-export async function getTradeCoinPrice(args) {
-  return getTradeCoinPriceShared(args);
-}
-
-export async function getTradeCoinBalance(args) {
-  return getTradeCoinBalanceShared(args);
-}
 
 function getSendAmount({
   chain = "",
