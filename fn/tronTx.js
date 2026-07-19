@@ -1,3 +1,5 @@
+const tronTransactionLifetimeMs = 5 * 60_000;
+
 export function getUnsignedTronTransaction(transaction) {
   if (!transaction || typeof transaction != "object") return transaction;
 
@@ -14,6 +16,13 @@ export async function refreshTronTransaction(tronWeb, transaction) {
   const refBlock = tronWeb.trx.getCurrentRefBlockParams
     ? await tronWeb.trx.getCurrentRefBlockParams()
     : await getTronRefBlock(tronWeb);
+  const timestamp = Number(
+    refBlock.timestamp || transaction.raw_data.timestamp || Date.now(),
+  );
+  const expiration = Math.max(
+    Number(refBlock.expiration || 0),
+    timestamp + tronTransactionLifetimeMs,
+  );
 
   const refreshed = await tronWeb.transactionBuilder.newTxID(
     {
@@ -21,6 +30,7 @@ export async function refreshTronTransaction(tronWeb, transaction) {
       raw_data: {
         ...transaction.raw_data,
         ...refBlock,
+        expiration,
       },
     },
     { txLocal: true },
@@ -41,7 +51,7 @@ async function getTronRefBlock(tronWeb) {
       .slice(-4)
       .padStart(4, "0"),
     ref_block_hash: blockId.slice(16, 32),
-    expiration: Number(blockHeader.timestamp) + 60_000,
+    expiration: Number(blockHeader.timestamp) + tronTransactionLifetimeMs,
     timestamp: Number(blockHeader.timestamp),
   };
 }

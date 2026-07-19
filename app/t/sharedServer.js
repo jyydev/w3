@@ -1182,5 +1182,8 @@ export async function refreshBrowserTronTransaction({
 } = {}) {
   if (!transaction?.raw_data) throw new Error("Tron transaction missing");
 
-  return refreshTronTransaction(getTronWeb(), transaction);
+  return runTronRpc({
+    scope: "browser Tron transaction refresh",
+    action: (tronWeb) => refreshTronTransaction(tronWeb, transaction),
+  });
 }

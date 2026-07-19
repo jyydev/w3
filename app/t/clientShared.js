@@ -2045,7 +2045,11 @@ export function completeTradeTransaction({
   onTxComplete(completion);
 
   void Promise.all(
-    pendingTxs.map((tx) => confirmTronTransaction({ hash: tx.hash })),
+    pendingTxs.map(async (tx) =>
+      unwrapBrowserActionResult(
+        await confirmTronTransaction({ hash: tx.hash }),
+      ),
+    ),
   )
     .then((confirmations) => {
       const confirmationM = new Map(
@@ -3368,21 +3372,24 @@ export async function sendBrowserTronTx({
 }) {
   if (!tx?.transaction) throw new Error("Tron transaction missing");
 
-  const transaction = tx.refreshBlockRef
+  const refreshed = tx.refreshBlockRef
     ? await refreshBrowserTronTransaction({
         transaction: tx.transaction,
       })
     : tx.transaction;
+  const transaction = unwrapBrowserActionResult(refreshed);
   const signed = await signBrowserTronTransaction({
     wallet,
     address,
     transaction,
   });
 
-  const sent = await sendTronRawTransaction({
-    transaction: signed,
-    waitForConfirmation,
-  });
+  const sent = unwrapBrowserActionResult(
+    await sendTronRawTransaction({
+      transaction: signed,
+      waitForConfirmation,
+    }),
+  );
 
   return {
     chain: "Tron",
@@ -3391,6 +3398,14 @@ export async function sendBrowserTronTx({
     blockNumber: sent.blockNumber ?? null,
     pending: !!sent.pending,
   };
+}
+
+function unwrapBrowserActionResult(result) {
+  if (result?.__w3ActionError) {
+    throw new Error(result.error || "Tron request failed");
+  }
+
+  return result;
 }
 
 export async function signBrowserTypedData({

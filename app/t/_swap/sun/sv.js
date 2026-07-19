@@ -7,6 +7,7 @@ import {
   discoveryCacheMs,
   makeDiscoveryCacheMeta,
 } from "@/fn/discoveryCache";
+import { getCleanErrorMessage } from "@/app/_fn/shared";
 import {
   assertWhitelistedRecipient,
   executeTronTx,
@@ -609,7 +610,7 @@ export async function getSunSwapPreview(options = {}) {
   };
 }
 
-export async function buildSunSwapTxs({
+async function buildSunSwapTxsInternal({
   approvalAmount = "",
   includeApprovals = true,
   ...options
@@ -655,6 +656,22 @@ export async function buildSunSwapTxs({
     },
     quote: getSunQuoteDetails(routeE),
   };
+}
+
+export async function buildSunSwapTxs(options = {}) {
+  try {
+    return await buildSunSwapTxsInternal(options);
+  } catch (error) {
+    const message = getCleanErrorMessage(error, "SUN swap build failed");
+    console.error(`[SUN swap build failed] ${message}`);
+
+    return {
+      ok: false,
+      dex: "SUN",
+      error: message,
+      txs: [],
+    };
+  }
 }
 
 export async function executeSunSwap({

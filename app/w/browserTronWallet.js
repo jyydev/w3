@@ -260,6 +260,14 @@ export async function signBrowserTronTransaction({
     const tronWeb = getTronWeb(provider);
     signed = await tronWeb?.trx?.sign?.(unsignedTransaction);
   } else {
+    if (wallet == "metamask") {
+      if (!String(unsignedTransaction?.raw_data_hex || "").trim()) {
+        throw new Error("MetaMask Tron transaction data missing");
+      }
+      if (!unsignedTransaction?.raw_data?.contract?.[0]?.type) {
+        throw new Error("MetaMask Tron transaction type missing");
+      }
+    }
     signed = await provider.signTransaction(unsignedTransaction);
   }
 
