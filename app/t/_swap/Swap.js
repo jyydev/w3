@@ -690,7 +690,6 @@ export default function SwapPanel({
   const canAutoApprove =
     !selectedWalletEntry?.isBrowserWallet &&
     fromChain != "Solana" &&
-    fromChain != "Tron" &&
     !!fromCoin &&
     !fromCoinInfo.native;
   const recipientWalletType = getSwapWalletTypeForChain(toChain);
@@ -1374,7 +1373,6 @@ export default function SwapPanel({
     const autoApprovalAmount =
       autoApproval &&
       sellChain != "Solana" &&
-      sellChain != "Tron" &&
       !sellCoinE?.native
         ? amount
         : "";
