@@ -21,7 +21,7 @@ const rpcRows = [
   ],
   [
     "TronGrid",
-    "Tron is a separate wallet type. Each wallet uses one TronGrid account API request for native TRX and configured TRC-20 balances; an optional TRONGRID_API_KEY raises request limits.",
+    "Tron is a separate wallet type. Each wallet uses one TronGrid account API request for native TRX and configured TRC-20 balances; an optional rpc_key_trongrid raises request limits.",
   ],
   ["RPC order", "RPC URLs are tried one at a time in the order listed in sets.js."],
   [

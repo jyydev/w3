@@ -604,9 +604,7 @@ function isTronGridRpc(rpc = "") {
 }
 
 function getTronGridHeaders(rpc = "") {
-  const apiKey = String(
-    process.env.TRONGRID_API_KEY || process.env.rpc_key_trongrid || "",
-  ).trim();
+  const apiKey = String(process.env.rpc_key_trongrid || "").trim();
 
   return apiKey && (!rpc || isTronGridRpc(rpc))
     ? { "TRON-PRO-API-KEY": apiKey }

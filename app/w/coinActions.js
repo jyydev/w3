@@ -147,9 +147,7 @@ async function withSolanaConnection(chain, fn) {
 }
 
 function getTronGridHeaders() {
-  const apiKey = String(
-    process.env.TRONGRID_API_KEY || process.env.rpc_key_trongrid || "",
-  ).trim();
+  const apiKey = String(process.env.rpc_key_trongrid || "").trim();
 
   return apiKey ? { "TRON-PRO-API-KEY": apiKey } : {};
 }

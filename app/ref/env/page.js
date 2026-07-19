@@ -12,7 +12,7 @@ const coreRows = [
     "Alchemy API key for Alchemy RPC URLs and Portfolio balance requests, including Solana.",
   ],
   [
-    "TRONGRID_API_KEY",
+    "rpc_key_trongrid",
     "Optional TronGrid API key used for Tron wallet reads, TRC-20 metadata, and transaction requests. Public TronGrid works without it at lower limits.",
   ],
   [
