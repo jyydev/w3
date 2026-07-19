@@ -18,10 +18,7 @@ import {
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
-const jupiterApiBase =
-  process.env.JUPITER_API_BASE ||
-  process.env.jupiter_api_base ||
-  "https://lite-api.jup.ag/swap/v1";
+const jupiterApiBase = "https://lite-api.jup.ag/swap/v1";
 const jupiterTokenApiBase =
   process.env.JUPITER_TOKEN_API_BASE ||
   process.env.jupiter_token_api_base ||

@@ -19,14 +19,8 @@ import {
 } from "../../sharedServer";
 import { getTimeoutSignal, parseJson } from "../shared";
 
-const sunApiBase =
-  process.env.SUN_API_BASE ||
-  process.env.sun_api_base ||
-  "https://open.sun.io";
-const sunRouterApiBase =
-  process.env.SUN_ROUTER_API_BASE ||
-  process.env.sun_router_api_base ||
-  "https://rot.endjgfsv.link/swap";
+const sunApiBase = "https://open.sun.io";
+const sunRouterApiBase = "https://rot.endjgfsv.link/swap";
 const sunSmartRouter = "TGnC7LMji8hBpyvZt1TTEJhVpAZ5HFyJ3r";
 const sunNativeTrx = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 const sunNativePathAddress = "0x0000000000000000000000000000000000000000";

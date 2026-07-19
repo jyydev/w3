@@ -43,14 +43,8 @@ const swapApiRows = [
   ["LIFI_INTEGRATOR", "Optional Jumper/LiFi integrator label."],
   ["LIFI_API_BASE", "Optional Jumper/LiFi API base URL override."],
   ["JUPITER_API_KEY", "Optional Jupiter API key."],
-  ["JUPITER_API_BASE", "Optional Jupiter swap API base URL override."],
   ["JUPITER_TOKEN_API_BASE", "Optional Jupiter token API base URL override."],
   ["SUN_API_KEY", "Optional SUN.io API key for higher request limits."],
-  ["SUN_API_BASE", "Optional SUN.io token API base URL override."],
-  [
-    "SUN_ROUTER_API_BASE",
-    "Optional SUN.io Smart Router calculation API base URL override.",
-  ],
 ];
 
 const protocolApiRows = [
