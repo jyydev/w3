@@ -11,6 +11,7 @@ import { DiscoveryCacheInfo } from "@/components/Shared";
 import { isAcrossSupportedForChain } from "./across/Client";
 import { isJumperSupportedForChain } from "./jumper/Client";
 import { isJupiterSwapSupportedForChain } from "./jupiter/Client";
+import { isPancakeSupportedForChain } from "./pancake/Client";
 import { isRelaySupportedForChain } from "./relay/Client";
 import { isSunSupportedForChain } from "./sun/Client";
 import { isUniswapSupportedForChain } from "./uniswap/Client";
@@ -65,12 +66,18 @@ export function hasChainDiscovery(defi = "") {
 }
 
 export function hasCoinDiscovery(defi = "") {
-  return hasChainDiscovery(defi) || defi == "jupiter" || defi == "sun";
+  return (
+    hasChainDiscovery(defi) ||
+    defi == "jupiter" ||
+    defi == "sun" ||
+    defi == "pancake"
+  );
 }
 
 export function getSwapLocalChainOptions(defi = "", chainNames = []) {
   if (defi == "jupiter") return chainNames.filter(isJupiterSwapSupportedForChain);
   if (defi == "sun") return chainNames.filter(isSunSupportedForChain);
+  if (defi == "pancake") return chainNames.filter(isPancakeSupportedForChain);
   if (defi == "uniswap") return chainNames.filter(isUniswapSupportedForChain);
 
   return chainNames;
@@ -90,6 +97,9 @@ export function isDexSupportedForChain(option = {}, fromChain = "") {
   if (option.value == "across") return isAcrossSupportedForChain(fromChain);
   if (option.value == "jupiter") return isJupiterSwapSupportedForChain(fromChain);
   if (option.value == "sun") return isSunSupportedForChain(fromChain);
+  if (option.value == "pancake") {
+    return isPancakeSupportedForChain(fromChain);
+  }
   if (option.value == "uniswap") return isUniswapSupportedForChain(fromChain);
 
   return true;

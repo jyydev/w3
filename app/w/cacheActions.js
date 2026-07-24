@@ -9,6 +9,7 @@ import { clearRelayRuntimeCache } from "../t/_swap/relay/sv";
 import { clearJumperRuntimeCache } from "../t/_swap/jumper/sv";
 import { clearAcrossRuntimeCache } from "../t/_swap/across/sv";
 import { clearJupiterSwapRuntimeCache } from "../t/_swap/jupiter/sv";
+import { clearPancakeRuntimeCache } from "../t/_swap/pancake/sv";
 import { clearAaveStakingRuntimeCache } from "../t/_yield/aaveStaking/sv";
 import { clearSparkRuntimeCache } from "../t/_yield/spark/sv";
 import { clearVenusFluxRuntimeCache } from "../t/_yield/venusFlux/sv";
@@ -25,6 +26,7 @@ export async function clearServerRuntimeCache() {
     clearJumperRuntimeCache(),
     clearAcrossRuntimeCache(),
     clearJupiterSwapRuntimeCache(),
+    clearPancakeRuntimeCache(),
     clearAaveStakingRuntimeCache(),
     clearSparkRuntimeCache(),
     clearVenusFluxRuntimeCache(),

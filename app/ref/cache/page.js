@@ -71,6 +71,10 @@ const serverCacheRows = [
     "server discovery cache map for the default Solana token list. Search-term token discovery is client cache only.",
   ],
   [
+    "PancakeSwap discovery",
+    "server module memory for the official default token list of each supported chain, cross-chain route lists, and bridge-token metadata. Default token lists and route lists expire after 1 hour; search-term results use the client cache.",
+  ],
+  [
     "Morpho supported chains",
     "single server module cache in app/t/_lend/morpho/sv.js; cached for 1 hour. It is one value, so it is not part of the 100-entry map limit.",
   ],
@@ -165,7 +169,7 @@ const cacheNotes = [
   "When the global server discovery cache exceeds 100 entries, expired entries are removed first, then the oldest remaining entries are removed.",
   "The wallet settings Etc tab can clear ALL, client, or server runtime cache.",
   "client clear affects the current browser tab's loaded client module caches, including wallet balance rows.",
-  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, JustLend, Aave Staking, Spark, Relay, Jumper, Across, Jupiter, Venus Flux, and Hyperliquid discovery.",
+  "server clear calls server actions for warm module caches such as Aave, Venus, Morpho, JustLend, Aave Staking, Spark, Relay, Jumper, Across, PancakeSwap, Jupiter, Venus Flux, and Hyperliquid discovery.",
   "Local npm run dev cache resets on server restart and may reset on hot reload.",
   "On Vercel, memory cache is per warm runtime instance. Cold starts, different instances, and deployments start empty.",
   "Runtime cache should be treated as a speed helper. It must be safe for the app to refetch when empty.",

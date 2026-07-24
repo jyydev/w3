@@ -10,7 +10,7 @@ exports.dexs = [
   { value: "sun", label: "SUN", bridge: false },
   { value: "across", label: "Across.to", bridge: true },
   { value: "uniswap", label: "Uniswap", bridge: false },
-  // { value: "pancake", label: "PancakeSwap", bridge: false },
+  { value: "pancake", label: "PancakeSwap", bridge: true },
 ];
 
 exports.lendings = [

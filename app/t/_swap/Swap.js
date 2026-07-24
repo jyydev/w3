@@ -63,6 +63,15 @@ import {
 } from "./jumper/sv";
 import JumperClient from "./jumper/Client";
 import {
+  buildPancakeSwapTxs,
+  executePancakeSwap,
+  getPancakeSwapPreview,
+  getPancakeTokenDiscovery,
+} from "./pancake/sv";
+import PancakeClient, {
+  isPancakeSupportedForChain,
+} from "./pancake/Client";
+import {
   buildRelaySwapSteps,
   executeRelaySwap,
   getRelayCurrencyDiscovery,
@@ -165,6 +174,7 @@ function getDexUrl(defi = "") {
   if (defi == "jumper") return "https://jumper.exchange/";
   if (defi == "jupiter") return "https://jup.ag/swap";
   if (defi == "sun") return "https://sun.io/";
+  if (defi == "pancake") return "https://pancakeswap.finance/swap";
   if (defi == "across") return "https://app.across.to/";
   if (defi == "uniswap") return "https://app.uniswap.org/";
   return "";
@@ -490,9 +500,11 @@ export default function SwapPanel({
           ? JupiterSwapClient
           : defi == "sun"
             ? SunClient
-            : defi == "uniswap"
-              ? UniswapClient
-              : RelayClient;
+            : defi == "pancake"
+              ? PancakeClient
+              : defi == "uniswap"
+                ? UniswapClient
+                : RelayClient;
   const fromDiscoveryCoinE =
     selectedDiscoveryCoinM.from?.chain == fromChain
       ? selectedDiscoveryCoinM.from
@@ -670,6 +682,7 @@ export default function SwapPanel({
     "jumper",
     "relay",
     "sun",
+    "pancake",
     "uniswap",
     "across",
   ].includes(defi);
@@ -766,7 +779,8 @@ export default function SwapPanel({
     defi == "relay" ||
     defi == "jumper" ||
     defi == "jupiter" ||
-    defi == "sun";
+    defi == "sun" ||
+    defi == "pancake";
   const fromTokenDiscoveryE =
     usesLazyTokenDiscovery
       ? fromLazyTokenDiscoveryE
@@ -1245,9 +1259,15 @@ export default function SwapPanel({
     setSwapRoute(sellSide);
 
     if (
-      !["jupiter", "jumper", "relay", "sun", "uniswap", "across"].includes(
-        defi,
-      )
+      ![
+        "jupiter",
+        "jumper",
+        "relay",
+        "sun",
+        "pancake",
+        "uniswap",
+        "across",
+      ].includes(defi)
     ) {
       tradeToast.show(`${defiE.label}: swap not wired yet`);
       return;
@@ -1290,6 +1310,13 @@ export default function SwapPanel({
       }
       if (defi == "sun" && (sellChain != "Tron" || buyChain != "Tron")) {
         return "SUN is for Tron swaps only";
+      }
+      if (
+        defi == "pancake" &&
+        (!isPancakeSupportedForChain(sellChain) ||
+          !isPancakeSupportedForChain(buyChain))
+      ) {
+        return `PancakeSwap does not support ${sellChain} to ${buyChain}`;
       }
       if (
         sellChain == "Solana" &&
@@ -1696,6 +1723,83 @@ export default function SwapPanel({
             { id: toastId },
           );
           res = await executeRelaySwap({
+            walletName: walletEntry.name,
+            walletAddress: walletEntry.address,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
+            amount,
+            recipient: toAddress,
+            approvalAmount,
+          });
+        }
+      } else if (defi == "pancake") {
+        if (useBrowserWallet) {
+          tradeToast.loading("PancakeSwap: building wallet prompts...", {
+            id: toastId,
+          });
+          const built = await buildPancakeSwapTxs({
+            walletAddress: walletEntry.address,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
+            amount,
+            recipient: toAddress,
+          });
+          const txs = [];
+
+          for (const tx of built.txs || []) {
+            txs.push(
+              await sendBrowserTradeTx({
+                tx,
+                walletEntry,
+                tradeToast,
+                toastId,
+                message: `PancakeSwap: confirm ${tx.type}...`,
+              }),
+            );
+          }
+          res = { ...built, txs };
+        } else {
+          tradeToast.loading(
+            "PancakeSwap: checking route and allowance...",
+            { id: toastId },
+          );
+          const preview = await getPancakeSwapPreview({
+            walletAddress: walletEntry.address,
+            fromChain: sellChain,
+            toChain: buyChain,
+            fromCoin: sellCoin,
+            toCoin: buyCoin,
+            fromCoinE: sellCoinE,
+            toCoinE: buyCoinE,
+            amount,
+            recipient: toAddress,
+          });
+          let approvalAmount = "";
+
+          if (preview.approvalNeeded) {
+            approvalAmount = getApprovalAmount(preview.approvalNeeded);
+            if (!approvalAmount) {
+              setSwapPending(false);
+              toast.dismiss(toastId);
+              return;
+            }
+          }
+
+          tradeToast.loading(
+            preview.approvalNeeded
+              ? "PancakeSwap: approving then swapping..."
+              : "PancakeSwap: submitting swap...",
+            { id: toastId },
+          );
+          res = await executePancakeSwap({
             walletName: walletEntry.name,
             walletAddress: walletEntry.address,
             fromChain: sellChain,
@@ -2165,7 +2269,7 @@ export default function SwapPanel({
     const currentDefi = defi;
     if (
       !chain ||
-      !["relay", "jumper", "jupiter", "sun"].includes(currentDefi)
+      !["relay", "jumper", "jupiter", "sun", "pancake"].includes(currentDefi)
     ) {
       return;
     }
@@ -2227,6 +2331,8 @@ export default function SwapPanel({
         ? getJupiterTokenDiscovery({ chain, term, refresh: force })
         : currentDefi == "sun"
           ? getSunTokenDiscovery({ chain, term, refresh: force })
+        : currentDefi == "pancake"
+          ? getPancakeTokenDiscovery({ chain, term, refresh: force })
         : currentDefi == "jumper"
           ? getJumperTokenDiscovery({ chain, term, refresh: force })
           : getRelayCurrencyDiscovery({ chain, term, refresh: force });
@@ -2298,7 +2404,9 @@ export default function SwapPanel({
   }
 
   function openTokenDiscoveryMenu(side = "from", chain = "") {
-    if (!["relay", "jumper", "jupiter", "sun"].includes(defi)) return;
+    if (!["relay", "jumper", "jupiter", "sun", "pancake"].includes(defi)) {
+      return;
+    }
     requestTokenDiscovery(chain, tokenSearchM[side] || "");
   }
 

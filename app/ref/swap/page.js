@@ -8,6 +8,10 @@ const slippageRows = [
     "Fixed at 0.5% (50 basis points). The transaction uses 99.5% of the quoted output as amountOutMinimum.",
   ],
   [
+    "PancakeSwap",
+    "Fixed at 0.5% (50 basis points). Same-chain swaps use PancakeSwap pool routing; cross-chain routes also enforce the gateway and bridge minimum outputs.",
+  ],
+  [
     "SUN",
     "Fixed at 0.5% (50 basis points). The SUN Smart Router transaction includes the calculated amountOutMin.",
   ],
@@ -32,7 +36,7 @@ const slippageRows = [
 const protectionRows = [
   [
     "Fixed slippage",
-    "Uniswap, SUN, and Jumper currently enforce a numeric 0.5% tolerance selected by this app.",
+    "Uniswap, PancakeSwap, SUN, and Jumper currently enforce a numeric 0.5% tolerance selected by this app.",
   ],
   [
     "Provider-managed slippage",
@@ -53,6 +57,9 @@ const protectionRows = [
 ];
 
 const notes = [
+  "PancakeSwap is enabled for same-chain and cross-chain EVM routes on Ethereum, BSC, Arbitrum, Base, zkSync Era, and Linea.",
+  "PancakeSwap coin discovery uses its official per-chain token lists. BSC searches use the extended list, and a pasted EVM contract address is read directly from that chain when it is not listed.",
+  "A PancakeSwap cross-chain ERC-20 route can require both a token approval to Permit2 and a Permit2 approval for the gateway before the bridge transaction.",
   "Slippage tolerance limits movement after the quote; it does not remove normal protocol, bridge, gas, or liquidity-provider fees.",
   "Price impact is the effect of the trade size on the quoted market price and is separate from slippage tolerance.",
   "Provider quotes can expire. Transaction previews and execution data are fetched fresh rather than stored in the discovery cache.",
