@@ -24,7 +24,7 @@ function toFiniteNumber(value) {
 function formatApy(value) {
   const number = toFiniteNumber(value);
   if (number === null) return "";
-  return number.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  return pc(number);
 }
 
 function getPointsLabel(incentive = {}) {
@@ -260,7 +260,7 @@ function SupplyBonusInfo({ incentives, protocolApy }) {
   const hasPoints = bonuses.some(
     (incentive) => incentive.__typename == "SupplyPointsIncentive",
   );
-  const trigger = bonusApy > 0 ? formatApy(bonusApy) : "points";
+  const trigger = bonusApy > 0 ? formatApy(bonusApy) : "pts";
 
   return (
     <>
@@ -364,7 +364,7 @@ const Chain = ({
                   <td key={coin}>
                     {protocolApy && (
                       <div>
-                        {protocolApy}
+                        {formatApy(protocolApy)}
                         <SupplyBonusInfo
                           incentives={bonuses}
                           protocolApy={protocolApy}

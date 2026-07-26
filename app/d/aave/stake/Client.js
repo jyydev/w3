@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { pc } from "@/fn/basic";
 import { getAaveStakingUrl } from "@/app/_shared/aave";
 import { reloadAaveStakingMarkets } from "@/app/_shared/aave/stakingActions";
 import {
@@ -17,10 +18,7 @@ function toFiniteNumber(value) {
 }
 
 function formatApy(value) {
-  return toFiniteNumber(value)
-    .toFixed(4)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "");
+  return pc(toFiniteNumber(value));
 }
 
 function formatTokenAmount(raw = "0", decimals = 18, digits = 4) {

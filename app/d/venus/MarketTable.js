@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { pc } from "@/fn/basic";
 import {
   reloadVenusFluxMarkets,
   reloadVenusLendingMarkets,
@@ -24,12 +25,7 @@ function toFiniteNumber(value) {
 function formatApy(value) {
   const number = toFiniteNumber(value);
   if (number === null) return "";
-  if (number > 0 && number < 0.01) return "<0.01%";
-
-  return `${number
-    .toFixed(number >= 10 ? 2 : 4)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "")}%`;
+  return `${pc(number)}%`;
 }
 
 function getCacheSourceLabel(cacheMeta = {}) {
