@@ -116,8 +116,13 @@ function getIncentiveName(incentive = {}) {
 }
 
 function getIncentiveLinks(incentive = {}) {
+  const claimLink =
+    incentive.claimLink ||
+    (incentive.__typename == "MerklSupplyIncentive"
+      ? "https://app.merkl.xyz/"
+      : "");
   const links = [
-    { href: incentive.claimLink, label: "claim" },
+    { href: claimLink, label: "claim" },
     {
       href: incentive.program?.externalUrl,
       label: incentive.program?.name || "program",
@@ -260,7 +265,7 @@ function SupplyBonusInfo({ incentives, protocolApy }) {
   const hasPoints = bonuses.some(
     (incentive) => incentive.__typename == "SupplyPointsIncentive",
   );
-  const trigger = bonusApy > 0 ? formatApy(bonusApy) : "pts";
+  const trigger = bonusApy > 0 ? formatApy(bonusApy) : "p";
 
   return (
     <>
@@ -307,12 +312,7 @@ function SupplyBonusInfo({ incentives, protocolApy }) {
   );
 }
 
-const Chain = ({
-  chains,
-  coins,
-  coinsM,
-  linkPath = "/d/aave/lend",
-}) => {
+const Chain = ({ chains, coins, coinsM, linkPath = "/d/aave/lend" }) => {
   let chainNames = Object.keys(chains);
   const [show, setShow] = useState(false);
   const [sortCoin, setSortCoin] = useState("");
