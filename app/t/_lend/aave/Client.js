@@ -1,35 +1,8 @@
 "use client";
 
-export const aaveConfiguredChainSet = new Set([
-  "Ethereum",
-  "EthereumEtherFi",
-  "EthereumHorizon",
-  "EthereumLido",
-  "BSC",
-  "BNB",
-  "Arbitrum",
-  "Avalanche",
-  "Optimism",
-  "Polygon",
-  "Base",
-  "Celo",
-  "Fantom",
-  "Gnosis",
-  "Harmony",
-  "Ink",
-  "Linea",
-  "Mantle",
-  "MegaEth",
-  "Metis",
-  "Monad",
-  "Plasma",
-  "Scroll",
-  "Soneium",
-  "Sonic",
-  "XLayer",
-  "ZkSync",
-  "zkSyncEra",
-]);
+import { aaveConfiguredChainSet } from "@/app/_data/aave";
+
+export { aaveConfiguredChainSet };
 
 export function isAaveCoin(coin = "", coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();

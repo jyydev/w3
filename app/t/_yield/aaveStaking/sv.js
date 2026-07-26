@@ -2,6 +2,10 @@
 
 import { ethers } from "ethers";
 import coinM from "@/fn/coinM";
+import {
+  aaveUmbrellaStakeDataProviderM,
+  aaveV3PoolM,
+} from "@/app/_data/aave";
 import { chainIds } from "@/data/basic";
 import {
   clearDiscoveryCacheMap,
@@ -35,6 +39,12 @@ import {
 const aaveStakingTokenMetaTimeoutMs = 8000;
 const aaveStakingFallbackGasLimit = 450000n;
 const aaveStakingMarketCacheM = {};
+const aaveUmbrellaStakeDataProviderAbi = [
+  "function getStakeData() view returns ((address tokenAddress,string name,string symbol,uint256 price,uint256 totalAssets,uint256 targetLiquidity,address underlyingTokenAddress,string underlyingTokenName,string underlyingTokenSymbol,uint8 underlyingTokenDecimals,uint256 cooldownSeconds,uint256 unstakeWindowSeconds,bool underlyingIsStataToken,(address asset,string assetName,string assetSymbol,address aToken,string aTokenName,string aTokenSymbol) stataTokenData,(address rewardAddress,string rewardName,string rewardSymbol,uint256 price,uint8 decimals,uint256 index,uint256 maxEmissionPerSecond,uint256 distributionEnd,uint256 currentEmissionPerSecond,uint256 apy)[] rewards)[])",
+];
+const aavePoolReserveDataAbi = [
+  "function getReserveData(address asset) view returns (tuple(uint256 configuration,uint128 liquidityIndex,uint128 currentLiquidityRate,uint128 variableBorrowIndex,uint128 currentVariableBorrowRate,uint128 currentStableBorrowRate,uint40 lastUpdateTimestamp,uint16 id,address aTokenAddress,address stableDebtTokenAddress,address variableDebtTokenAddress,address interestRateStrategyAddress,uint128 accruedToTreasury,uint128 unbacked,uint128 isolationModeTotalDebt))",
+];
 const erc20MetaAbi = [
   "function name() view returns (string)",
   "function symbol() view returns (string)",
@@ -73,36 +83,10 @@ function getCoinByAddress(chain = "", address = "") {
   );
 }
 
-function isAaveStakingCoin(coin = "", coinE = {}) {
-  const text = `${coin} ${coinE?.name || ""}`.toLowerCase();
-
-  return (
-    ethers.isAddress(coinE?.address || "") &&
-    /^stk/i.test(coin) &&
-    (text.includes("umbrella") ||
-      text.includes("stake wrapped aave") ||
-      text.includes("aave"))
-  );
-}
-
-function getAaveStakingMarkets(chain = "") {
-  return Object.entries(coinM?.[chain] || {}).filter(([coin, coinE]) =>
-    isAaveStakingCoin(coin, coinE),
-  );
-}
-
 export async function clearAaveStakingRuntimeCache() {
   clearDiscoveryCacheMap(aaveStakingMarketCacheM);
 
   return { ok: true };
-}
-
-function getFallbackUnderlyingCoin(_chain = "", lendCoin = "") {
-  const stripped = String(lendCoin || "")
-    .replace(/^stk/i, "")
-    .replace(/\.v\d+$/i, "");
-
-  return stripped || "asset";
 }
 
 async function getTokenMeta(
@@ -150,6 +134,55 @@ async function getTokenMeta(
     decimals: Number(decimals),
     fallback: !String(symbol || "").trim(),
   };
+}
+
+function getProvidedTokenMeta({
+  chain = "",
+  address = "",
+  name = "",
+  symbol = "",
+  decimals,
+} = {}) {
+  const normalizedAddress = ethers.getAddress(address);
+  const localCoin = getCoinByAddress(chain, normalizedAddress);
+  const providedSymbol =
+    cleanMarketSymbol(symbol || "asset", normalizedAddress) || "asset";
+  const providedDecimals = Number(decimals);
+
+  return {
+    address: normalizedAddress,
+    name:
+      localCoin?.[1]?.name ||
+      String(name || "").trim() ||
+      localCoin?.[0] ||
+      providedSymbol,
+    symbol: localCoin?.[0] || providedSymbol,
+    decimals: Number.isInteger(localCoin?.[1]?.decimals)
+      ? localCoin[1].decimals
+      : Number.isInteger(providedDecimals)
+        ? providedDecimals
+        : undefined,
+    fallback: false,
+  };
+}
+
+async function getAaveUmbrellaStakeRows(provider, chain = "") {
+  const dataProviderAddress = aaveUmbrellaStakeDataProviderM[chain];
+  if (!ethers.isAddress(dataProviderAddress || "")) return [];
+
+  const stakeDataProvider = new ethers.Contract(
+    dataProviderAddress,
+    aaveUmbrellaStakeDataProviderAbi,
+    provider,
+  );
+
+  return Array.from(
+    await withTimeout(
+      stakeDataProvider.getStakeData(),
+      aaveStakingTokenMetaTimeoutMs,
+      `${chain} Aave Staking discovery timeout`,
+    ),
+  );
 }
 
 async function getAaveStakingExchangeRate({
@@ -206,6 +239,68 @@ function getAaveStakingToken(chain = "", lendCoin = "") {
   return getEvmTokenAddress(chain, lendCoin, "Aave Staking token");
 }
 
+function getAaveRateApr(rate = 0n) {
+  try {
+    const apr = Number(ethers.formatUnits(BigInt(rate || 0), 25));
+    return Number.isFinite(apr) ? apr : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getAaveUmbrellaRewardApr(rewards = []) {
+  return rewards.reduce((sum, reward) => {
+    const rawApy = Number(reward.apy ?? reward[9] ?? 0);
+    return sum + (Number.isFinite(rawApy) ? rawApy / 100 : 0);
+  }, 0);
+}
+
+async function getAaveStakingAprM(provider, chain = "", stakeRows = []) {
+  const poolAddress = aaveV3PoolM[chain];
+  const pool = ethers.isAddress(poolAddress || "")
+    ? new ethers.Contract(poolAddress, aavePoolReserveDataAbi, provider)
+    : null;
+  const assetAddresses = [
+    ...new Set(
+      stakeRows
+        .filter((entry) => entry.underlyingIsStataToken)
+        .map((entry) => entry.stataTokenData?.asset)
+        .filter((address) => ethers.isAddress(address || ""))
+        .map((address) => ethers.getAddress(address)),
+    ),
+  ];
+  const reserveAprM = new Map(
+    await mapWithConcurrency(assetAddresses, 4, async (address) => {
+      if (!pool) return [address.toLowerCase(), 0];
+      const reserve = await withTimeout(
+        pool.getReserveData(address),
+        aaveStakingTokenMetaTimeoutMs,
+        `${chain} Aave reserve APR timeout`,
+      ).catch(() => null);
+
+      return [
+        address.toLowerCase(),
+        getAaveRateApr(reserve?.currentLiquidityRate ?? reserve?.[2] ?? 0n),
+      ];
+    }),
+  );
+
+  return new Map(
+    stakeRows.map((entry) => {
+      const assetAddress = entry.stataTokenData?.asset;
+      const reserveApr =
+        entry.underlyingIsStataToken && ethers.isAddress(assetAddress || "")
+          ? reserveAprM.get(ethers.getAddress(assetAddress).toLowerCase()) || 0
+          : 0;
+
+      return [
+        ethers.getAddress(entry.tokenAddress).toLowerCase(),
+        getAaveUmbrellaRewardApr(entry.rewards) + reserveApr,
+      ];
+    }),
+  );
+}
+
 function getAaveStakingAmount({
   chain = "",
   action = "lend",
@@ -257,28 +352,53 @@ async function assertAaveStakingMarket({
   if (wrapper != actualWrapper) {
     throw new Error(`${lendCoin} wrapper does not match selected market`);
   }
+  const configuredUnderlying = ethers.isAddress(underlyingAddress)
+    ? ethers.getAddress(underlyingAddress)
+    : getEvmTokenAddress(chain, underlyingCoin, "Aave Staking underlying");
   const wrapperVault = new ethers.Contract(wrapper, erc4626Abi, provider);
+  const directRoute =
+    configuredUnderlying == wrapper &&
+    (!routeMode || routeMode == "wrapped");
+  if (routeMode == "wrapped" && !directRoute) {
+    throw new Error(`${lendCoin} underlying does not match ${underlyingCoin}`);
+  }
+  if (directRoute) {
+    return {
+      underlying: configuredUnderlying,
+      wrapper,
+      stakingAddress,
+      stakingVault,
+      wrapperVault,
+      routeMode: "wrapped",
+      ...(await getAaveStakingExchangeRate({
+        stakingVault,
+        wrapperVault,
+        routeMode: "wrapped",
+        underlyingDecimals: Number.isInteger(underlyingDecimals)
+          ? underlyingDecimals
+          : getCoinDecimals(chain, underlyingCoin),
+        lendDecimals: Number.isInteger(lendDecimals)
+          ? lendDecimals
+          : getCoinDecimals(chain, lendCoin),
+      })),
+    };
+  }
+
   const [baseAsset, aTokenAsset] = await Promise.all([
     wrapperVault.asset().then((address) => ethers.getAddress(address)),
     wrapperVault.aToken().then((address) => ethers.getAddress(address)),
   ]);
-  const configuredUnderlying = ethers.isAddress(underlyingAddress)
-    ? ethers.getAddress(underlyingAddress)
-    : getEvmTokenAddress(chain, underlyingCoin, "Aave Staking underlying");
   const actualRouteMode =
     routeMode ||
     (configuredUnderlying == baseAsset
       ? "base"
       : configuredUnderlying == aTokenAsset
         ? "atoken"
-        : configuredUnderlying == wrapper
-          ? "wrapped"
-          : "");
+        : "");
 
   if (
     (actualRouteMode == "base" && configuredUnderlying != baseAsset) ||
     (actualRouteMode == "atoken" && configuredUnderlying != aTokenAsset) ||
-    (actualRouteMode == "wrapped" && configuredUnderlying != wrapper) ||
     !actualRouteMode
   ) {
     throw new Error(`${lendCoin} underlying does not match ${underlyingCoin}`);
@@ -305,41 +425,58 @@ async function assertAaveStakingMarket({
   };
 }
 
-async function buildAaveStakingMarketEntry({
+async function buildAaveStakingMarketEntries({
   provider,
   chain = "",
-  lendCoin = "",
-  lendE = {},
+  stakeData,
 } = {}) {
-  const lendAddress = ethers.getAddress(lendE.address);
+  const lendAddress = ethers.getAddress(stakeData.tokenAddress);
+  const wrapperAddress = ethers.getAddress(stakeData.underlyingTokenAddress);
+  const wrapperDecimals = Number(stakeData.underlyingTokenDecimals);
+  const isStataToken = !!stakeData.underlyingIsStataToken;
+  const wrapperMeta = getProvidedTokenMeta({
+    chain,
+    address: wrapperAddress,
+    name: stakeData.underlyingTokenName,
+    symbol: stakeData.underlyingTokenSymbol,
+    decimals: wrapperDecimals,
+  });
+  const lendMeta = getProvidedTokenMeta({
+    chain,
+    address: lendAddress,
+    name: stakeData.name,
+    symbol: stakeData.symbol,
+    decimals: wrapperDecimals,
+  });
   const stakingVault = new ethers.Contract(lendAddress, erc4626Abi, provider);
-  const wrapperAddress = ethers.getAddress(
-    await withTimeout(
-      stakingVault.asset(),
-      aaveStakingTokenMetaTimeoutMs,
-      `${chain} Aave Staking asset timeout`,
-    ),
-  );
-  const wrapperVault = new ethers.Contract(wrapperAddress, erc4626Abi, provider);
-  const [baseAddress, aTokenAddress] = await Promise.all([
-    wrapperVault.asset().then((address) => ethers.getAddress(address)),
-    wrapperVault.aToken().then((address) => ethers.getAddress(address)),
-  ]);
-  const fallbackBaseCoin = getFallbackUnderlyingCoin(chain, lendCoin).replace(
-    /^waEth/i,
-    "",
-  );
-  const fallbackATokenCoin = `aEth${fallbackBaseCoin}`;
-  const [baseMeta, aTokenMeta, wrapperMeta, lendMeta] = await Promise.all([
-    getTokenMeta(provider, baseAddress, chain, fallbackBaseCoin),
-    getTokenMeta(provider, aTokenAddress, chain, fallbackATokenCoin),
-    getTokenMeta(provider, wrapperAddress, chain, `waEth${fallbackBaseCoin}`),
-    getTokenMeta(provider, lendAddress, chain, lendCoin),
-  ]);
-  const underlyingEntries = [
-    { routeMode: "base", meta: baseMeta },
-    { routeMode: "atoken", meta: aTokenMeta },
-  ];
+  const wrapperVault = isStataToken
+    ? new ethers.Contract(wrapperAddress, erc4626Abi, provider)
+    : null;
+  const stataTokenData = stakeData.stataTokenData || {};
+  const underlyingEntries = isStataToken
+    ? [
+        {
+          routeMode: "base",
+          meta: getProvidedTokenMeta({
+            chain,
+            address: stataTokenData.asset,
+            name: stataTokenData.assetName,
+            symbol: stataTokenData.assetSymbol,
+            decimals: wrapperDecimals,
+          }),
+        },
+        {
+          routeMode: "atoken",
+          meta: getProvidedTokenMeta({
+            chain,
+            address: stataTokenData.aToken,
+            name: stataTokenData.aTokenName,
+            symbol: stataTokenData.aTokenSymbol,
+            decimals: wrapperDecimals,
+          }),
+        },
+      ]
+    : [{ routeMode: "wrapped", meta: wrapperMeta }];
   const addedLend = getCoinByAddress(chain, lendMeta.address);
 
   return Promise.all(
@@ -358,6 +495,7 @@ async function buildAaveStakingMarketEntry({
         chain,
         protocol: "aaveStaking",
         routeMode,
+        underlyingIsStataToken: isStataToken,
         wrapperAddress: wrapperMeta.address,
         wrapperCoin: wrapperMeta.symbol,
         wrapperName: wrapperMeta.name || wrapperMeta.symbol,
@@ -431,8 +569,9 @@ export async function getAaveStakingAllMarkets({
   }
 
   const now = Date.now();
-  const savedMarkets = getAaveStakingMarkets(chain);
-  if (!savedMarkets.length) {
+  if (
+    !ethers.isAddress(aaveUmbrellaStakeDataProviderM[chain] || "")
+  ) {
     return returnAaveStakingMarkets({ chain, markets: [], at: now });
   }
 
@@ -445,13 +584,25 @@ export async function getAaveStakingAllMarkets({
   });
 
   try {
-    const markets = (
-      await mapWithConcurrency(savedMarkets, 4, ([lendCoin, lendE]) =>
-        buildAaveStakingMarketEntry({ provider, chain, lendCoin, lendE }).catch(
+    const stakeRows = await getAaveUmbrellaStakeRows(provider, chain);
+    const [marketGroups, stakingAprM] = await Promise.all([
+      mapWithConcurrency(stakeRows, 4, (stakeData) =>
+        buildAaveStakingMarketEntries({ provider, chain, stakeData }).catch(
           () => null,
         ),
-      )
-    ).flat().filter(Boolean);
+      ),
+      getAaveStakingAprM(provider, chain, stakeRows).catch(() => new Map()),
+    ]);
+    const markets = marketGroups
+      .flat()
+      .filter(Boolean)
+      .map((entry) => ({
+        ...entry,
+        supplyApr:
+          stakingAprM.get(entry.lendAddress.toLowerCase()) ||
+          entry.supplyApr ||
+          0,
+      }));
     const marketM = new Map();
     for (const entry of markets) {
       if (!ethers.isAddress(entry.lendAddress)) continue;
@@ -528,7 +679,15 @@ async function getAaveStakingWrappedAmount({
   action = "lend",
   amountIn = 0n,
 } = {}) {
-  if (market.routeMode == "wrapped") return amountIn;
+  if (market.routeMode == "wrapped") {
+    return action == "redeem"
+      ? withTimeout(
+          market.stakingVault.convertToAssets(amountIn),
+          aaveStakingTokenMetaTimeoutMs,
+          "Aave Staking redeem preview timeout",
+        )
+      : amountIn;
+  }
 
   return action == "redeem"
     ? withTimeout(

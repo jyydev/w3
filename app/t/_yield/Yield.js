@@ -4095,6 +4095,7 @@ export default function YieldPanel({
             allMarketSort={allMarketSort}
             setAllMarketSort={setAllMarketSort}
             selectMarket={selectMarket}
+            onRemoveHistory={removeMarketHistory}
             openProtocolCoinConfirm={openProtocolCoinConfirm}
             addingCoin={addingCoin}
             marketSupplyApr={marketSupplyApr}

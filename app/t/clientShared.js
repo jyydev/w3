@@ -26,6 +26,7 @@ import {
   CycleButtonPair,
   getCycleTargetValue,
   getCustomPickerHistoryCycleValues,
+  HistoryRemoveButton,
   HoverInfoCard,
 } from "@/components/Shared";
 import { dexs, lendings, scanners, yields } from "@/sets";
@@ -1522,6 +1523,7 @@ export function TradeMarketPicker({
   allMarketSort = "",
   setAllMarketSort = () => {},
   selectMarket = () => {},
+  onRemoveHistory,
   openProtocolCoinConfirm = () => {},
   addingCoin = false,
   marketSupplyApr = 0,
@@ -1637,7 +1639,11 @@ export function TradeMarketPicker({
     );
   }
 
-  function renderLocalMarketRows(rows = [], sortKey = addedMarketSort) {
+  function renderLocalMarketRows(
+    rows = [],
+    sortKey = addedMarketSort,
+    showRemoveHistory = false,
+  ) {
     const sortedRows = sortTradeMarketRows(rows, sortKey);
     if (!sortedRows.length) {
       return (
@@ -1667,6 +1673,15 @@ export function TradeMarketPicker({
               decimals={entry.underlyingDecimals}
               balance={entry.underlyingBalance}
             />
+            {showRemoveHistory && onRemoveHistory && (
+              <HistoryRemoveButton
+                label={getMarketLabel(entry)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveHistory(entry.value, entry);
+                }}
+              />
+            )}
           </span>
         </td>
         <td>
@@ -1689,7 +1704,11 @@ export function TradeMarketPicker({
     ));
   }
 
-  function renderLocalMarketColumn(title = "all", rows = []) {
+  function renderLocalMarketColumn(
+    title = "all",
+    rows = [],
+    showRemoveHistory = false,
+  ) {
     return (
       <TradePickerColumn title={title}>
         <TradePickerTable
@@ -1702,7 +1721,13 @@ export function TradeMarketPicker({
             <SortHeader sortKey="apr">apr</SortHeader>,
           ]}
         >
-          <tbody>{renderLocalMarketRows(rows)}</tbody>
+          <tbody>
+            {renderLocalMarketRows(
+              rows,
+              addedMarketSort,
+              showRemoveHistory,
+            )}
+          </tbody>
         </TradePickerTable>
       </TradePickerColumn>
     );
@@ -1739,7 +1764,7 @@ export function TradeMarketPicker({
         </CustomPickerButton>
         {showMarketMenu && (
           <TradePickerMenu className="tradeMarketMenu">
-            {renderLocalMarketColumn("history", historyRows)}
+            {renderLocalMarketColumn("history", historyRows, true)}
             {renderLocalMarketColumn("all", addedRows)}
             <TradePickerColumn
               title={allColumnTitle}

@@ -1,5 +1,7 @@
 "use client";
 
+import { aaveUmbrellaChains } from "@/app/_data/aave";
+
 export function isAaveStakingCoin(coin = "", coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();
   return (
@@ -11,8 +13,8 @@ export function isAaveStakingCoin(coin = "", coinE = {}) {
   );
 }
 
-export function isAaveStakingChainAvailable(_chain = "", chainMarkets = []) {
-  return !!chainMarkets.length;
+export function isAaveStakingChainAvailable(chain = "", chainMarkets = []) {
+  return aaveUmbrellaChains.includes(chain) || !!chainMarkets.length;
 }
 
 export default function AaveStakingClient({ children }) {

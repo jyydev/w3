@@ -2,7 +2,7 @@ import "ygb/nx";
 import axios from "axios";
 import fp from "floatp";
 import Logo from "@/components/Logo";
-import chainsR from "../data";
+import { aaveV3GraphMarketM as chainsR } from "@/app/_data/aave";
 import Client from "./Client";
 
 async function post(query, variables = {}) {
@@ -22,8 +22,6 @@ async function App({ searchParams }) {
     let onlyChains = searchParams.chains?.split(",");
     chains = Object.fromEntries(onlyChains.map((k) => [k, chains[k]]));
   }
-  let ck = await getNxCookies();
-  let omitChains = ck.av_omitChains?.split(" ");
   async function getChainCoins(chainId, address) {
     let query = `{
       market(
@@ -97,10 +95,6 @@ async function App({ searchParams }) {
 
   let promises = [];
   for (let chain in chains) {
-    if (omitChains?.includes(chain)) {
-      delete chains[chain];
-      continue;
-    }
     let e = chains[chain];
     promises.push(getChainCoins(e.id, e.address));
   }
@@ -144,7 +138,7 @@ async function App({ searchParams }) {
     <div>
       {console.log("return")}
       <Logo {...{ page: "home" }} />
-      <Client {...{ chains, coins, coinsM, ck }} />
+      <Client {...{ chains, coins, coinsM }} />
     </div>
   );
 }

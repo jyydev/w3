@@ -20,7 +20,7 @@ const sourceRows = [
 const lendRows = [
   [
     "Aave chains",
-    "local/static config from aaveV3PoolM and chainIds. Not queried from an Aave API.",
+    "local/static config from app/_data/aave.js and chainIds. Not queried from an Aave API.",
   ],
   [
     "Aave markets",
@@ -57,6 +57,10 @@ const lendRows = [
 ];
 
 const yieldRows = [
+  [
+    "Aave Staking markets",
+    "official on-chain Umbrella provider for the Ethereum USDC, USDT, WETH, and GHO pools, plus reward APR and underlying Aave reserve APR. Discovery is cached server-side for 1 hour.",
+  ],
   [
     "Spark markets",
     "local/static known market config plus on-chain RPC metadata. Savings-rate API is cached for 1 hour.",

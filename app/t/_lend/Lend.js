@@ -2711,6 +2711,7 @@ export default function LendPanel({
               allMarketSort={allMarketSort}
               setAllMarketSort={setAllMarketSort}
               selectMarket={selectMarket}
+              onRemoveHistory={removeMarketHistory}
               openProtocolCoinConfirm={openProtocolCoinConfirm}
               addingCoin={addingCoin}
               marketSupplyApr={marketSupplyApr}

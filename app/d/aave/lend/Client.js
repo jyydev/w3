@@ -22,16 +22,11 @@ function toFiniteNumber(value) {
 function formatApy(value) {
   const number = toFiniteNumber(value);
   if (number === null) return "";
-  return number
-    .toFixed(4)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "");
+  return number.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function getPointsLabel(incentive = {}) {
-  const pointsPerThousandUsd = toFiniteNumber(
-    incentive.pointsPerThousandUsd,
-  );
+  const pointsPerThousandUsd = toFiniteNumber(incentive.pointsPerThousandUsd);
   if (pointsPerThousandUsd !== null) {
     return `${pc(pointsPerThousandUsd)} points/$1k`;
   }
@@ -155,16 +150,12 @@ function SupplyIncentiveInfo({ incentive = {} }) {
     incentive.rewardTokenAddress || incentive.payoutToken?.address || "";
   const startDate = formatBonusDate(incentive.startDate);
   const endDate = formatBonusDate(incentive.endDate);
-  const criteria = Array.isArray(incentive.criteria)
-    ? incentive.criteria
-    : [];
+  const criteria = Array.isArray(incentive.criteria) ? incentive.criteria : [];
   const messages = [
     incentive.description,
     incentive.customMessage,
     incentive.customClaimMessage,
-  ].filter(
-    (message, index, all) => message && all.indexOf(message) == index,
-  );
+  ].filter((message, index, all) => message && all.indexOf(message) == index);
   const links = getIncentiveLinks(incentive);
 
   return (
@@ -248,12 +239,7 @@ function SupplyIncentiveInfo({ incentive = {} }) {
       {links.length > 0 && (
         <span className="aaveBonusInfoLinks">
           {links.map(({ href, label }) => (
-            <Link
-              key={href}
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <Link key={href} href={href} target="_blank" rel="noreferrer">
               {label} <span className="gray externalLinkIcon">↗</span>
             </Link>
           ))}
@@ -263,11 +249,7 @@ function SupplyIncentiveInfo({ incentive = {} }) {
   );
 }
 
-function SupplyBonusInfo({
-  incentives,
-  protocolApy,
-  showLabel = false,
-}) {
+function SupplyBonusInfo({ incentives, protocolApy }) {
   const bonuses = getSupplyBonuses(incentives);
   if (!bonuses.length) return null;
 
@@ -280,7 +262,7 @@ function SupplyBonusInfo({
 
   return (
     <>
-      <span className="gray"> + {showLabel ? "bonus: " : ""}</span>
+      <span className="gray">+</span>
       <HoverInfoCard className="aaveBonusInfoHover">
         <span className="info">{trigger}</span>
         <span className="infoCard aaveBonusInfoCard">
@@ -323,34 +305,20 @@ function SupplyBonusInfo({
   );
 }
 
-const Chain = ({ chains, coins, coinsM, ck }) => {
-  let ckPre = "av_";
+const Chain = ({ chains, coins, coinsM }) => {
   let chainNames = Object.keys(chains);
   const [show, setShow] = useState(false);
   const [sortCoin, setSortCoin] = useState("");
-  // if (!show) coins = coins.filter((coin) => !/PT-/.test(coin)); //filter PT-sUSDE-25SEP2025
-  let showCoins = ck[ckPre + "showCoins"]?.split(" ") ?? [];
-  let hideCoins = ck[ckPre + "hideCoins"]?.split(" ") ?? [];
   if (!show)
     coins = coins.filter(
-      (coin) =>
-        (/(USD|DAI|ETH|BTC|BNB|EUR)/.test(coin) ||
-          /*if showCoins!=[' ']|[]*/ (showCoins.length > 0 &&
-            !showCoins.some((coin) => coin.trim() == "") &&
-            new RegExp(showCoins.join("|")).test(coin))) &&
-        !/^PT-/.test(coin) &&
-        !(
-          hideCoins.length > 0 &&
-          !hideCoins.some((coin) => coin.trim() == "") &&
-          new RegExp(hideCoins.join("|")).test(coin)
-        ), //need all false -> !false -> true to show
+      (coin) => /(USD|DAI|ETH|BTC|BNB|EUR)/.test(coin) && !/^PT-/.test(coin),
     ); //filter PT-sUSDE-25SEP2025
   const activeSortCoin = coins.includes(sortCoin) ? sortCoin : "";
   chainNames = sortChainsByCoin(chainNames, coinsM, activeSortCoin);
 
   return (
     <table>
-      <caption>chains</caption>
+      <caption>Aave lending</caption>
       <thead>
         <tr>
           <th className="stickyA">
@@ -384,12 +352,10 @@ const Chain = ({ chains, coins, coinsM, ck }) => {
                   <td key={coin}>
                     {protocolApy && (
                       <div>
-                        {show && <span className="gray">protocol: </span>}
                         {protocolApy}
                         <SupplyBonusInfo
                           incentives={bonuses}
                           protocolApy={protocolApy}
-                          showLabel={show}
                         />
                       </div>
                     )}

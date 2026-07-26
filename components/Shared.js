@@ -209,6 +209,25 @@ export function TrashIcon() {
   );
 }
 
+export function HistoryRemoveButton({
+  label = "",
+  disabled = false,
+  onClick,
+}) {
+  return (
+    <button
+      type="button"
+      className="walletDeleteButton walletHistoryRemoveButton"
+      title={`remove ${label} from history`}
+      aria-label={`remove ${label} from history`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <TrashIcon />
+    </button>
+  );
+}
+
 export function TableSortHeader({
   activeSort = "",
   sortKey = "",
@@ -746,17 +765,12 @@ export function CustomHistoryPicker({
               {index == 0 && history && onRemoveHistory && (
                 <>
                   {" "}
-                  <button
-                    type="button"
-                    className="walletDeleteButton walletHistoryRemoveButton"
-                    title={`remove ${label} from history`}
-                    aria-label={`remove ${label} from history`}
+                  <HistoryRemoveButton
+                    label={label}
                     onClick={(e) =>
                       removeHistoryOption(e, option, sectionGetOptionValue)
                     }
-                  >
-                    <TrashIcon />
-                  </button>
+                  />
                 </>
               )}
             </CustomPickerCell>
