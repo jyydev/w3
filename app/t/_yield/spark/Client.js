@@ -1,12 +1,8 @@
 "use client";
 
-export const sparkSupportedChains = new Set([
-  "Ethereum",
-  "Arbitrum",
-  "Avalanche",
-  "Base",
-  "Optimism",
-]);
+import { sparkSupportedChains } from "@/app/_shared/spark";
+
+export { sparkSupportedChains };
 
 export function isSparkCoin(coin = "", coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();

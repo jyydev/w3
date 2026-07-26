@@ -155,7 +155,13 @@ function NavbarLinkNode({ entry, favHrefM, onToggleFav }) {
   );
 }
 
-function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
+function NavbarLinkMenu({
+  title,
+  titleHref = "",
+  items = [],
+  cookieName,
+  initialFavs = [],
+}) {
   const entries = useMemo(() => items.map(getLinkEntry), [items]);
   const validFavs = useMemo(
     () =>
@@ -293,10 +299,20 @@ function NavbarLinkMenu({ title, items = [], cookieName, initialFavs = [] }) {
   return (
     <div className="walletNavGroup">
       <HoverMenu className="dropdown title">
-        <button className="navigationMenuTrigger dropbtn">
-          {title}
-          <i className="custom-caret"></i>
-        </button>
+        {titleHref ? (
+          <Link
+            className="navigationMenuTrigger dropbtn navTitleLink"
+            href={titleHref}
+          >
+            {title}
+            <i className="custom-caret"></i>
+          </Link>
+        ) : (
+          <button className="navigationMenuTrigger dropbtn">
+            {title}
+            <i className="custom-caret"></i>
+          </button>
+        )}
         <div className="navigationMenuPanel dropdown-content navMenuTree">
           {entries.map((entry) => (
             <NavbarLinkNode

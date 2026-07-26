@@ -15,6 +15,7 @@ import {
 const topOptions = [
   { value: "wallet", label: "wallet", href: "/w" },
   { value: "trade", label: "trade", href: "/t" },
+  { value: "data", label: "data", href: "/d" },
   { value: "ref", label: "ref", href: "/ref" },
   { value: "editor", label: "editor", href: "/editor" },
   { value: "cookie", label: "cookie", href: "/ck" },
@@ -25,6 +26,7 @@ function getTopValue(pathname = "/") {
   const first = pathname.split("/").filter(Boolean)[0] || "";
   if (first == "w") return "wallet";
   if (first == "t") return "trade";
+  if (first == "d") return "data";
   if (first == "ck") return "cookie";
   if (["ref", "editor", "login"].includes(first)) return first;
 
@@ -113,7 +115,7 @@ function getWalletTypeOptions(routeBase, tree = []) {
   }));
 }
 
-function getTopMenuOptions(tree = [], refTree = []) {
+function getTopMenuOptions(tree = [], refTree = [], dataTree = []) {
   return topOptions.map((option) => {
     if (option.value == "wallet") {
       return { ...option, children: getWalletTypeOptions("/w", tree) };
@@ -121,6 +123,7 @@ function getTopMenuOptions(tree = [], refTree = []) {
     if (option.value == "trade") {
       return { ...option, children: getWalletTypeOptions("/t", tree) };
     }
+    if (option.value == "data") return { ...option, children: dataTree };
     if (option.value == "ref") return { ...option, children: refTree };
 
     return option;
@@ -400,15 +403,15 @@ function WalletCrumbs({ routeBase, tree = [] }) {
   return crumbs;
 }
 
-function RefCrumbs({ tree = [] }) {
-  const pathname = usePathname() || "/ref";
-  const parts = pathname.split("/").filter(Boolean).slice(1);
+function RouteCrumbs({ routeBase, tree = [] }) {
+  const pathname = usePathname() || routeBase;
+  const parts = getPathParts(pathname, routeBase);
 
   if (!parts.length) {
     return (
       <SelectCrumb
         value=""
-        ariaLabel="ref page"
+        ariaLabel={`${routeBase} page`}
         fallbackLabel="select"
         options={tree}
       />
@@ -442,9 +445,12 @@ function RefCrumbs({ tree = [] }) {
 
     crumbs.push(
       <SelectCrumb
-        key={known.href || `ref:${parts.slice(0, i + 1).join("/")}`}
+        key={
+          known.href ||
+          `${routeBase}:${parts.slice(0, i + 1).join("/")}`
+        }
         value={known.value}
-        ariaLabel="ref page"
+        ariaLabel={`${routeBase} page`}
         href={known.href}
         disabled={known.disabled && !known.children?.length}
         options={options}
@@ -459,7 +465,7 @@ function RefCrumbs({ tree = [] }) {
       <SelectCrumb
         key={`${currentNode.href || currentNode.value}:child`}
         value=""
-        ariaLabel="ref child page"
+        ariaLabel={`${routeBase} child page`}
         fallbackLabel="select"
         options={currentNode.children}
       />,
@@ -469,7 +475,11 @@ function RefCrumbs({ tree = [] }) {
   return crumbs;
 }
 
-function BreadcrumbInner({ walletTree = [], refTree = [] }) {
+function BreadcrumbInner({
+  walletTree = [],
+  refTree = [],
+  dataTree = [],
+}) {
   const pathname = usePathname() || "/";
   const topValue = getTopValue(pathname);
   const topCurrent = topOptions.find((option) => option.value == topValue);
@@ -480,8 +490,8 @@ function BreadcrumbInner({ walletTree = [], refTree = [] }) {
     [walletTree, localTree],
   );
   const topMenuOptions = useMemo(
-    () => getTopMenuOptions(tree, refTree),
-    [tree, refTree],
+    () => getTopMenuOptions(tree, refTree, dataTree),
+    [tree, refTree, dataTree],
   );
 
   useEffect(() => {
@@ -513,7 +523,12 @@ function BreadcrumbInner({ walletTree = [], refTree = [] }) {
       />
       {topValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}
       {topValue == "trade" && <WalletCrumbs routeBase="/t" tree={tree} />}
-      {topValue == "ref" && <RefCrumbs tree={refTree} />}
+      {topValue == "data" && (
+        <RouteCrumbs routeBase="/d" tree={dataTree} />
+      )}
+      {topValue == "ref" && (
+        <RouteCrumbs routeBase="/ref" tree={refTree} />
+      )}
       {navigationLoading && (
         <span className="breadcrumbLoading" role="status" aria-live="polite">
           loading...

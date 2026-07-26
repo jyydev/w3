@@ -56,7 +56,7 @@ const serverCacheRows = [
   ],
   [
     "Spark markets",
-    "server discovery cache map in app/t/_yield/spark/sv.js; keyed by chain and cached for 1 hour. Its separate savings-rate API response uses the same 1-hour server cache TTL.",
+    "server discovery cache map in app/t/_yield/spark/sv.js; keyed by chain and cached for 1 hour. The shared savings-rate API cache in app/_shared/spark/rates.js also uses the 1-hour server cache TTL and supplies both Yield and data views.",
   ],
   [
     "Venus Flux markets",

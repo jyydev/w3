@@ -13,7 +13,7 @@ const walletTypeLabels = {
   solana: "Solana",
   tron: "Tron",
 };
-const refPageFilePattern = /^page\.(?:js|jsx|ts|tsx)$/i;
+const routePageFilePattern = /^page\.(?:js|jsx|ts|tsx)$/i;
 
 function getWalletType(folder = "") {
   const type = folder.toLowerCase();
@@ -159,7 +159,7 @@ async function getWalletNavTree() {
   );
 }
 
-function getRefRouteLabel(folder = "") {
+function getRouteLabel(folder = "") {
   return String(folder || "")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[-_]+/g, " ")
@@ -167,20 +167,23 @@ function getRefRouteLabel(folder = "") {
     .toLowerCase();
 }
 
-function isPublicRefRouteFolder(folder = "") {
+function isPublicRouteFolder(folder = "") {
   return ![".", "_", "@", "[", "("].includes(String(folder || "")[0]);
 }
 
-async function readRefNavChildren(dir, routeParts = [], knownEntries) {
+async function readRouteNavChildren(
+  dir,
+  routeBase,
+  routeParts = [],
+  knownEntries,
+) {
   const entries =
     knownEntries ||
     (await fs
       .readdir(dir, { withFileTypes: true })
       .catch((e) => (e.code == "ENOENT" ? [] : Promise.reject(e))));
   const folders = entries
-    .filter(
-      (entry) => entry.isDirectory() && isPublicRefRouteFolder(entry.name),
-    )
+    .filter((entry) => entry.isDirectory() && isPublicRouteFolder(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const children = await Promise.all(
@@ -189,20 +192,21 @@ async function readRefNavChildren(dir, routeParts = [], knownEntries) {
       const folderPath = path.join(dir, entry.name);
       const folderEntries = await fs.readdir(folderPath, { withFileTypes: true });
       const hasPage = folderEntries.some(
-        (child) => child.isFile() && refPageFilePattern.test(child.name),
+        (child) => child.isFile() && routePageFilePattern.test(child.name),
       );
-      const nestedChildren = await readRefNavChildren(
+      const nestedChildren = await readRouteNavChildren(
         folderPath,
+        routeBase,
         parts,
         folderEntries,
       );
       if (!hasPage && !nestedChildren.length) return null;
 
-      const href = hasPage ? `/ref/${parts.join("/")}` : "";
+      const href = hasPage ? `${routeBase}/${parts.join("/")}` : "";
 
       return {
         value: entry.name,
-        label: getRefRouteLabel(entry.name),
+        label: getRouteLabel(entry.name),
         href,
         title: href,
         disabled: !hasPage,
@@ -214,8 +218,12 @@ async function readRefNavChildren(dir, routeParts = [], knownEntries) {
   return children.filter(Boolean);
 }
 
-async function getRefNavTree() {
-  return readRefNavChildren(path.join(process.cwd(), "app/ref"));
+async function getRouteNavTree(routeFolder) {
+  const routeBase = `/${routeFolder}`;
+  return readRouteNavChildren(
+    path.join(process.cwd(), "app", routeFolder),
+    routeBase,
+  );
 }
 
 const split4nestedBrackets = (s) => {
@@ -264,8 +272,11 @@ export default async function Navbar() {
     get: (target, key) =>
       typeof key == "string" ? target[`${ckPrefix ?? ""}${key}`] : target[key],
   });
-  const walletNavTree = await getWalletNavTree();
-  const refNavTree = await getRefNavTree();
+  const [walletNavTree, refNavTree, dataNavTree] = await Promise.all([
+    getWalletNavTree(),
+    getRouteNavTree("ref"),
+    getRouteNavTree("d"),
+  ]);
 
   let links = [["/", "⌂ Home"]]; //txt separator: links.push(['','tx'])
   let etc = [
@@ -282,6 +293,15 @@ export default async function Navbar() {
 
   links.push([{ type: "walletTree", routeBase: "/w" }, "wallet"]);
   links.push([{ type: "walletTree", routeBase: "/t" }, "trade"]);
+  links.push([
+    {
+      type: "linkMenu",
+      titleHref: "/d",
+      items: dataNavTree,
+      favCookieKey: "navDataFavs",
+    },
+    "data",
+  ]);
   links.push([{ type: "linkMenu", items: etc, favCookieKey: "navEtcFavs" }, "etc"]);
 
   if (ck.navFavs) {
@@ -323,6 +343,7 @@ export default async function Navbar() {
             <NavbarLinkMenu
               key={e[1]}
               title={e[1]}
+              titleHref={e[0].titleHref}
               items={e[0].items}
               cookieName={getFullCookieName(e[0].favCookieKey)}
               initialFavs={parseWalletFavs(ck[e[0].favCookieKey])}
@@ -395,7 +416,11 @@ export default async function Navbar() {
           );
         })}
       </div>
-      <Breadcrumb walletTree={walletNavTree} refTree={refNavTree} />
+      <Breadcrumb
+        walletTree={walletNavTree}
+        refTree={refNavTree}
+        dataTree={dataNavTree}
+      />
     </>
   );
 }
