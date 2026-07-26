@@ -20,6 +20,10 @@ const cookieRows = [
     "Trade pane, protocol, chain, coin, market, and Hyperliquid mode order cookies are capped at 5 items.",
   ],
   [
+    "Home navigation",
+    "Separate data, wallet/trade, and ref cookies remember collapsed navigation branches. Wallet/trade also remembers its selected mode, custom sibling order, sort mode, and ordered home favorites in w3_home_wallet_favs.",
+  ],
+  [
     "encoding",
     "Simple order cookies use value|value. Grouped cookies use group:item,item|group:item,item.",
   ],
@@ -30,7 +34,10 @@ const cookieRows = [
 ];
 
 const exactCookieRows = [
-  ["Wallet", "activeChain, lastWallet_* and related wallet display preferences."],
+  [
+    "Wallet",
+    "activeChain, lastWallet_*, walletHistory_* and related wallet display preferences.",
+  ],
   ["Swap", "selected DEX plus from/to chain and coin selections."],
   ["Lend", "selected DeFi, chain, and market."],
   [
@@ -46,6 +53,10 @@ const exactCookieRows = [
 
 const sortingCookieRows = [
   ["Wallet", "assetSort, rowSort, and chainSort. chainSort is capped at 10."],
+  [
+    "Home wallet tree",
+    "w3_home_wallet_sort_mode and w3_home_wallet_order store custom vertical sibling ordering. History and home-favorite rows stay pinned first.",
+  ],
   ["Trade pane", "w3_trade_pane_order, capped at 5."],
   [
     "Swap",
@@ -70,7 +81,7 @@ const cookieSettingRows = [
   ],
   [
     "clear cookies: sorting",
-    "Deletes Wallet sort cookies and Trade order cookies only.",
+    "Deletes Wallet, Home wallet-tree, and Trade sorting cookies only.",
   ],
   [
     "clear data",

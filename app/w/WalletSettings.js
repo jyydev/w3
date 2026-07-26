@@ -11,6 +11,10 @@ import {
   TableSortHeader,
 } from "@/components/Shared";
 import {
+  homeWalletOrderCookie,
+  homeWalletSortModeCookie,
+} from "@/components/homeNavigationState";
+import {
   clearLocalEditorData,
   localEditorStorageEvent,
   readLocalLineFileValues,
@@ -563,6 +567,12 @@ function WalletSettings({
     const cleanName = String(name || "").trim();
     const prefixes = [...new Set([ckPrefix || "", "w3_"].filter(Boolean))];
     const walletSortCookies = ["assetSort", "rowSort", "chainSort"];
+    const homeSortCookies = [
+      homeWalletOrderCookie,
+      homeWalletSortModeCookie,
+    ];
+
+    if (homeSortCookies.includes(cleanName)) return true;
 
     if (
       prefixes.some((prefix) =>

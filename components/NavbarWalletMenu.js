@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { TrashIcon } from "@/components/Shared";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
+import FavoriteButton from "./FavoriteButton";
 import HoverMenu from "./HoverMenu";
 import {
   deleteLocalEditorFile,
@@ -35,6 +36,7 @@ export function getWalletNavUrl(routeBase, node) {
     params.set("chain", node.walletType);
   }
   if (node.walletName) params.set("w", node.walletName);
+  if (node.walletAddress) params.set("addr", node.walletAddress);
 
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -219,20 +221,6 @@ function normalizeFavs(favs = [], validHrefM = new Map()) {
     });
 }
 
-function FavButton({ active, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`navFavBtn ${active ? "active" : ""}`}
-      title={active ? "remove fav" : "add fav"}
-      aria-label={active ? "remove favorite" : "add favorite"}
-      onClick={onClick}
-    >
-      {active ? "★" : "☆"}
-    </button>
-  );
-}
-
 function WalletNavNode({
   node,
   routeBase,
@@ -245,8 +233,10 @@ function WalletNavNode({
   const fav = getFavEntry(routeBase, node);
   const active = favHrefM.has(fav.href);
   const favButton = (
-    <FavButton
+    <FavoriteButton
       active={active}
+      className="navFavBtn"
+      label={node.label}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

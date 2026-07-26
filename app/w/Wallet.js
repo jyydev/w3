@@ -89,6 +89,13 @@ import {
   getWalletDisableKey,
 } from "./walletSettingData";
 import {
+  connectedWalletValue,
+  favWalletHistoryValue,
+  getWalletHistoryCookie,
+  walletHistoryCap,
+  walletNotFoundValue,
+} from "./walletHistory";
+import {
   buildAaveStakingClaimTxs,
   executeAaveStakingClaim,
 } from "../t/_yield/aaveStaking/sv";
@@ -581,15 +588,10 @@ const chainSortCookie = `${ckPrefix ?? ""}chainSort`;
 const allChainSortValue = "__all__";
 const chainSortCap = 10;
 const lastWalletCookiePrefix = `${ckPrefix ?? ""}lastWallet_`;
-const walletHistoryCookiePrefix = `${ckPrefix ?? ""}walletHistory_`;
 const lastWalletStoragePrefix = `${ckPrefix ?? ""}lastWalletStorage_`;
 const walletHistoryStoragePrefix = `${ckPrefix ?? ""}walletHistoryStorage_`;
 const walletHistorySkipStorageKey = `${ckPrefix ?? ""}walletHistorySkip`;
-const walletHistoryCap = 10;
 const cookieMaxAge = 365 * 24 * 60 * 60;
-const connectedWalletValue = "__connected__";
-const walletNotFoundValue = "__not_found__";
-const favWalletHistoryValue = "__favs__";
 
 function getInitialCookie(initialCookieM = {}, name = "") {
   const value = initialCookieM?.[name];
@@ -603,10 +605,6 @@ function getInitialActiveChain({ data, initialCookieM = {} } = {}) {
 
   const savedActiveChain = getInitialCookie(initialCookieM, activeChainCookie);
   return chainNames.includes(savedActiveChain) ? savedActiveChain : "";
-}
-
-function getWalletHistoryCookie(type = "evm") {
-  return `${walletHistoryCookiePrefix}${type}`;
 }
 
 function getWalletHistoryStorageKey(type = "evm") {

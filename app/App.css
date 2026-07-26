@@ -2,6 +2,7 @@
 @import url("@/css/select.css");
 @import url("@/css/navbar.css");
 @import url("@/css/overlay.css");
+@import url("@/css/home.css");
 :root {
   --orange: rgb(250, 204, 15);
   --gray: #bbb;
