@@ -172,6 +172,12 @@ function getNodeKey(node, index) {
   return `${getNodeIdentity(node)}:${index}`;
 }
 
+function getSectionCollapseNode(section = "") {
+  return {
+    homeKey: `home:${section}:section`,
+  };
+}
+
 function useBranchToggle(cookieName, initialCollapsedKeys = []) {
   const [collapsedKeys, setCollapsedKeys] = useState(
     () => new Set(parseHomeCollapsedKeys(initialCollapsedKeys)),
@@ -731,6 +737,10 @@ function RouteSection({
     homeCollapsedCookieM[section],
     initialCollapsedKeys,
   );
+  const sectionCollapseNode = getSectionCollapseNode(section);
+  const sectionCollapsed = collapsedKeys.has(
+    getNodeIdentity(sectionCollapseNode),
+  );
   const matrix = useMemo(
     () =>
       buildTreeMatrix(tree, undefined, (node) =>
@@ -740,12 +750,31 @@ function RouteSection({
   );
 
   return (
-    <section className="homeNavSection">
+    <section
+      className={`homeNavSection ${sectionCollapsed ? "collapsed" : ""}`}
+    >
       <header className="homeNavHeader">
-        <h2>
-          <Link href={href}>{title}</Link>
-        </h2>
-        {!!matrix.collapsedCount && (
+        <div className="homeNavSectionTitle">
+          <h2>
+            <Link href={href}>{title}</Link>
+          </h2>
+          <button
+            type="button"
+            className="homeNavBranchToggle homeNavSectionToggle"
+            aria-label={`${sectionCollapsed ? "show" : "hide"} ${title} table`}
+            aria-expanded={!sectionCollapsed}
+            title={`${sectionCollapsed ? "show" : "hide"} ${title} table`}
+            onClick={() => toggleNode(sectionCollapseNode)}
+          >
+            <span
+              className={`homeNavBranchCaret ${
+                sectionCollapsed ? "collapsed" : ""
+              }`}
+              aria-hidden="true"
+            ></span>
+          </button>
+        </div>
+        {(sectionCollapsed || !!matrix.collapsedCount) && (
           <button
             type="button"
             className="homeNavExpandAll"
@@ -755,11 +784,13 @@ function RouteSection({
           </button>
         )}
       </header>
-      <NavigationMatrix
-        matrix={matrix}
-        getHref={(node) => node.href || ""}
-        onToggleNode={toggleNode}
-      />
+      {!sectionCollapsed && (
+        <NavigationMatrix
+          matrix={matrix}
+          getHref={(node) => node.href || ""}
+          onToggleNode={toggleNode}
+        />
+      )}
     </section>
   );
 }
@@ -1013,6 +1044,10 @@ function WalletSection({
     homeCollapsedCookieM.wallet,
     initialCollapsedKeys,
   );
+  const sectionCollapseNode = getSectionCollapseNode("wallet");
+  const sectionCollapsed = collapsedKeys.has(
+    getNodeIdentity(sectionCollapseNode),
+  );
   const {
     customOrderM,
     resetToDefault,
@@ -1115,24 +1150,49 @@ function WalletSection({
   }
 
   return (
-    <section className="homeNavSection homeWalletSection">
+    <section
+      className={`homeNavSection homeWalletSection ${
+        sectionCollapsed ? "collapsed" : ""
+      }`}
+    >
       <header className="homeNavHeader">
-        <div className="homeNavMode" aria-label="wallet or trade">
+        <div className="homeNavSectionTitle">
+          <div className="homeNavMode" aria-label="wallet or trade">
+            <button
+              type="button"
+              className={mode == "wallet" ? "active" : ""}
+              aria-pressed={mode == "wallet"}
+              onClick={() => setMode("wallet")}
+            >
+              wallet
+            </button>
+            <button
+              type="button"
+              className={mode == "trade" ? "active" : ""}
+              aria-pressed={mode == "trade"}
+              onClick={() => setMode("trade")}
+            >
+              trade
+            </button>
+          </div>
           <button
             type="button"
-            className={mode == "wallet" ? "active" : ""}
-            aria-pressed={mode == "wallet"}
-            onClick={() => setMode("wallet")}
+            className="homeNavBranchToggle homeNavSectionToggle"
+            aria-label={`${
+              sectionCollapsed ? "show" : "hide"
+            } wallet/trade table`}
+            aria-expanded={!sectionCollapsed}
+            title={`${
+              sectionCollapsed ? "show" : "hide"
+            } wallet/trade table`}
+            onClick={() => toggleNode(sectionCollapseNode)}
           >
-            wallet
-          </button>
-          <button
-            type="button"
-            className={mode == "trade" ? "active" : ""}
-            aria-pressed={mode == "trade"}
-            onClick={() => setMode("trade")}
-          >
-            trade
+            <span
+              className={`homeNavBranchCaret ${
+                sectionCollapsed ? "collapsed" : ""
+              }`}
+              aria-hidden="true"
+            ></span>
           </button>
         </div>
         <div className="homeNavSort">
@@ -1165,7 +1225,7 @@ function WalletSection({
             reset to default
           </button>
         )}
-        {!!matrix.collapsedCount && (
+        {(sectionCollapsed || !!matrix.collapsedCount) && (
           <button
             type="button"
             className="homeNavExpandAll"
@@ -1175,16 +1235,18 @@ function WalletSection({
           </button>
         )}
       </header>
-      <NavigationMatrix
-        matrix={matrix}
-        favoriteKeySet={favoriteKeySet}
-        getHref={(node) => node.href || getWalletNavUrl(routeBase, node)}
-        onMoveFavorite={moveFavorite}
-        onToggleNode={toggleNode}
-        onToggleFavorite={toggleFavorite}
-        sortable={sortMode == "custom"}
-        onMoveNode={moveNode}
-      />
+      {!sectionCollapsed && (
+        <NavigationMatrix
+          matrix={matrix}
+          favoriteKeySet={favoriteKeySet}
+          getHref={(node) => node.href || getWalletNavUrl(routeBase, node)}
+          onMoveFavorite={moveFavorite}
+          onToggleNode={toggleNode}
+          onToggleFavorite={toggleFavorite}
+          sortable={sortMode == "custom"}
+          onMoveNode={moveNode}
+        />
+      )}
     </section>
   );
 }

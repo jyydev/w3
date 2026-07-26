@@ -21,7 +21,7 @@ const cookieRows = [
   ],
   [
     "Home navigation",
-    "Separate data, wallet/trade, and ref cookies remember collapsed navigation branches. Wallet/trade also remembers its selected mode, custom sibling order, sort mode, and ordered home favorites in w3_home_wallet_favs.",
+    "Separate data, wallet/trade, and ref cookies remember collapsed sections and navigation branches. Wallet/trade also remembers its selected mode, custom sibling order, sort mode, and ordered home favorites in w3_home_wallet_favs.",
   ],
   [
     "encoding",

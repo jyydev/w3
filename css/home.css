@@ -23,6 +23,12 @@
   margin-bottom: 4px;
 }
 
+.homeNavSectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .homeNavHeader h2 {
   margin: 0;
   font-size: 17px;
@@ -348,6 +354,12 @@
 .homeNavBranchToggle:hover {
   background: #252525;
   color: var(--orange);
+}
+
+.homeNavSectionToggle {
+  flex-basis: 21px;
+  width: 21px;
+  height: 25px;
 }
 
 .homeNavBranchCaret {
