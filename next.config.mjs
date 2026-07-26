@@ -4,6 +4,9 @@ const nextConfig = {
   distDir: process.env.NODE_ENV == "development" ? ".next-dev" : ".next",
   reactStrictMode: false,
   devIndicators: false,
+  outputFileTracingIncludes: {
+    "/*": ["./app/d/**/page.*", "./app/ref/**/page.*"],
+  },
   experimental: {
     devtoolSegmentExplorer: false,
     serverComponentsHmrCache: false,

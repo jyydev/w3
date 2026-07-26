@@ -4,8 +4,6 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import {
   discoveryCacheMs,
   formatDiscoveryCacheDuration,
-  getDiscoveryCacheAgeMs,
-  getDiscoveryCacheRemainingMs,
 } from "@/fn/discoveryCache";
 import useOverlayInteraction from "./useOverlayInteraction";
 
@@ -355,6 +353,16 @@ export function DiscoveryCacheInfo({
   showCache = true,
   showAge = true,
 } = {}) {
+  const [clientNow, setClientNow] = useState(null);
+
+  useEffect(() => {
+    const updateNow = () => setClientNow(Date.now());
+    updateNow();
+    const timer = setInterval(updateNow, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   const meta = cacheMeta || {};
   const source =
     meta.source == "cache"
@@ -366,10 +374,20 @@ export function DiscoveryCacheInfo({
           : "-";
   const location = meta.location || meta.cacheLocation || "-";
   const finalTtlMs = Number(meta.ttlMs || ttlMs || discoveryCacheMs);
-  const ageText = meta.at ? formatDiscoveryCacheDuration(getDiscoveryCacheAgeMs(meta)) : "-";
-  const remainingText = meta.at
-    ? formatDiscoveryCacheDuration(getDiscoveryCacheRemainingMs(meta))
-    : "-";
+  const cachedAt = Number(meta.at || 0);
+  const cacheExpiresAt = Number(
+    meta.expiresAt || (cachedAt ? cachedAt + finalTtlMs : 0),
+  );
+  const ageText =
+    cachedAt && clientNow !== null
+      ? formatDiscoveryCacheDuration(Math.max(0, clientNow - cachedAt))
+      : "-";
+  const remainingText =
+    cacheExpiresAt && clientNow !== null
+      ? formatDiscoveryCacheDuration(Math.max(0, cacheExpiresAt - clientNow))
+      : "-";
+  const cachedText =
+    cachedAt && clientNow !== null ? formatCacheTime(cachedAt) : "-";
 
   return (
     <span className="customPickerCacheInfo">
@@ -394,7 +412,7 @@ export function DiscoveryCacheInfo({
       {showCache && (
         <span>cache: {cacheText || formatDiscoveryCacheDuration(finalTtlMs)}</span>
       )}
-      <span>cached: {formatCacheTime(meta.at)}</span>
+      <span>cached: {cachedText}</span>
       {showAge && <span>age: {ageText}</span>}
       <span>expires: {expiresText || remainingText}</span>
       {extraRows.map((row, index) => (
