@@ -837,6 +837,26 @@ img.assetIcon {
 .infoCardTitle {
   color: white;
 }
+.aaveBonusInfoCard {
+  min-width: 280px;
+  max-width: 420px;
+  gap: 6px !important;
+  white-space: normal;
+}
+.aaveBonusInfoEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.aaveBonusInfoEntry + .aaveBonusInfoEntry {
+  padding-top: 6px;
+  border-top: 1px solid #333;
+}
+.aaveBonusInfoLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .infoHover.infoOpen > .claimCoinInfoCard {
   flex-direction: column;
   gap: 8px;

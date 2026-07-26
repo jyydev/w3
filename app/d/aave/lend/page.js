@@ -1,5 +1,6 @@
 import "ygb/nx";
 import axios from "axios";
+import fp from "floatp";
 import Logo from "@/components/Logo";
 import chainsR from "../data";
 import Client from "./Client";
@@ -37,15 +38,51 @@ async function App({ searchParams }) {
           supplyInfo {
             apy {formatted}
           }
-                                incentives {
+          incentives {
             __typename
             ... on MeritSupplyIncentive {
               extraSupplyApr {formatted}
               claimLink
+              actionKey
+              rewardTokenAddress
+              rewardTokenSymbol
+              customMessage
+              customForumLink
+              selfApr {formatted}
             }
             ... on AaveSupplyIncentive {
               extraSupplyApr {formatted}
+              rewardTokenAddress
               rewardTokenSymbol
+            }
+            ... on MerklSupplyIncentive {
+              id
+              startDate
+              endDate
+              extraSupplyApr {formatted}
+              payoutToken {symbol name address}
+              criteria {id text userPassed}
+              userEligible
+              description
+              customMessage
+              customForumLink
+              customClaimMessage
+            }
+            ... on SupplyPointsIncentive {
+              id
+              name
+              startDate
+              endDate
+              multiplier
+              kind
+              dailyPoints
+              pointsPerThousandUsd
+              criteria {id text userPassed}
+              userEligible
+              description
+              customMessage
+              customForumLink
+              program {name externalUrl}
             }
           }
 
