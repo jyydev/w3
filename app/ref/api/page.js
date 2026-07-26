@@ -20,7 +20,7 @@ const sourceRows = [
 const lendRows = [
   [
     "Aave chains",
-    "local/static config from app/_data/aave.js and chainIds. Not queried from an Aave API.",
+    "local/static config from app/_shared/aave/index.js and chainIds. Not queried from an Aave API.",
   ],
   [
     "Aave markets",
@@ -32,7 +32,7 @@ const lendRows = [
   ],
   [
     "Venus markets",
-    "on-chain RPC from hardcoded comptroller seeds, then comptroller.getAllMarkets().",
+    "on-chain RPC from shared hardcoded comptroller seeds, then comptroller.getAllMarkets().",
   ],
   [
     "Morpho chains",
@@ -67,7 +67,7 @@ const yieldRows = [
   ],
   [
     "Venus Flux markets",
-    "Fluid API at api.fluid.instadapp.io plus local/on-chain merging.",
+    "Fluid API at api.fluid.instadapp.io plus shared local/on-chain vault merging.",
   ],
   [
     "Hyperliquid account/vault",

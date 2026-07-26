@@ -1,6 +1,6 @@
 "use client";
 
-import { aaveConfiguredChainSet } from "@/app/_data/aave";
+import { aaveConfiguredChainSet } from "@/app/_shared/aave/index";
 
 export { aaveConfiguredChainSet };
 

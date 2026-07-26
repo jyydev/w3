@@ -5,6 +5,8 @@ import { pc } from "@/fn/basic";
 import Toggle from "@/components/Toggle";
 import Link from "next/link";
 import { HoverInfoCard, TableSortHeader } from "@/components/Shared";
+import { getAaveMarketUrl } from "@/app/_shared/aave";
+import ProtocolChainLink from "../../ProtocolChainLink";
 
 const supplyIncentiveTypes = new Set([
   "AaveSupplyIncentive",
@@ -305,7 +307,12 @@ function SupplyBonusInfo({ incentives, protocolApy }) {
   );
 }
 
-const Chain = ({ chains, coins, coinsM }) => {
+const Chain = ({
+  chains,
+  coins,
+  coinsM,
+  linkPath = "/d/aave/lend",
+}) => {
   let chainNames = Object.keys(chains);
   const [show, setShow] = useState(false);
   const [sortCoin, setSortCoin] = useState("");
@@ -342,7 +349,12 @@ const Chain = ({ chains, coins, coinsM }) => {
           return (
             <tr key={chain}>
               <td className="stickyL">
-                <Link href={`/d/aave/lend?chains=${chain}`}>{chain}</Link>
+                <ProtocolChainLink
+                  chain={chain}
+                  filterPath={linkPath}
+                  officialUrl={getAaveMarketUrl(chain)}
+                  protocolName="Aave"
+                />
               </td>
               {coins.map((coin) => {
                 let coinE = coinsM[chain][coin];

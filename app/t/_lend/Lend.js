@@ -5,6 +5,7 @@ import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
 import { DiscoveryCacheInfo } from "@/components/Shared";
 import { chainIds } from "@/data/basic";
+import { getAaveMarketUrl } from "@/app/_shared/aave";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -153,30 +154,6 @@ const emptyChainDiscovery = {
   cacheMeta: null,
   refresh: false,
 };
-const aaveMarketNameM = {
-  Ethereum: "proto_mainnet_v3",
-  EthereumEtherFi: "proto_etherfi_v3",
-  EthereumHorizon: "proto_horizon_v3",
-  EthereumLido: "proto_lido_v3",
-  BSC: "proto_bnb_v3",
-  Arbitrum: "proto_arbitrum_v3",
-  Avalanche: "proto_avalanche_v3",
-  Optimism: "proto_optimism_v3",
-  Polygon: "proto_polygon_v3",
-  Base: "proto_base_v3",
-  Celo: "proto_celo_v3",
-  Gnosis: "proto_gnosis_v3",
-  Ink: "proto_ink_v3",
-  Linea: "proto_linea_v3",
-  Mantle: "proto_mantle_v3",
-  Metis: "proto_metis_v3",
-  Plasma: "proto_plasma_v3",
-  Scroll: "proto_scroll_v3",
-  Soneium: "proto_soneium_v3",
-  Sonic: "proto_sonic_v3",
-  XLayer: "proto_xlayer_v3",
-  zkSyncEra: "proto_zksync_v3",
-};
 const venusInitialSupportedChainSet = new Set([
   "Arbitrum",
   "Base",
@@ -184,13 +161,6 @@ const venusInitialSupportedChainSet = new Set([
   "Ethereum",
   "zkSyncEra",
 ]);
-
-function getAaveMarketUrl(chain = "") {
-  const marketName = aaveMarketNameM[chain];
-  return marketName
-    ? `https://app.aave.com/markets/?marketName=${encodeURIComponent(marketName)}`
-    : "https://app.aave.com/markets/";
-}
 
 function hasLendChainDiscovery(defi = "") {
   return defi == "aave" || defi == "venus" || defi == "morpho";

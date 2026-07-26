@@ -1,6 +1,6 @@
 "use client";
 
-import { aaveUmbrellaChains } from "@/app/_data/aave";
+import { aaveUmbrellaChains } from "@/app/_shared/aave/index";
 
 export function isAaveStakingCoin(coin = "", coinE = {}) {
   const text = `${coin} ${coinE.name || ""}`.toLowerCase();

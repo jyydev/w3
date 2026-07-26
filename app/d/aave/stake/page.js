@@ -1,12 +1,12 @@
 import Logo from "@/components/Logo";
-import { loadAaveLendingView } from "@/app/_shared/aave/lending";
+import { loadAaveStakingView } from "@/app/_shared/aave/stakingView";
 import Client from "./Client";
 
 export const dynamic = "force-dynamic";
 
-export default async function AaveLendPage({ searchParams }) {
+export default async function AaveStakePage({ searchParams }) {
   const params = await searchParams;
-  const view = await loadAaveLendingView(params?.chains);
+  const view = await loadAaveStakingView(params?.chains);
 
   return (
     <div>

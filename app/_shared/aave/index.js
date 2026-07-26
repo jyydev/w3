@@ -4,6 +4,47 @@ const sharedPoolAddressesProvider =
 const sharedUiPoolDataProvider =
   "0xc851e6147dcE6A469CC33BE3121b6B2D4CaD2763";
 
+export const aaveMarketNameM = {
+  Ethereum: "proto_mainnet_v3",
+  EthereumEtherFi: "proto_etherfi_v3",
+  EthereumHorizon: "proto_horizon_v3",
+  EthereumLido: "proto_lido_v3",
+  BSC: "proto_bnb_v3",
+  BNB: "proto_bnb_v3",
+  Arbitrum: "proto_arbitrum_v3",
+  Avalanche: "proto_avalanche_v3",
+  Optimism: "proto_optimism_v3",
+  Polygon: "proto_polygon_v3",
+  Base: "proto_base_v3",
+  Celo: "proto_celo_v3",
+  Gnosis: "proto_gnosis_v3",
+  Ink: "proto_ink_v3",
+  Linea: "proto_linea_v3",
+  Mantle: "proto_mantle_v3",
+  Metis: "proto_metis_v3",
+  Plasma: "proto_plasma_v3",
+  Scroll: "proto_scroll_v3",
+  Soneium: "proto_soneium_v3",
+  Sonic: "proto_sonic_v3",
+  XLayer: "proto_xlayer_v3",
+  ZkSync: "proto_zksync_v3",
+  zkSyncEra: "proto_zksync_v3",
+};
+
+export function getAaveMarketUrl(chain = "") {
+  const marketName = aaveMarketNameM[chain];
+  return marketName
+    ? `https://app.aave.com/markets/?marketName=${encodeURIComponent(marketName)}`
+    : "https://app.aave.com/markets/";
+}
+
+export function getAaveStakingUrl(chain = "") {
+  const marketName = aaveMarketNameM[chain];
+  return marketName
+    ? `https://app.aave.com/staking/?marketName=${encodeURIComponent(marketName)}`
+    : "https://app.aave.com/staking/";
+}
+
 export const aaveUmbrellaStakeDataProviderM = {
   Ethereum: "0x6321ba6b41fbddb6b678cd80db067f20a8770879",
 };

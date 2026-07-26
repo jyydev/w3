@@ -7,7 +7,7 @@ import {
   aaveV3PoolAddressesProviderM,
   aaveV3PoolM,
   aaveV3UiPoolDataProviderM,
-} from "@/app/_data/aave";
+} from "@/app/_shared/aave/index";
 import {
   clearDiscoveryCacheMap,
   discoveryCacheMs,

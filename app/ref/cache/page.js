@@ -36,7 +36,7 @@ const serverCacheRows = [
   ],
   [
     "Venus markets",
-    "server discovery cache map in app/t/_lend/venus/sv.js; keyed by chain.",
+    "server discovery cache map in app/_shared/venus/lending.js; keyed by chain and shared by Trade and data views.",
   ],
   [
     "Morpho markets",
@@ -52,7 +52,7 @@ const serverCacheRows = [
   ],
   [
     "Aave Staking markets",
-    "server discovery cache map in app/t/_yield/aaveStaking/sv.js; keyed by chain.",
+    "server discovery cache map in app/_shared/aave/staking.js; keyed by chain.",
   ],
   [
     "Spark markets",
@@ -60,7 +60,7 @@ const serverCacheRows = [
   ],
   [
     "Venus Flux markets",
-    "server discovery cache map in app/t/_yield/venusFlux/sv.js; keyed by chain.",
+    "server discovery cache map in app/_shared/venus/flux.js; keyed by chain and shared by Trade and data views.",
   ],
   [
     "Relay/Jumper/Across discovery",
