@@ -13,10 +13,7 @@ import {
   parseHomeWalletSortMode,
 } from "@/components/homeNavigationState";
 import { getNavigationTrees } from "@/components/navigationTreeServer";
-import {
-  favAddrCookie,
-  parseFavAddrs,
-} from "@/app/w/favAddrs";
+import { favAddrCookie, parseFavAddrs } from "@/app/w/favAddrs";
 import {
   getWalletHistoryCookie,
   parseWalletHistoryCookie,
@@ -58,7 +55,7 @@ export default async function App() {
 
   return (
     <main className="homePage">
-      <Logo page="Home" />
+      <Logo page="home" />
       <Home
         walletTree={walletNavTree}
         dataTree={dataNavTree}

@@ -31,7 +31,11 @@
 }
 
 .homeNavHeader h2 a {
-  color: #aaa;
+  color: white;
+}
+
+.homeNavHeader h2 a:hover {
+  color: var(--orange);
 }
 
 .homeNavExpandAll,
