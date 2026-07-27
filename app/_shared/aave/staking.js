@@ -9,6 +9,7 @@ import {
   clearDiscoveryCacheMap,
   discoveryCacheMs,
   getDiscoveryCacheMapEntry,
+  getSharedDiscoveryCacheMap,
   makeDiscoveryCacheMeta,
   setDiscoveryCacheMapEntry,
 } from "@/fn/discoveryCache";
@@ -16,7 +17,9 @@ import { createJsonRpcProvider, toCleanError } from "@/app/_fn/shared";
 
 export const aaveStakingTokenMetaTimeoutMs = 8000;
 
-const aaveStakingMarketCacheM = {};
+const aaveStakingMarketCacheM = getSharedDiscoveryCacheMap(
+  "aave:staking:markets",
+);
 const aaveUmbrellaStakeDataProviderAbi = [
   "function getStakeData() view returns ((address tokenAddress,string name,string symbol,uint256 price,uint256 totalAssets,uint256 targetLiquidity,address underlyingTokenAddress,string underlyingTokenName,string underlyingTokenSymbol,uint8 underlyingTokenDecimals,uint256 cooldownSeconds,uint256 unstakeWindowSeconds,bool underlyingIsStataToken,(address asset,string assetName,string assetSymbol,address aToken,string aTokenName,string aTokenSymbol) stataTokenData,(address rewardAddress,string rewardName,string rewardSymbol,uint256 price,uint8 decimals,uint256 index,uint256 maxEmissionPerSecond,uint256 distributionEnd,uint256 currentEmissionPerSecond,uint256 apy)[] rewards)[])",
 ];

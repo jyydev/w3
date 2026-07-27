@@ -2,6 +2,7 @@ import {
   clearDiscoveryCacheMap,
   discoveryCacheMs,
   getDiscoveryCacheMapEntry,
+  getSharedDiscoveryCacheMap,
   makeDiscoveryCacheMeta,
   setDiscoveryCacheMapEntry,
 } from "@/fn/discoveryCache";
@@ -10,7 +11,9 @@ import { toCleanError } from "@/app/_fn/shared";
 const sparkSavingsRateApi =
   "https://info-sky.blockanalitica.com/api/v1/savings-rate/";
 const sparkSavingsRateTimeoutMs = 8000;
-const sparkSavingsRateCacheM = {};
+const sparkSavingsRateCacheM = getSharedDiscoveryCacheMap(
+  "spark:savings-rates",
+);
 const sparkSavingsRateCacheKey = "rates";
 
 function toSparkAprPercent(value) {

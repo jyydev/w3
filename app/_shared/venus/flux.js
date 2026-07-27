@@ -4,6 +4,7 @@ import {
   clearDiscoveryCacheMap,
   discoveryCacheMs,
   getDiscoveryCacheMapEntry,
+  getSharedDiscoveryCacheMap,
   makeDiscoveryCacheMeta,
   setDiscoveryCacheMapEntry,
 } from "@/fn/discoveryCache";
@@ -24,7 +25,9 @@ import {
   withTimeout,
 } from "./shared";
 
-const venusFluxMarketCacheM = {};
+const venusFluxMarketCacheM = getSharedDiscoveryCacheMap(
+  "venus:flux:markets",
+);
 
 function isVenusFluxCoin(coin = "", coinE = {}) {
   const text = `${coin} ${coinE?.name || ""}`.toLowerCase();

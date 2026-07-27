@@ -4,8 +4,8 @@ import "../ref.css";
 
 const cacheTypeRows = [
   [
-    "server module memory",
-    "A top-level variable in a server module. Shared by requests that hit the same warm Node/Next runtime instance.",
+    "server runtime memory",
+    "JavaScript memory in a warm Node/Next runtime. It can be module-local or stored in a named runtime-shared map when page and server-action bundles must use the same entries.",
   ],
   [
     "client module memory",
@@ -28,7 +28,7 @@ const cacheTypeRows = [
 const serverCacheRows = [
   [
     "Discovery cache maps",
-    "Server module memory registered through fn/discoveryCache.js. The default discovery-entry TTL is 1 hour, and the shared global limit is 100 entries across wired server discovery maps. Other server caches can use different TTLs.",
+    "Server runtime memory registered through fn/discoveryCache.js. Reloadable data views use named maps shared by page and server-action bundles in the same warm runtime. The default TTL is 1 hour, with a shared global limit of 100 entries.",
   ],
   [
     "Aave markets",
@@ -162,7 +162,7 @@ const notCachedRows = [
 ];
 
 const cacheNotes = [
-  "Module memory cache is created by declaring a variable at the top level of a module, outside the exported function.",
+  "Module-local cache can be created with a top-level variable. Reloadable views use getSharedDiscoveryCacheMap so server actions and page renders in the same warm runtime update the same entry.",
   "The cache key names and object fields are normal JavaScript. A key named at is only a timestamp convention, not special behavior.",
   "The server discovery cache map limit is global across registered server discovery maps, not per protocol.",
   "The global limit counts cache entries such as Aave Ethereum or Relay support. It does not count each market/token inside one cached result.",

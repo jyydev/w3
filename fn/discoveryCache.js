@@ -1,9 +1,31 @@
 export const discoveryCacheMs = 60 * 60 * 1000;
 export const discoveryCacheGlobalMaxEntries = 100;
 
-const discoveryCacheRegistry = new Map();
-const discoveryCacheMapIds = new WeakMap();
-let nextDiscoveryCacheMapId = 1;
+const discoveryCacheStateKey = Symbol.for("w3.discoveryCache.state");
+const discoveryCacheState =
+  globalThis[discoveryCacheStateKey] ||
+  (globalThis[discoveryCacheStateKey] = {});
+const discoveryCacheRegistry =
+  discoveryCacheState.registry ||
+  (discoveryCacheState.registry = new Map());
+const discoveryCacheMapIds =
+  discoveryCacheState.mapIds ||
+  (discoveryCacheState.mapIds = new WeakMap());
+const sharedDiscoveryCacheMaps =
+  discoveryCacheState.sharedMaps ||
+  (discoveryCacheState.sharedMaps = new Map());
+discoveryCacheState.nextMapId ||= 1;
+
+export function getSharedDiscoveryCacheMap(name = "") {
+  const key = String(name || "").trim();
+  if (!key) throw new Error("discovery cache name missing");
+
+  if (!sharedDiscoveryCacheMaps.has(key)) {
+    sharedDiscoveryCacheMaps.set(key, {});
+  }
+
+  return sharedDiscoveryCacheMaps.get(key);
+}
 
 export function makeDiscoveryCacheMeta({
   source = "api",
@@ -38,7 +60,7 @@ function getDiscoveryEntryAt(entry = {}) {
 function getDiscoveryCacheMapId(cacheM = {}) {
   if (!cacheM || typeof cacheM != "object") return "";
   if (!discoveryCacheMapIds.has(cacheM)) {
-    discoveryCacheMapIds.set(cacheM, nextDiscoveryCacheMapId++);
+    discoveryCacheMapIds.set(cacheM, discoveryCacheState.nextMapId++);
   }
 
   return discoveryCacheMapIds.get(cacheM);

@@ -4,6 +4,7 @@ import {
   clearDiscoveryCacheMap,
   discoveryCacheMs,
   getDiscoveryCacheMapEntry,
+  getSharedDiscoveryCacheMap,
   makeDiscoveryCacheMeta,
   setDiscoveryCacheMapEntry,
 } from "@/fn/discoveryCache";
@@ -29,7 +30,9 @@ const venusMarketFetchTimeoutMs = 15000;
 const venusTokenMetaTimeoutMs = 8000;
 const venusMarketFetchConcurrency = 8;
 const venusGoodMarketRatio = 0.8;
-const venusMarketCacheM = {};
+const venusMarketCacheM = getSharedDiscoveryCacheMap(
+  "venus:lending:markets",
+);
 
 function getVenusRateApr(rate = 0n, multiplier = 0) {
   try {
