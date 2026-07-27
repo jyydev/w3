@@ -1,3 +1,6 @@
+import toPrecision from "toprecision";
+import toFixedValue from "y2fixed";
+
 export function isCm(symbol) {
   return symbol?.includes("USD_"); // _PERP doens't includes CM delivery
 }
@@ -27,7 +30,7 @@ export function sliceSym1000(sym) {
   return sym;
 }
 export function pc(v, pr = {}) {
-  return prec(v, pr?.pc ?? 3, { k: 1, floor: 1, ...pr });
+  return toPrecision(v, pr?.pc ?? 3, { k: 1, floor: 1, ...pr });
 }
 
 // export function rg(n, { pc, dollar, k, c, fix } = {}) {
@@ -40,7 +43,9 @@ export function rg(n, op = {}) {
     type = op.type; // ceil floor undefined(round)
   return (
     <span className={n > 0 ? "green" : n < 0 ? "red" : ""}>
-      {fix ? toFixed(n, fix, type) : prec(n, pc, { d, k, c, type })}
+      {fix
+        ? toFixedValue(n, fix, type)
+        : toPrecision(n, pc, { d, k, c, type })}
     </span>
   );
 }

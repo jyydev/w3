@@ -6,8 +6,16 @@ import AaveStakeClient from "./stake/Client";
 export default function AaveClient({ lend, stake }) {
   return (
     <>
-      <AaveStakeClient {...stake} linkPath="/d/aave" />
-      <AaveLendClient {...lend} linkPath="/d/aave" />
+      <AaveStakeClient
+        {...stake}
+        linkPath="/d/aave"
+        titleHref="/d/aave/stake"
+      />
+      <AaveLendClient
+        {...lend}
+        linkPath="/d/aave"
+        titleHref="/d/aave/lend"
+      />
     </>
   );
 }

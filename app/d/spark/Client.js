@@ -10,6 +10,7 @@ import {
   TableSortHeader,
 } from "@/components/Shared";
 import ProtocolChainLink from "../ProtocolChainLink";
+import TableCaptionTitle from "../TableCaptionTitle";
 
 function toFiniteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -55,8 +56,10 @@ export default function SparkClient({
   marketsM,
   rates,
   linkPath = "/d/spark",
+  titleHref = "",
 }) {
   const [sortMarket, setSortMarket] = useState("");
+  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [reloadingCache, setReloadingCache] = useState(false);
   const [cacheError, setCacheError] = useState("");
   const [reloadedView, setReloadedView] = useState(null);
@@ -99,10 +102,16 @@ export default function SparkClient({
   }
 
   return (
-    <table>
+    <table className={tableCollapsed ? "dataTableCollapsed" : ""}>
       <caption>
         <span className="tableCaptionRow">
-          <span>Spark savings</span>
+          <TableCaptionTitle
+            collapsed={tableCollapsed}
+            href={titleHref}
+            onToggle={() => setTableCollapsed((current) => !current)}
+          >
+            Spark savings
+          </TableCaptionTitle>
           <HoverInfoCard>
             <span className="infoIcon">i</span>
             <span className="infoCard">

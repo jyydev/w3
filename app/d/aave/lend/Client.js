@@ -7,6 +7,7 @@ import Link from "next/link";
 import { HoverInfoCard, TableSortHeader } from "@/components/Shared";
 import { getAaveMarketUrl } from "@/app/_shared/aave";
 import ProtocolChainLink from "../../ProtocolChainLink";
+import TableCaptionTitle from "../../TableCaptionTitle";
 
 const supplyIncentiveTypes = new Set([
   "AaveSupplyIncentive",
@@ -312,9 +313,16 @@ function SupplyBonusInfo({ incentives, protocolApy }) {
   );
 }
 
-const Chain = ({ chains, coins, coinsM, linkPath = "/d/aave/lend" }) => {
+const Chain = ({
+  chains,
+  coins,
+  coinsM,
+  linkPath = "/d/aave/lend",
+  titleHref = "",
+}) => {
   let chainNames = Object.keys(chains);
   const [show, setShow] = useState(false);
+  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [sortCoin, setSortCoin] = useState("");
   if (!show)
     coins = coins.filter(
@@ -324,8 +332,16 @@ const Chain = ({ chains, coins, coinsM, linkPath = "/d/aave/lend" }) => {
   chainNames = sortChainsByCoin(chainNames, coinsM, activeSortCoin);
 
   return (
-    <table>
-      <caption>Aave lending</caption>
+    <table className={tableCollapsed ? "dataTableCollapsed" : ""}>
+      <caption>
+        <TableCaptionTitle
+          collapsed={tableCollapsed}
+          href={titleHref}
+          onToggle={() => setTableCollapsed((current) => !current)}
+        >
+          Aave lending
+        </TableCaptionTitle>
+      </caption>
       <thead>
         <tr>
           <th className="stickyA">

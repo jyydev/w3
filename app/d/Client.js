@@ -8,7 +8,11 @@ export default function DataClient({ aave, spark, venus }) {
   return (
     <>
       <AaveClient {...aave} />
-      <SparkClient {...spark} linkPath="/d/spark" />
+      <SparkClient
+        {...spark}
+        linkPath="/d/spark"
+        titleHref="/d/spark"
+      />
       <VenusClient {...venus} />
     </>
   );

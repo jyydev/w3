@@ -26,6 +26,18 @@ table caption {
   color: var(--gray);
   white-space: nowrap;
 }
+.tableCaptionLink {
+  color: inherit;
+}
+.tableCaptionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.dataTableCollapsed > thead,
+.dataTableCollapsed > tbody {
+  display: none;
+}
 .tableCaptionRow {
   display: inline-flex;
   align-items: center;

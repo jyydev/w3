@@ -11,6 +11,7 @@ import {
   TableSortHeader,
 } from "@/components/Shared";
 import ProtocolChainLink from "../../ProtocolChainLink";
+import TableCaptionTitle from "../../TableCaptionTitle";
 
 function toFiniteNumber(value) {
   const number = Number(value);
@@ -277,8 +278,10 @@ export default function AaveStakeClient({
   coins,
   poolsM,
   linkPath = "/d/aave/stake",
+  titleHref = "",
 }) {
   const [sortCoin, setSortCoin] = useState("");
+  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [reloadingCache, setReloadingCache] = useState(false);
   const [cacheError, setCacheError] = useState("");
   const [reloadedView, setReloadedView] = useState(null);
@@ -318,10 +321,16 @@ export default function AaveStakeClient({
   }
 
   return (
-    <table>
+    <table className={tableCollapsed ? "dataTableCollapsed" : ""}>
       <caption>
         <span className="tableCaptionRow">
-          <span>Aave staking</span>
+          <TableCaptionTitle
+            collapsed={tableCollapsed}
+            href={titleHref}
+            onToggle={() => setTableCollapsed((current) => !current)}
+          >
+            Aave staking
+          </TableCaptionTitle>
           <HoverInfoCard>
             <span className="infoIcon">i</span>
             <span className="infoCard">
