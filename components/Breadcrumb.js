@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
 import useCgb from "@/app/context";
 import HoverMenu from "./HoverMenu";
+import { CycleButtonPair } from "./Shared";
 import {
   getLocalWalletTree,
   getWalletNavUrl,
@@ -21,6 +22,93 @@ const topOptions = [
   { value: "cookie", label: "cookie", href: "/ck" },
   { value: "login", label: "login", href: "/login" },
 ];
+
+const breadcrumbHistoryStorageKey = "w3_breadcrumb_history";
+
+function getCurrentHistoryRoute() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function isHistoryTraversalLoad() {
+  return (
+    window.performance?.getEntriesByType?.("navigation")?.[0]?.type ==
+    "back_forward"
+  );
+}
+
+function readBreadcrumbHistory() {
+  try {
+    const value = JSON.parse(
+      window.sessionStorage.getItem(breadcrumbHistoryStorageKey),
+    );
+    if (!Array.isArray(value?.entries) || !value.entries.length) return null;
+
+    const entries = value.entries.filter((entry) => typeof entry == "string");
+    if (!entries.length) return null;
+
+    return {
+      entries,
+      index: Math.max(
+        0,
+        Math.min(Number(value.index) || 0, entries.length - 1),
+      ),
+      hasPrior: !!value.hasPrior,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function rememberBreadcrumbHistory(route, traversing = false) {
+  let historyE = readBreadcrumbHistory();
+  if (!historyE) {
+    historyE = {
+      entries: [route],
+      index: 0,
+      hasPrior: window.history.length > 1,
+    };
+  } else if (historyE.entries[historyE.index] != route) {
+    const previousIndex = historyE.index - 1;
+    const nextIndex = historyE.index + 1;
+
+    if (traversing && historyE.entries[previousIndex] == route) {
+      historyE.index = previousIndex;
+    } else if (traversing && historyE.entries[nextIndex] == route) {
+      historyE.index = nextIndex;
+    } else {
+      historyE.entries = historyE.entries.slice(0, historyE.index + 1);
+      historyE.entries.push(route);
+      historyE.index = historyE.entries.length - 1;
+    }
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      breadcrumbHistoryStorageKey,
+      JSON.stringify(historyE),
+    );
+  } catch {}
+
+  return historyE;
+}
+
+function getHistoryAvailability(historyE) {
+  const navigation = window.navigation;
+  if (
+    typeof navigation?.canGoBack == "boolean" &&
+    typeof navigation?.canGoForward == "boolean"
+  ) {
+    return {
+      canGoBack: navigation.canGoBack,
+      canGoForward: navigation.canGoForward,
+    };
+  }
+
+  return {
+    canGoBack: historyE.index > 0 || historyE.hasPrior,
+    canGoForward: historyE.index < historyE.entries.length - 1,
+  };
+}
 
 function getTopValue(pathname = "/") {
   const first = pathname.split("/").filter(Boolean)[0] || "";
@@ -475,6 +563,62 @@ function RouteCrumbs({ routeBase, tree = [] }) {
   return crumbs;
 }
 
+function BreadcrumbHistoryButtons() {
+  const pathname = usePathname() || "/";
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const routeKey = `${pathname}${search ? `?${search}` : ""}`;
+  const [availability, setAvailability] = useState({
+    canGoBack: false,
+    canGoForward: false,
+  });
+  const initialSyncRef = useRef(true);
+
+  useEffect(() => {
+    function sync(traversing = false) {
+      const historyE = rememberBreadcrumbHistory(
+        getCurrentHistoryRoute(),
+        traversing,
+      );
+      setAvailability(getHistoryAvailability(historyE));
+    }
+
+    function onPopState() {
+      sync(true);
+    }
+
+    const initialTraversal =
+      initialSyncRef.current && isHistoryTraversalLoad();
+    initialSyncRef.current = false;
+    sync(initialTraversal);
+    window.addEventListener("popstate", onPopState);
+
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [routeKey]);
+
+  return (
+    <CycleButtonPair
+      className="breadcrumbHistoryButtons"
+      onPrev={() => window.history.back()}
+      onNext={() => window.history.forward()}
+      prevDisabled={!availability.canGoBack}
+      nextDisabled={!availability.canGoForward}
+      prevProps={{
+        className: "breadcrumbHistoryButton",
+        "aria-label": "back",
+        title: "back",
+      }}
+      nextProps={{
+        className: "breadcrumbHistoryButton",
+        "aria-label": "forward",
+        title: "forward",
+      }}
+    />
+  );
+}
+
 function BreadcrumbInner({
   walletTree = [],
   refTree = [],
@@ -511,6 +655,7 @@ function BreadcrumbInner({
 
   return (
     <nav className="breadcrumbNav" aria-label="Breadcrumb">
+      <BreadcrumbHistoryButtons />
       <Link href="/" className="breadcrumbHome">
         home
       </Link>
