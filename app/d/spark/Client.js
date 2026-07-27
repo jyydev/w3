@@ -11,6 +11,7 @@ import {
 } from "@/components/Shared";
 import ProtocolChainLink from "../ProtocolChainLink";
 import TableCaptionTitle from "../TableCaptionTitle";
+import useDataTableCollapse from "../useDataTableCollapse";
 
 function toFiniteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -52,6 +53,7 @@ export default function SparkClient({
   cacheMeta,
   chains,
   error,
+  initialCollapsed = false,
   markets,
   marketsM,
   rates,
@@ -59,10 +61,16 @@ export default function SparkClient({
   titleHref = "",
 }) {
   const [sortMarket, setSortMarket] = useState("");
-  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [reloadingCache, setReloadingCache] = useState(false);
   const [cacheError, setCacheError] = useState("");
   const [reloadedView, setReloadedView] = useState(null);
+  const {
+    collapsed: tableCollapsed,
+    toggleCollapsed: toggleTableCollapsed,
+  } = useDataTableCollapse({
+    collapseKey: titleHref,
+    initialCollapsed,
+  });
   const selectedChains = Object.keys(chains);
   const viewKey = selectedChains.join("|");
   const activeView =
@@ -108,7 +116,7 @@ export default function SparkClient({
           <TableCaptionTitle
             collapsed={tableCollapsed}
             href={titleHref}
-            onToggle={() => setTableCollapsed((current) => !current)}
+            onToggle={toggleTableCollapsed}
           >
             Spark savings
           </TableCaptionTitle>

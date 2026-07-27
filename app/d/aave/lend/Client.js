@@ -8,6 +8,7 @@ import { HoverInfoCard, TableSortHeader } from "@/components/Shared";
 import { getAaveMarketUrl } from "@/app/_shared/aave";
 import ProtocolChainLink from "../../ProtocolChainLink";
 import TableCaptionTitle from "../../TableCaptionTitle";
+import useDataTableCollapse from "../../useDataTableCollapse";
 
 const supplyIncentiveTypes = new Set([
   "AaveSupplyIncentive",
@@ -317,13 +318,20 @@ const Chain = ({
   chains,
   coins,
   coinsM,
+  initialCollapsed = false,
   linkPath = "/d/aave/lend",
   titleHref = "",
 }) => {
   let chainNames = Object.keys(chains);
   const [show, setShow] = useState(false);
-  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [sortCoin, setSortCoin] = useState("");
+  const {
+    collapsed: tableCollapsed,
+    toggleCollapsed: toggleTableCollapsed,
+  } = useDataTableCollapse({
+    collapseKey: titleHref,
+    initialCollapsed,
+  });
   if (!show)
     coins = coins.filter(
       (coin) => /(USD|DAI|ETH|BTC|BNB|EUR)/.test(coin) && !/^PT-/.test(coin),
@@ -337,7 +345,7 @@ const Chain = ({
         <TableCaptionTitle
           collapsed={tableCollapsed}
           href={titleHref}
-          onToggle={() => setTableCollapsed((current) => !current)}
+          onToggle={toggleTableCollapsed}
         >
           Aave lending
         </TableCaptionTitle>

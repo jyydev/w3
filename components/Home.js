@@ -39,10 +39,7 @@ function buildTreeMatrix(
 
   function measureNode(node, depth, parentKey) {
     const nodeKey = getNodeSortKey(node);
-    const children = orderChildren(
-      getChildren(node, depth) || [],
-      nodeKey,
-    );
+    const children = orderChildren(getChildren(node, depth) || [], nodeKey);
     const collapsed = !!children.length && isCollapsed(node);
     if (collapsed) collapsedCount++;
     const visibleChildren = collapsed ? [] : children;
@@ -153,9 +150,7 @@ function getNodeSortKey(node) {
 function sortHomeChildren(children = [], order = []) {
   const pinned = children.filter((node) => node.homePinned);
   const sortable = children.filter((node) => !node.homePinned);
-  const orderIndexM = new Map(
-    order.map((nodeKey, index) => [nodeKey, index]),
-  );
+  const orderIndexM = new Map(order.map((nodeKey, index) => [nodeKey, index]));
 
   sortable.sort((a, b) => {
     const aIndex = orderIndexM.get(getNodeSortKey(a));
@@ -269,14 +264,10 @@ function useWalletFavorites(initialFavoriteKeys = []) {
       return;
     }
 
-    setCookie(
-      homeWalletFavsCookie,
-      encodeHomeWalletFavKeys(favoriteKeys),
-      {
-        maxAge: homeNavigationCookieMaxAge,
-        path: "/",
-      },
-    );
+    setCookie(homeWalletFavsCookie, encodeHomeWalletFavKeys(favoriteKeys), {
+      maxAge: homeNavigationCookieMaxAge,
+      path: "/",
+    });
   }, [favoriteKeys]);
 
   function toggleFavorite(nodeOrKey) {
@@ -360,11 +351,7 @@ function WalletHistoryNode({ node }) {
   );
 }
 
-function HomeWalletFavoritesNode({
-  node,
-  onMoveFavorite,
-  onToggleFavorite,
-}) {
+function HomeWalletFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
   const [dragKey, setDragKey] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
 
@@ -378,7 +365,7 @@ function HomeWalletFavoritesNode({
         title="home wallet favorites"
         aria-hidden="true"
       >
-        ★:
+        ★<span className="homeNavFavoritesSeparator">:</span>
       </span>
       <span className="homeNavFavoritesLinks">
         {node.items?.length ? (
@@ -403,10 +390,7 @@ function HomeWalletFavoritesNode({
                 key={item.favoriteKey}
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData(
-                    "text/plain",
-                    item.favoriteKey,
-                  );
+                  event.dataTransfer.setData("text/plain", item.favoriteKey);
                   setDragKey(item.favoriteKey);
                 }}
                 onDragOver={(event) => {
@@ -414,10 +398,8 @@ function HomeWalletFavoritesNode({
 
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
-                  const rect =
-                    event.currentTarget.getBoundingClientRect();
-                  const placeAfter =
-                    event.clientX > rect.left + rect.width / 2;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const placeAfter = event.clientX > rect.left + rect.width / 2;
                   setDropSpot((current) =>
                     current?.key == item.favoriteKey &&
                     current?.placeAfter == placeAfter
@@ -434,8 +416,7 @@ function HomeWalletFavoritesNode({
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
-                  const rect =
-                    event.currentTarget.getBoundingClientRect();
+                  const rect = event.currentTarget.getBoundingClientRect();
                   onMoveFavorite?.(
                     event.dataTransfer.getData("text/plain"),
                     item.favoriteKey,
@@ -505,8 +486,7 @@ function NavigationNode({
   const favoriteKey = getNodeSortKey(node);
   const showFavoriteButton =
     !!onToggleFavorite && !!node.walletType && !node.homePinned;
-  const favoriteActive =
-    showFavoriteButton && favoriteKeySet?.has(favoriteKey);
+  const favoriteActive = showFavoriteButton && favoriteKeySet?.has(favoriteKey);
   const className = [
     "homeNavNode",
     node.type == "wallet" ? "walletLeaf" : "",
@@ -594,10 +574,8 @@ function NavigationMatrix({
       {matrix.cells.map((cell, index) => {
         const node = cell.node;
         const canDrag = sortable && !cell.empty && !node?.homePinned;
-        const dragging =
-          canDrag && dragNode?.homeNodeKey == node?.homeNodeKey;
-        const isDropSpot =
-          canDrag && dropSpot?.nodeKey == node?.homeNodeKey;
+        const dragging = canDrag && dragNode?.homeNodeKey == node?.homeNodeKey;
+        const isDropSpot = canDrag && dropSpot?.nodeKey == node?.homeNodeKey;
         const dropClass = isDropSpot
           ? dropSpot.placeAfter
             ? "dropAfter"
@@ -635,10 +613,7 @@ function NavigationMatrix({
               canDrag
                 ? (event) => {
                     event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData(
-                      "text/plain",
-                      node.homeNodeKey,
-                    );
+                    event.dataTransfer.setData("text/plain", node.homeNodeKey);
                     setDragNode(node);
                   }
                 : undefined
@@ -1069,10 +1044,7 @@ function WalletSection({
     () => buildWalletFavoriteCatalog(walletTree, routeBase, favAddrs),
     [favAddrs, routeBase, walletTree],
   );
-  const favoriteKeySet = useMemo(
-    () => new Set(favoriteKeys),
-    [favoriteKeys],
-  );
+  const favoriteKeySet = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
   const matrix = useMemo(
     () =>
       buildTreeMatrix(
@@ -1182,9 +1154,7 @@ function WalletSection({
               sectionCollapsed ? "show" : "hide"
             } wallet/trade table`}
             aria-expanded={!sectionCollapsed}
-            title={`${
-              sectionCollapsed ? "show" : "hide"
-            } wallet/trade table`}
+            title={`${sectionCollapsed ? "show" : "hide"} wallet/trade table`}
             onClick={() => toggleNode(sectionCollapseNode)}
           >
             <span

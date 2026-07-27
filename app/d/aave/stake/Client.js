@@ -12,6 +12,7 @@ import {
 } from "@/components/Shared";
 import ProtocolChainLink from "../../ProtocolChainLink";
 import TableCaptionTitle from "../../TableCaptionTitle";
+import useDataTableCollapse from "../../useDataTableCollapse";
 
 function toFiniteNumber(value) {
   const number = Number(value);
@@ -276,15 +277,22 @@ export default function AaveStakeClient({
   cacheM,
   chains,
   coins,
+  initialCollapsed = false,
   poolsM,
   linkPath = "/d/aave/stake",
   titleHref = "",
 }) {
   const [sortCoin, setSortCoin] = useState("");
-  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [reloadingCache, setReloadingCache] = useState(false);
   const [cacheError, setCacheError] = useState("");
   const [reloadedView, setReloadedView] = useState(null);
+  const {
+    collapsed: tableCollapsed,
+    toggleCollapsed: toggleTableCollapsed,
+  } = useDataTableCollapse({
+    collapseKey: titleHref,
+    initialCollapsed,
+  });
   const selectedChains = Object.keys(chains);
   const viewKey = selectedChains.join("|");
   const activeView =
@@ -327,7 +335,7 @@ export default function AaveStakeClient({
           <TableCaptionTitle
             collapsed={tableCollapsed}
             href={titleHref}
-            onToggle={() => setTableCollapsed((current) => !current)}
+            onToggle={toggleTableCollapsed}
           >
             Aave staking
           </TableCaptionTitle>

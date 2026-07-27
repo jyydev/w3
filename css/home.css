@@ -197,6 +197,10 @@
   color: var(--orange);
 }
 
+.homeNavFavoritesSeparator {
+  color: #777;
+}
+
 .homeNavFavoritesLinks {
   display: flex;
   flex: 1 1 auto;
