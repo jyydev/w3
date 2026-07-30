@@ -10,6 +10,7 @@ import {
   getVenusFluxUrl,
   getVenusMarketUrl,
 } from "@/app/_shared/venus";
+import Toggle from "@/components/Toggle";
 import {
   DiscoveryCacheInfo,
   HoverInfoCard,
@@ -103,6 +104,8 @@ export default function VenusMarketTable({
   protocol = "lend",
   titleHref = "",
 }) {
+  const isFlux = protocol == "flux";
+  const [show, setShow] = useState(false);
   const [sortCoin, setSortCoin] = useState("");
   const [reloadingCache, setReloadingCache] = useState(false);
   const [cacheError, setCacheError] = useState("");
@@ -120,14 +123,20 @@ export default function VenusMarketTable({
     reloadedView?.viewKey == viewKey
       ? reloadedView
       : { cacheM, coins, errorsM, marketsM };
-  const activeSortCoin = activeView.coins.includes(sortCoin) ? sortCoin : "";
+  const visibleCoins =
+    isFlux || show
+      ? activeView.coins
+      : activeView.coins.filter(
+          (coin) =>
+            /(USD|DAI|ETH|BTC|BNB|EUR)/.test(coin) && !/^PT-/.test(coin),
+        );
+  const activeSortCoin = visibleCoins.includes(sortCoin) ? sortCoin : "";
   const chainNames = sortChainsByCoin(
     selectedChains,
     activeView.marketsM,
     activeSortCoin,
   );
   const { cacheMeta, cacheRows } = getCombinedCacheMeta(activeView.cacheM);
-  const isFlux = protocol == "flux";
   const title = isFlux ? "Venus Flux" : "Venus lending";
   const description = isFlux
     ? "Venus Flux markets loaded from the Fluid API and on-chain vault metadata."
@@ -191,8 +200,10 @@ export default function VenusMarketTable({
       </caption>
       <thead>
         <tr>
-          <th className="stickyA">chain</th>
-          {activeView.coins.map((coin) => (
+          <th className="stickyA">
+            {isFlux ? "chain" : <Toggle {...{ show, setShow }} />}
+          </th>
+          {visibleCoins.map((coin) => (
             <th key={coin}>
               <TableSortHeader
                 activeSort={activeSortCoin}
@@ -220,7 +231,7 @@ export default function VenusMarketTable({
                 protocolName={isFlux ? "Venus Flux" : "Venus"}
               />
             </td>
-            {activeView.coins.map((coin) => {
+            {visibleCoins.map((coin) => {
               const market = activeView.marketsM?.[chain]?.[coin];
               return (
                 <td
