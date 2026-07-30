@@ -53,8 +53,7 @@ export default async function Navbar() {
     get: (target, key) =>
       typeof key == "string" ? target[`${ckPrefix ?? ""}${key}`] : target[key],
   });
-  const { walletNavTree, refNavTree, dataNavTree } =
-    await getNavigationTrees();
+  const { walletNavTree, refNavTree, dataNavTree } = await getNavigationTrees();
 
   let links = [["/", "⌂ Home"]]; //txt separator: links.push(['','tx'])
   let etc = [
@@ -69,8 +68,6 @@ export default async function Navbar() {
     },
   ];
 
-  links.push([{ type: "walletTree", routeBase: "/w" }, "wallet"]);
-  links.push([{ type: "walletTree", routeBase: "/t" }, "trade"]);
   links.push([
     {
       type: "linkMenu",
@@ -80,7 +77,12 @@ export default async function Navbar() {
     },
     "data",
   ]);
-  links.push([{ type: "linkMenu", items: etc, favCookieKey: "navEtcFavs" }, "etc"]);
+  links.push([{ type: "walletTree", routeBase: "/w" }, "wallet"]);
+  links.push([{ type: "walletTree", routeBase: "/t" }, "trade"]);
+  links.push([
+    { type: "linkMenu", items: etc, favCookieKey: "navEtcFavs" },
+    "etc",
+  ]);
 
   if (ck.navFavs) {
     let fav = isAr(ck.navFavs)
@@ -151,7 +153,9 @@ export default async function Navbar() {
           ) : (
             <HoverMenu /*multi-links: dropdown with caret icon*/
               className={
-                e[1] ? "dropdown title" /*title:margin left no -ve*/ : "dropdown"
+                e[1]
+                  ? "dropdown title" /*title:margin left no -ve*/
+                  : "dropdown"
               }
               key={uid()}
             >

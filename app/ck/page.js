@@ -6,7 +6,7 @@ async function Ck() {
   let prefix = "w3_"; //4 other domains: gt_
   let ck = await getNxCookies();
   let cookies = {
-    navbar: [["eg", "", "info"]],
+    // navbar: [["eg", "", "info"]],
     navInput: [
       [
         "navFavs", //cookieName
