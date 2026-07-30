@@ -397,10 +397,7 @@ function WalletHistoryNode({ node, onRemoveHistory }) {
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onRemoveHistory?.(
-                        node.walletType,
-                        item.historyValue,
-                      );
+                      onRemoveHistory?.(node.walletType, item.historyValue);
                     }}
                   />
                 </span>
@@ -536,12 +533,7 @@ function NavigationNode({
   onToggleNode,
 }) {
   if (node.type == "history") {
-    return (
-      <WalletHistoryNode
-        node={node}
-        onRemoveHistory={onRemoveHistory}
-      />
-    );
+    return <WalletHistoryNode node={node} onRemoveHistory={onRemoveHistory} />;
   }
   if (node.type == "homeFavorites") {
     return (
@@ -1169,10 +1161,7 @@ function WalletSection({
       setConnectedWalletM(
         Object.fromEntries(
           ["evm", "solana", "tron"]
-            .map((walletType) => [
-              walletType,
-              readStoredWallet(walletType),
-            ])
+            .map((walletType) => [walletType, readStoredWallet(walletType)])
             .filter(([, wallet]) => wallet?.address),
         ),
       );
@@ -1486,9 +1475,7 @@ export default function Home({
   }
 
   function isSectionDropAfter(event) {
-    const header = event.currentTarget.querySelector(
-      ":scope > .homeNavHeader",
-    );
+    const header = event.currentTarget.querySelector(":scope > .homeNavHeader");
     const rect = (header || event.currentTarget).getBoundingClientRect();
     return event.clientY > rect.top + rect.height / 2;
   }
@@ -1518,8 +1505,7 @@ export default function Home({
         event.dataTransfer.dropEffect = "move";
         const placeAfter = isSectionDropAfter(event);
         setSectionDrop((current) =>
-          current?.section == section &&
-          current?.placeAfter == placeAfter
+          current?.section == section && current?.placeAfter == placeAfter
             ? current
             : { section, placeAfter },
         );

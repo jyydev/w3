@@ -126,17 +126,10 @@
 }
 
 .homeNavMatrix {
-  --home-nav-column-min: 142px;
   display: grid;
   width: max-content;
-  grid-template-columns: repeat(
-    var(--home-nav-column-count),
-    minmax(var(--home-nav-column-min), max-content)
-  );
-  grid-template-rows: repeat(
-    var(--home-nav-row-count),
-    minmax(27px, auto)
-  );
+  grid-template-columns: repeat(var(--home-nav-column-count), max-content);
+  grid-template-rows: repeat(var(--home-nav-row-count), minmax(27px, auto));
   max-width: calc(100vw - 12px);
   overflow-x: auto;
   border-left: 1px solid #292929;
@@ -145,14 +138,13 @@
 }
 
 .homeNavCell {
-  min-width: var(--home-nav-column-min);
+  min-width: 0;
   border-right: 1px solid #292929;
   border-bottom: 1px solid #292929;
 }
 
-.homeNavCell.history,
-.homeNavCell.favorites {
-  min-width: 0;
+.homeNavCell.history {
+  contain: inline-size;
 }
 
 .homeNavCell.sortable {
@@ -225,7 +217,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  overflow: visible;
+  overflow-x: auto;
 }
 
 .homeNavHistoryLink {
@@ -271,10 +263,6 @@
 .homeNavFavoritesEmpty {
   flex: 0 0 auto;
   color: #777;
-}
-
-.homeNavFavoritesLabel {
-  color: var(--orange);
 }
 
 .homeNavFavoritesSeparator {
@@ -504,10 +492,4 @@
 .homeNavSortLabel {
   color: #777;
   font-size: 13px;
-}
-
-@media (max-width: 700px) {
-  .homeNavMatrix {
-    --home-nav-column-min: 128px;
-  }
 }
