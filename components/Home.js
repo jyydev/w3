@@ -359,17 +359,50 @@ function useWalletFavorites(initialFavoriteKeys = []) {
 }
 
 function WalletHistoryNode({ node, onRemoveHistory }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const linksRef = useRef(null);
+  const toggleLabel = `${expanded ? "collapse" : "expand"} ${
+    node.walletType || ""
+  } wallet history`;
+
+  useEffect(() => {
+    const links = linksRef.current;
+    if (!links) return;
+
+    function syncOverflow() {
+      const next = links.scrollWidth > links.clientWidth + 1;
+      setOverflowing((current) => (current == next ? current : next));
+    }
+
+    syncOverflow();
+    const resizeObserver = new ResizeObserver(syncOverflow);
+    resizeObserver.observe(links);
+
+    return () => resizeObserver.disconnect();
+  }, [expanded, node.items]);
+
   return (
     <div
-      className="homeNavHistory"
+      className={`homeNavHistory ${expanded ? "expanded" : ""}`}
       aria-label={`${node.walletType || ""} wallet history`}
     >
-      <span className="homeNavHistoryLabel">history:</span>
-      <span className="homeNavHistoryLinks">
+      <button
+        type="button"
+        className="homeNavHistoryLabel"
+        aria-expanded={expanded}
+        aria-label={toggleLabel}
+        title={toggleLabel}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        history:
+      </button>
+      <span ref={linksRef} className="homeNavHistoryLinks">
         {node.items?.length ? (
           node.items.map((item) => (
             <InteractiveInfoCard
               activation="hover"
+              floating
               className="homeNavHistoryItem"
               key={item.homeKey}
             >
@@ -391,7 +424,6 @@ function WalletHistoryNode({ node, onRemoveHistory }) {
               )}
               <span className="infoCard homeNavHistoryInfoCard">
                 <span className="homeNavHistoryInfoRow">
-                  <span>remove from history</span>
                   <HistoryRemoveButton
                     label={item.label}
                     onClick={(event) => {
@@ -400,6 +432,7 @@ function WalletHistoryNode({ node, onRemoveHistory }) {
                       onRemoveHistory?.(node.walletType, item.historyValue);
                     }}
                   />
+                  <span>remove from history</span>
                 </span>
               </span>
             </InteractiveInfoCard>
@@ -408,6 +441,17 @@ function WalletHistoryNode({ node, onRemoveHistory }) {
           <span className="homeNavHistoryEmpty">empty</span>
         )}
       </span>
+      {!expanded && overflowing && (
+        <button
+          type="button"
+          className="homeNavHistoryMore"
+          aria-label={`expand ${node.walletType || ""} wallet history`}
+          title="expand history"
+          onClick={() => setExpanded(true)}
+        >
+          ..
+        </button>
+      )}
     </div>
   );
 }

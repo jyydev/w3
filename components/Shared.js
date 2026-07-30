@@ -13,6 +13,7 @@ function SharedInfoCard({
   forceOpen = false,
   onOpenChange,
   interactive = false,
+  floating = false,
   className = "",
   children,
   as: Root = "span",
@@ -28,6 +29,46 @@ function SharedInfoCard({
     onClick,
   });
 
+  useEffect(() => {
+    if (!floating || !overlayOpen) return;
+
+    const root = rootRef.current;
+    const panel = Array.from(root?.children || []).find((child) =>
+      child.classList?.contains("infoCard"),
+    );
+    if (!root || !panel) return;
+
+    function positionPanel() {
+      const rootRect = root.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      const edgeSpace = 4;
+      const gap = 0;
+      const maxLeft = Math.max(
+        edgeSpace,
+        window.innerWidth - panelRect.width - edgeSpace,
+      );
+      const left = Math.min(Math.max(edgeSpace, rootRect.left), maxLeft);
+      const showAbove =
+        rootRect.bottom + gap + panelRect.height > window.innerHeight - edgeSpace &&
+        rootRect.top - gap - panelRect.height >= edgeSpace;
+      const top = showAbove
+        ? rootRect.top - gap - panelRect.height
+        : rootRect.bottom + gap;
+
+      panel.style.setProperty("--floating-info-left", `${left}px`);
+      panel.style.setProperty("--floating-info-top", `${top}px`);
+    }
+
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
+
+    return () => {
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
+    };
+  }, [floating, overlayOpen, rootRef]);
+
   return (
     <Root
       {...props}
@@ -37,6 +78,7 @@ function SharedInfoCard({
         "infoHover",
         activation == "click" ? "clickInfo" : "hoverOnlyInfo",
         interactive ? "interactiveInfoHover" : "",
+        floating ? "floatingInfoHover" : "",
         overlayOpen ? "infoOpen" : "",
         className,
       ]

@@ -211,13 +211,51 @@
   color: #777;
 }
 
+.homeNavHistoryLabel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.homeNavHistoryLabel:hover {
+  color: var(--orange);
+}
+
+.homeNavHistoryMore {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #777;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.homeNavHistoryMore:hover {
+  color: var(--orange);
+}
+
 .homeNavHistoryLinks {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  overflow-x: auto;
+  overflow: hidden;
+}
+
+.homeNavHistory.expanded {
+  align-items: flex-start;
+}
+
+.homeNavHistory.expanded .homeNavHistoryLinks {
+  flex-wrap: wrap;
+  row-gap: 3px;
+  overflow: visible;
 }
 
 .homeNavHistoryLink {
@@ -237,14 +275,22 @@
   flex: 0 0 auto;
 }
 
-.homeNavHistoryInfoCard {
+.infoCard.homeNavHistoryInfoCard {
   min-width: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+  line-height: 1.15;
 }
 
 .homeNavHistoryInfoRow {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
+}
+
+.homeNavHistoryInfoCard .walletHistoryRemoveButton {
+  margin-left: 0;
+  vertical-align: 0;
 }
 
 .homeNavFavorites {

@@ -847,6 +847,11 @@ img.assetIcon {
 .infoHover.infoOpen {
   z-index: 1000;
 }
+.floatingInfoHover > .infoCard {
+  position: fixed;
+  top: var(--floating-info-top, -10000px);
+  left: var(--floating-info-left, -10000px);
+}
 .infoCardTitle {
   color: white;
 }

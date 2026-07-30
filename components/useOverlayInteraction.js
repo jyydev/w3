@@ -106,7 +106,13 @@ export default function useOverlayInteraction({
       onMouseEnter() {
         if (activation == "hover") changeOpen(true);
       },
-      onMouseLeave() {
+      onMouseLeave(e) {
+        if (
+          e.relatedTarget?.nodeType &&
+          rootRef.current?.contains(e.relatedTarget)
+        ) {
+          return;
+        }
         changeOpen(false);
       },
       onPointerDown(e) {
