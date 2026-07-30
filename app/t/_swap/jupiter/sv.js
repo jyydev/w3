@@ -15,6 +15,7 @@ import {
   getCoinDecimals,
   getSolanaKeypair,
   getSolanaPublicKey,
+  getTradeCoinEntry,
 } from "../../sharedServer";
 import { getArrayPayload, getTimeoutSignal, parseJson } from "../shared";
 
@@ -27,9 +28,8 @@ const jupiterNativeSolAddress = "So11111111111111111111111111111111111111112";
 const defaultSlippageBps = 50n;
 const jupiterSwapDiscoveryCacheM = {};
 
-function getJupiterToken(coin = "") {
-  const coinE = coinM?.Solana?.[coin];
-  if (!coinE) throw new Error(`coin not found: Solana ${coin}`);
+function getJupiterToken(coin = "", dynamicCoinE = null) {
+  const coinE = getTradeCoinEntry("Solana", coin, dynamicCoinE);
   if (coinE.native) return jupiterNativeSolAddress;
 
   return getSolanaPublicKey(coinE.address, "Jupiter token mint").toBase58();
@@ -181,26 +181,44 @@ export async function getJupiterTokenDiscovery({
 }
 
 async function jupiterFetch(endpoint, options = {}) {
-  const res = await fetch(`${jupiterApiBase}${endpoint}`, {
-    ...options,
-    headers: {
-      ...getJupiterHeaders(),
-      ...(options.headers || {}),
-    },
-  });
-  const text = await res.text();
-  const data = parseJson(text);
+  const {
+    timeoutMs = 0,
+    timeoutMessage = "Jupiter request timeout",
+    ...fetchOptions
+  } = options;
+  const timeout = getTimeoutSignal(timeoutMs);
 
-  if (!res.ok || data?.error) {
-    const message =
-      data?.message ||
-      data?.error ||
-      data?.errorMessage ||
-      `Jupiter request failed: ${res.status}`;
-    throw new Error(message);
+  try {
+    const res = await fetch(`${jupiterApiBase}${endpoint}`, {
+      ...fetchOptions,
+      cache: "no-store",
+      headers: {
+        ...getJupiterHeaders(),
+        ...(fetchOptions.headers || {}),
+      },
+      ...(timeout.signal ? { signal: timeout.signal } : {}),
+    });
+    const text = await res.text();
+    const data = parseJson(text);
+
+    if (!res.ok || data?.error) {
+      const message =
+        data?.message ||
+        data?.error ||
+        data?.errorMessage ||
+        `Jupiter request failed: ${res.status}`;
+      throw new Error(message);
+    }
+
+    return data;
+  } catch (e) {
+    if (e?.name == "AbortError") {
+      throw new Error(timeoutMessage);
+    }
+    throw e;
+  } finally {
+    timeout.clear?.();
   }
-
-  return data;
 }
 
 function assertJupiterRoute({
@@ -217,10 +235,14 @@ function assertJupiterRoute({
   if (fromCoin == toCoin) throw new Error("sell coin and buy coin are the same");
 }
 
-function getJupiterAmountIn({ fromCoin, amount }) {
+function getJupiterAmountIn({
+  fromCoin,
+  fromCoinE = null,
+  amount,
+}) {
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
-    getCoinDecimals("Solana", fromCoin),
+    getCoinDecimals("Solana", fromCoin, fromCoinE),
   );
   if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
 
@@ -233,7 +255,10 @@ async function getJupiterQuote({
   toChain = "",
   fromCoin = "",
   toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
   amount = "",
+  timeoutMs = 0,
 } = {}) {
   assertJupiterRoute({
     walletAddress,
@@ -243,10 +268,10 @@ async function getJupiterQuote({
     toCoin,
   });
 
-  const amountIn = getJupiterAmountIn({ fromCoin, amount });
+  const amountIn = getJupiterAmountIn({ fromCoin, fromCoinE, amount });
   const params = new URLSearchParams({
-    inputMint: getJupiterToken(fromCoin),
-    outputMint: getJupiterToken(toCoin),
+    inputMint: getJupiterToken(fromCoin, fromCoinE),
+    outputMint: getJupiterToken(toCoin, toCoinE),
     amount: amountIn.toString(),
     slippageBps: String(defaultSlippageBps),
     restrictIntermediateTokens: "true",
@@ -254,7 +279,270 @@ async function getJupiterQuote({
 
   return {
     amountIn,
-    quote: await jupiterFetch(`/quote?${params}`),
+    quote: await jupiterFetch(`/quote?${params}`, {
+      timeoutMs,
+      timeoutMessage: "Jupiter quote timeout",
+    }),
+  };
+}
+
+function getJupiterMintLabel(mint = "") {
+  const value = String(mint || "");
+  if (value.length <= 12) return value;
+
+  return `${value.slice(0, 5)}..${value.slice(-4)}`;
+}
+
+function getJupiterMintEntry(
+  mint = "",
+  selectedEntries = [],
+) {
+  const cleanMint = String(mint || "");
+  if (cleanMint == jupiterNativeSolAddress) {
+    return {
+      coin: "SOL",
+      ...(coinM?.Solana?.SOL || {}),
+      address: jupiterNativeSolAddress,
+    };
+  }
+
+  for (const entry of selectedEntries) {
+    if (
+      entry?.address &&
+      String(entry.address) == cleanMint
+    ) {
+      return entry;
+    }
+  }
+
+  for (const [coin, coinE] of Object.entries(coinM?.Solana || {})) {
+    if (coinE?.address && String(coinE.address) == cleanMint) {
+      return { coin, ...coinE };
+    }
+  }
+
+  return {
+    coin: getJupiterMintLabel(cleanMint),
+    address: cleanMint,
+  };
+}
+
+function formatJupiterAmount(amount = "", decimals) {
+  if (amount === "" || amount === null || !Number.isInteger(decimals)) {
+    return "";
+  }
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeJupiterAmount({
+  mint = "",
+  amount = "",
+  amountUsd = "",
+  minimumAmount = "",
+  selectedEntries = [],
+} = {}) {
+  const coinE = getJupiterMintEntry(mint, selectedEntries);
+  const decimals = Number(coinE.decimals);
+
+  return {
+    chain: "Solana",
+    coin: String(coinE.coin || getJupiterMintLabel(mint)),
+    name: String(coinE.name || coinE.coin || ""),
+    decimals: Number.isInteger(decimals) ? decimals : "",
+    amount: String(amount ?? ""),
+    amountFormatted: formatJupiterAmount(amount, decimals),
+    amountUsd: String(amountUsd ?? ""),
+    minimumAmount: String(minimumAmount ?? ""),
+    minimumAmountFormatted: formatJupiterAmount(
+      minimumAmount,
+      decimals,
+    ),
+  };
+}
+
+function getJupiterQuoteDetails({
+  amountIn = 0n,
+  quote = {},
+  fromCoin = "",
+  toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
+} = {}) {
+  const inputMint = String(
+    quote.inputMint || getJupiterToken(fromCoin, fromCoinE),
+  );
+  const outputMint = String(
+    quote.outputMint || getJupiterToken(toCoin, toCoinE),
+  );
+  const selectedEntries = [
+    {
+      coin: fromCoin,
+      ...getTradeCoinEntry("Solana", fromCoin, fromCoinE),
+      address: inputMint,
+    },
+    {
+      coin: toCoin,
+      ...getTradeCoinEntry("Solana", toCoin, toCoinE),
+      address: outputMint,
+    },
+  ];
+  const currencyIn = normalizeJupiterAmount({
+    mint: inputMint,
+    amount: quote.inAmount || amountIn.toString(),
+    selectedEntries,
+  });
+  const currencyOut = normalizeJupiterAmount({
+    mint: outputMint,
+    amount: quote.outAmount,
+    amountUsd: quote.swapUsdValue,
+    minimumAmount: quote.otherAmountThreshold,
+    selectedEntries,
+  });
+  const inputQty = Number(currencyIn.amountFormatted);
+  const outputQty = Number(currencyOut.amountFormatted);
+  const priceImpact = Number(quote.priceImpactPct);
+  const slippageBps = Number(quote.slippageBps);
+  const routePlan = Array.isArray(quote.routePlan)
+    ? quote.routePlan
+    : [];
+  const fees = routePlan
+    .map((entry, index) => {
+      const swapInfo = entry?.swapInfo || {};
+      const feeAmount = BigInt(swapInfo.feeAmount || 0);
+      if (feeAmount <= 0n) return null;
+
+      const feeE = normalizeJupiterAmount({
+        mint: swapInfo.feeMint,
+        amount: feeAmount,
+        selectedEntries,
+      });
+
+      return {
+        key: `route-fee-${index}`,
+        label: `${swapInfo.label || `route ${index + 1}`} fee`,
+        amount: feeAmount.toString(),
+        amountFormatted: feeE.amountFormatted,
+        amountUsd: "",
+        coin: feeE.coin,
+        percent: "",
+        description: "Jupiter route fee",
+      };
+    })
+    .filter(Boolean);
+  const platformFeeAmount = BigInt(quote.platformFee?.amount || 0);
+  if (platformFeeAmount > 0n) {
+    const platformFeeE = normalizeJupiterAmount({
+      mint: quote.platformFee?.feeMint || outputMint,
+      amount: platformFeeAmount,
+      selectedEntries,
+    });
+    fees.push({
+      key: "platform-fee",
+      label: "platform fee",
+      amount: platformFeeAmount.toString(),
+      amountFormatted: platformFeeE.amountFormatted,
+      amountUsd: "",
+      coin: platformFeeE.coin,
+      percent: Number.isFinite(Number(quote.platformFee?.feeBps))
+        ? String(Number(quote.platformFee.feeBps) / 100)
+        : "",
+      description: "Jupiter platform fee",
+    });
+  }
+
+  return {
+    rate:
+      Number.isFinite(inputQty) &&
+      inputQty > 0 &&
+      Number.isFinite(outputQty)
+        ? String(outputQty / inputQty)
+        : "",
+    timeEstimate: 0,
+    amountIn: currencyIn.amountFormatted,
+    amountOut: currencyOut.amountFormatted,
+    minimumAmountOut: currencyOut.minimumAmountFormatted,
+    currencyIn,
+    currencyOut,
+    totalImpact: {},
+    swapImpact: Number.isFinite(priceImpact)
+      ? {
+          usd: "",
+          percent: String(-Math.abs(priceImpact)),
+        }
+      : {},
+    slippageTolerance: Number.isFinite(slippageBps)
+      ? {
+          route: {
+            usd: "",
+            value: String(slippageBps / 10_000),
+            percent: String(slippageBps / 100),
+          },
+        }
+      : {},
+    routes: routePlan.map((entry, index) => {
+      const swapInfo = entry?.swapInfo || {};
+      const percent = Number(entry?.percent);
+
+      return {
+        side:
+          routePlan.length > 1
+            ? `route ${index + 1}${
+                Number.isFinite(percent) ? ` (${percent}%)` : ""
+              }`
+            : "route",
+        chain: "Solana",
+        input: normalizeJupiterAmount({
+          mint: swapInfo.inputMint,
+          amount: swapInfo.inAmount,
+          selectedEntries,
+        }),
+        output: normalizeJupiterAmount({
+          mint: swapInfo.outputMint,
+          amount: swapInfo.outAmount,
+          selectedEntries,
+        }),
+        router: String(swapInfo.label || "Jupiter"),
+        sources: swapInfo.ammKey
+          ? [`AMM: ${getJupiterMintLabel(swapInfo.ammKey)}`]
+          : [],
+      };
+    }),
+    fees,
+    priceImpacts: [],
+    steps: [
+      {
+        id: "swap-mode",
+        kind: "route",
+        action: "swap mode",
+        description: String(quote.swapMode || "ExactIn"),
+      },
+      ...(quote.contextSlot
+        ? [
+            {
+              id: "context-slot",
+              kind: "quote",
+              action: "Solana slot",
+              description: String(quote.contextSlot),
+            },
+          ]
+        : []),
+      ...(Number(quote.timeTaken) > 0
+        ? [
+            {
+              id: "quote-time",
+              kind: "quote",
+              action: "quote calculation",
+              description: `${Math.round(Number(quote.timeTaken) * 1000)}ms`,
+            },
+          ]
+        : []),
+    ],
+    quotedAt: Date.now(),
   };
 }
 
@@ -354,6 +642,26 @@ export async function getJupiterSwapPreview({
         .map((route) => route?.swapInfo?.label)
         .filter(Boolean),
     },
+  };
+}
+
+export async function getJupiterSwapEstimate(options = {}) {
+  const { amountIn, quote } = await getJupiterQuote({
+    ...options,
+    timeoutMs: 20_000,
+  });
+
+  return {
+    ok: true,
+    dex: "Jupiter",
+    details: getJupiterQuoteDetails({
+      amountIn,
+      quote,
+      fromCoin: options.fromCoin,
+      toCoin: options.toCoin,
+      fromCoinE: options.fromCoinE,
+      toCoinE: options.toCoinE,
+    }),
   };
 }
 

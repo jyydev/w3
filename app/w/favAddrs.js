@@ -9,6 +9,20 @@ export function getFavAddrKey(type = "evm", address = "") {
   return `${type}:${type == "evm" ? clean.toLowerCase() : clean}`;
 }
 
+export function getDefaultWalletName(address = "") {
+  const clean = String(address || "")
+    .trim()
+    .replace(/^0x/i, "")
+    .replace(/[^\w]/g, "");
+
+  return clean ? `addr_${clean.slice(-6)}` : "";
+}
+
+export function isAddressOnlyWalletName(name = "") {
+  const clean = String(name || "").trim();
+  return /^addr(?:[_-].*)?$/i.test(clean) || /^fav[_-].+/i.test(clean);
+}
+
 export function parseFavAddrs(value) {
   try {
     const text = String(value || "[]");

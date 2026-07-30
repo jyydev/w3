@@ -374,6 +374,204 @@ async function relayFetch(endpoint, options = {}) {
   }
 }
 
+function formatRelayAmount(amount = "", decimals) {
+  if (!amount || !Number.isInteger(decimals)) return "";
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeRelayAmount(entry = {}) {
+  const currency = entry?.currency || {};
+  const decimals = Number(currency.decimals);
+  const chainId = Number(currency.chainId);
+  const amount = String(entry?.amount || "");
+  const minimumAmount = String(entry?.minimumAmount || "");
+
+  return {
+    chain: chainById[chainId] || String(currency.chainId || ""),
+    chainId: Number.isFinite(chainId) ? chainId : "",
+    coin: String(currency.symbol || ""),
+    name: String(currency.name || ""),
+    decimals: Number.isInteger(decimals) ? decimals : "",
+    amount,
+    amountFormatted:
+      String(entry?.amountFormatted || "") ||
+      formatRelayAmount(amount, decimals),
+    amountUsd: String(entry?.amountUsd || ""),
+    minimumAmount,
+    minimumAmountFormatted: formatRelayAmount(minimumAmount, decimals),
+  };
+}
+
+const relayFeeLabelM = {
+  gas: "origin gas",
+  relayer: "relayer total",
+  relayerGas: "relayer gas",
+  relayerService: "relayer service",
+  app: "app",
+  subsidized: "subsidized",
+};
+
+function normalizeRelayFees(fees = {}) {
+  return Object.entries(fees)
+    .filter(([, entry]) => entry && typeof entry == "object")
+    .map(([key, entry]) => ({
+      key,
+      label: relayFeeLabelM[key] || key,
+      ...normalizeRelayAmount(entry),
+    }));
+}
+
+function normalizeRelayRouteLeg(side = "", entry = {}) {
+  const input = normalizeRelayAmount(entry?.inputCurrency);
+  const output = normalizeRelayAmount(entry?.outputCurrency);
+  const sources = Array.isArray(entry?.includedSwapSources)
+    ? entry.includedSwapSources.filter(Boolean).map(String)
+    : [];
+  const router = String(entry?.router || "");
+  if (!input.coin && !output.coin && !router && !sources.length) return null;
+
+  return {
+    side,
+    chain: input.chain || output.chain,
+    input,
+    output,
+    router,
+    sources,
+  };
+}
+
+function normalizeRelayQuoteDetails(quote = {}) {
+  const details = quote?.details || {};
+  const currencyIn = normalizeRelayAmount(details.currencyIn);
+  const currencyOut = normalizeRelayAmount(details.currencyOut);
+  const route = details.route || {};
+  const routes = [
+    normalizeRelayRouteLeg("origin", route.origin),
+    normalizeRelayRouteLeg("destination", route.destination),
+  ].filter(Boolean);
+  const expandedPriceImpact = details.expandedPriceImpact || {};
+  const priceImpacts = Object.entries(expandedPriceImpact)
+    .filter(([, entry]) => entry && typeof entry == "object")
+    .map(([key, entry]) => ({
+      key,
+      usd: String(entry.usd || ""),
+      percent: String(entry.percent || ""),
+    }));
+
+  return {
+    rate: String(details.rate || ""),
+    timeEstimate: Number(details.timeEstimate) || 0,
+    amountIn: currencyIn.amountFormatted,
+    amountOut: currencyOut.amountFormatted,
+    amountOutUsd: currencyOut.amountUsd,
+    minimumAmountOut: currencyOut.minimumAmountFormatted,
+    currencyIn,
+    currencyOut,
+    totalImpact: {
+      usd: String(details.totalImpact?.usd || ""),
+      percent: String(details.totalImpact?.percent || ""),
+    },
+    swapImpact: {
+      usd: String(details.swapImpact?.usd || ""),
+      percent: String(details.swapImpact?.percent || ""),
+    },
+    slippageTolerance: {
+      origin: {
+        usd: String(details.slippageTolerance?.origin?.usd || ""),
+        value: String(details.slippageTolerance?.origin?.value || ""),
+        percent: String(details.slippageTolerance?.origin?.percent || ""),
+      },
+      destination: {
+        usd: String(details.slippageTolerance?.destination?.usd || ""),
+        value: String(details.slippageTolerance?.destination?.value || ""),
+        percent: String(details.slippageTolerance?.destination?.percent || ""),
+      },
+    },
+    routes,
+    fees: normalizeRelayFees(quote.fees),
+    priceImpacts,
+    steps: (quote.steps || []).map((step) => ({
+      id: String(step?.id || ""),
+      kind: String(step?.kind || ""),
+      action: String(step?.action || ""),
+      description: String(step?.description || ""),
+    })),
+    quotedAt: Date.now(),
+  };
+}
+
+async function getRelayQuote({
+  walletAddress = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
+  amount = "",
+  recipient = "",
+  timeoutMs = 0,
+} = {}) {
+  if (
+    fromChain != "Solana" &&
+    fromChain != "Tron" &&
+    !ethers.isAddress(walletAddress)
+  ) {
+    throw new Error("EVM wallet address required");
+  }
+  if (fromChain == "Tron") getTronAddress(walletAddress, "Tron wallet address");
+
+  const originChainId = chainIds[fromChain];
+  const destinationChainId = chainIds[toChain];
+  if (!originChainId) throw new Error(`Relay chain unsupported: ${fromChain}`);
+  if (!destinationChainId) {
+    throw new Error(`Relay chain unsupported: ${toChain}`);
+  }
+
+  const user = getRelayUserAddress(fromChain, walletAddress);
+  const recipientAddress =
+    getRelayRecipientAddress(toChain, recipient || walletAddress) || user;
+  const parsedAmount = getRelayAmountIn({
+    chain: fromChain,
+    fromCoin,
+    fromCoinE,
+    amount,
+  });
+  const quote = await relayFetch("/quote/v2", {
+    method: "POST",
+    cache: "no-store",
+    timeoutMs,
+    timeoutMessage: "Relay quote timeout",
+    body: JSON.stringify({
+      user,
+      originChainId,
+      destinationChainId,
+      originCurrency: getRelayCurrency(fromChain, fromCoin, fromCoinE),
+      destinationCurrency: getRelayCurrency(toChain, toCoin, toCoinE),
+      amount: parsedAmount.toString(),
+      tradeType: "EXACT_INPUT",
+      recipient: recipientAddress,
+      refundTo: user,
+      usePermit: false,
+      ...(fromChain == "Solana" ? { maxRouteLength: 4 } : {}),
+    }),
+  });
+
+  return {
+    quote,
+    parsedAmount,
+    originChainId,
+    destinationChainId,
+    user,
+    recipientAddress,
+  };
+}
+
 function getRelayLocalChain(entry = {}) {
   const chainId = Number(entry.id ?? entry.chainId ?? entry.chainID);
   if (Number.isFinite(chainId) && chainById[chainId]) {
@@ -820,45 +1018,16 @@ export async function buildRelaySwapSteps({
   approvalAmount = "",
   includeApprovals = true,
 } = {}) {
-  if (
-    fromChain != "Solana" &&
-    fromChain != "Tron" &&
-    !ethers.isAddress(walletAddress)
-  ) {
-    throw new Error("EVM wallet address required");
-  }
-  if (fromChain == "Tron") getTronAddress(walletAddress, "Tron wallet address");
-
-  const originChainId = chainIds[fromChain];
-  const destinationChainId = chainIds[toChain];
-  if (!originChainId) throw new Error(`Relay chain unsupported: ${fromChain}`);
-  if (!destinationChainId) throw new Error(`Relay chain unsupported: ${toChain}`);
-  const user = getRelayUserAddress(fromChain, walletAddress);
-  const recipientAddress =
-    getRelayRecipientAddress(toChain, recipient || walletAddress) || user;
-
-  const parsedAmount = getRelayAmountIn({
-    chain: fromChain,
+  const { originChainId, parsedAmount, quote, user } = await getRelayQuote({
+    walletAddress,
+    fromChain,
+    toChain,
     fromCoin,
+    toCoin,
     fromCoinE,
+    toCoinE,
     amount,
-  });
-
-  const quote = await relayFetch("/quote/v2", {
-    method: "POST",
-    body: JSON.stringify({
-      user,
-      originChainId,
-      destinationChainId,
-      originCurrency: getRelayCurrency(fromChain, fromCoin, fromCoinE),
-      destinationCurrency: getRelayCurrency(toChain, toCoin, toCoinE),
-      amount: parsedAmount.toString(),
-      tradeType: "EXACT_INPUT",
-      recipient: recipientAddress,
-      refundTo: user,
-      usePermit: false,
-      ...(fromChain == "Solana" ? { maxRouteLength: 4 } : {}),
-    }),
+    recipient,
   });
   const items = [];
   const requestIds = [];
@@ -976,13 +1145,20 @@ export async function buildRelaySwapSteps({
       allowance: approval.allowance.toString(),
       amountIn: parsedAmount.toString(),
     },
-    details: {
-      rate: quote.details?.rate,
-      timeEstimate: quote.details?.timeEstimate,
-      amountIn: quote.details?.currencyIn?.amountFormatted,
-      amountOut: quote.details?.currencyOut?.amountFormatted,
-      amountOutUsd: quote.details?.currencyOut?.amountUsd,
-    },
+    details: normalizeRelayQuoteDetails(quote),
+  };
+}
+
+export async function getRelaySwapEstimate(options = {}) {
+  const { quote } = await getRelayQuote({
+    ...options,
+    timeoutMs: 20_000,
+  });
+
+  return {
+    ok: true,
+    dex: "Relay",
+    details: normalizeRelayQuoteDetails(quote),
   };
 }
 

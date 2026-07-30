@@ -286,6 +286,7 @@ async function getSameChainPancakeRoute({
 
   return {
     router,
+    trade,
     txData: {
       to: router,
       data: calldata,
@@ -752,7 +753,12 @@ async function getCrossChainPancakeRoute({
         : bridgeOutputAmount;
 
       return {
+        destinationCurrency,
+        destinationTrade,
+        metadata,
+        originCurrency,
         router: ethers.getAddress(router),
+        sourceTrade,
         txData: {
           to: ethers.getAddress(router),
           data,
@@ -830,6 +836,283 @@ async function getPancakeRoute({
     currencyIn,
     currencyOut,
     recipient: ethers.getAddress(finalRecipient),
+  };
+}
+
+const pancakeRouteTypeM = {
+  0: "V2",
+  1: "V3",
+  2: "stable",
+  3: "mixed",
+  4: "market maker",
+  5: "Infinity CL",
+  6: "Infinity BIN",
+  7: "bridge",
+  8: "SVM",
+};
+const pancakePoolTypeM = {
+  0: "V2",
+  1: "V3",
+  2: "stable",
+  3: "Infinity CL",
+  4: "Infinity BIN",
+  5: "SVM",
+};
+
+function formatPancakeAmount(amount = "", currency = null) {
+  const decimals = Number(currency?.decimals);
+  if (
+    amount === "" ||
+    amount === null ||
+    !Number.isInteger(decimals)
+  ) {
+    return "";
+  }
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function getPancakeCurrencySymbol(currency = null, fallback = "") {
+  return String(
+    currency?.symbol ||
+      currency?.wrapped?.symbol ||
+      fallback ||
+      "",
+  );
+}
+
+function normalizePancakeAmount({
+  chain = "",
+  coin = "",
+  currency = null,
+  amount = "",
+  minimumAmount = "",
+} = {}) {
+  return {
+    chain,
+    coin: getPancakeCurrencySymbol(currency, coin),
+    name: String(currency?.name || coin || ""),
+    decimals: Number(currency?.decimals),
+    amount: String(amount ?? ""),
+    amountFormatted: formatPancakeAmount(amount, currency),
+    amountUsd: "",
+    minimumAmount: String(minimumAmount ?? ""),
+    minimumAmountFormatted: formatPancakeAmount(minimumAmount, currency),
+  };
+}
+
+function getPancakeTradeRoutes(
+  trade = null,
+  chain = "",
+  side = "pool route",
+) {
+  const routes = Array.isArray(trade?.routes) ? trade.routes : [];
+
+  return routes.map((route, index) => {
+    const inputCurrency = route.inputAmount?.currency || route.input;
+    const outputCurrency = route.outputAmount?.currency || route.output;
+    const routeType =
+      pancakeRouteTypeM[Number(route.type)] || "pools";
+    const path = (Array.isArray(route.path) ? route.path : [])
+      .map((entry) => getPancakeCurrencySymbol(entry))
+      .filter(Boolean);
+    const poolTypes = [
+      ...new Set(
+        (Array.isArray(route.pools) ? route.pools : [])
+          .map((pool) => pancakePoolTypeM[Number(pool?.type)])
+          .filter(Boolean),
+      ),
+    ];
+    const percent = Number(route.percent);
+    const splitLabel =
+      routes.length > 1 && Number.isFinite(percent)
+        ? `${side} ${index + 1} (${percent}%)`
+        : side;
+
+    return {
+      side: splitLabel,
+      chain,
+      input: normalizePancakeAmount({
+        chain,
+        currency: inputCurrency,
+        amount: route.inputAmount?.quotient?.toString?.() || "",
+      }),
+      output: normalizePancakeAmount({
+        chain,
+        currency: outputCurrency,
+        amount: route.outputAmount?.quotient?.toString?.() || "",
+      }),
+      router: `PancakeSwap ${routeType}`,
+      sources: [
+        ...(path.length > 1 ? [path.join(" → ")] : []),
+        ...(poolTypes.length ? [`pools: ${poolTypes.join(", ")}`] : []),
+      ],
+    };
+  });
+}
+
+function getPancakeTradeGasFee(
+  trade = null,
+  key = "",
+  label = "",
+) {
+  const gasEstimate = BigInt(trade?.gasEstimate || 0);
+  if (gasEstimate <= 0n) return null;
+
+  let amountUsd = "";
+  try {
+    amountUsd = trade?.gasEstimateInUSD?.toExact?.() || "";
+  } catch {
+    amountUsd = "";
+  }
+
+  return {
+    key,
+    label,
+    amount: gasEstimate.toString(),
+    amountFormatted: gasEstimate.toString(),
+    amountUsd,
+    coin: "gas units",
+    percent: "",
+    description: "route gas estimate",
+  };
+}
+
+function getPancakeQuoteDetails(route = {}, options = {}) {
+  const quote = route.quote || {};
+  const currencyIn = normalizePancakeAmount({
+    chain: options.fromChain,
+    coin: options.fromCoin,
+    currency: route.currencyIn,
+    amount: quote.amountIn,
+  });
+  const currencyOut = normalizePancakeAmount({
+    chain: options.toChain,
+    coin: options.toCoin,
+    currency: route.currencyOut,
+    amount: quote.amountOut,
+    minimumAmount: quote.amountOutMinimum,
+  });
+  const inputQty = Number(currencyIn.amountFormatted);
+  const outputQty = Number(currencyOut.amountFormatted);
+  const slippageBps = Number(quote.slippageBps);
+  const routes = [];
+  const fees = [];
+
+  if (route.sourceTrade) {
+    routes.push(
+      ...getPancakeTradeRoutes(
+        route.sourceTrade,
+        options.fromChain,
+        "origin swap",
+      ),
+    );
+    fees.push(
+      getPancakeTradeGasFee(
+        route.sourceTrade,
+        "origin-gas",
+        "origin route gas",
+      ),
+    );
+  }
+  if (route.originCurrency && route.destinationCurrency) {
+    routes.push({
+      side: "bridge",
+      chain: `${options.fromChain} → ${options.toChain}`,
+      input: normalizePancakeAmount({
+        chain: options.fromChain,
+        currency: route.originCurrency,
+        amount: quote.bridgeInputAmount,
+      }),
+      output: normalizePancakeAmount({
+        chain: options.toChain,
+        currency: route.destinationCurrency,
+        amount: quote.bridgeOutputAmount,
+      }),
+      router: "PancakeSwap bridge",
+      sources: quote.bridgeToken
+        ? [`bridge token: ${quote.bridgeToken}`]
+        : [],
+    });
+  }
+  if (route.destinationTrade) {
+    routes.push(
+      ...getPancakeTradeRoutes(
+        route.destinationTrade,
+        options.toChain,
+        "destination swap",
+      ),
+    );
+    fees.push(
+      getPancakeTradeGasFee(
+        route.destinationTrade,
+        "destination-gas",
+        "destination route gas",
+      ),
+    );
+  }
+  if (route.trade) {
+    routes.push(
+      ...getPancakeTradeRoutes(route.trade, options.fromChain),
+    );
+    fees.push(
+      getPancakeTradeGasFee(route.trade, "route-gas", "route gas"),
+    );
+  }
+  if (!routes.length) {
+    routes.push({
+      side: "route",
+      chain:
+        options.fromChain == options.toChain
+          ? options.fromChain
+          : `${options.fromChain} → ${options.toChain}`,
+      input: currencyIn,
+      output: currencyOut,
+      router: String(quote.route || "PancakeSwap"),
+      sources: [],
+    });
+  }
+
+  return {
+    rate:
+      Number.isFinite(inputQty) &&
+      inputQty > 0 &&
+      Number.isFinite(outputQty)
+        ? String(outputQty / inputQty)
+        : "",
+    timeEstimate: Number(quote.expectedFillTimeSec) || 0,
+    amountIn: currencyIn.amountFormatted,
+    amountOut: currencyOut.amountFormatted,
+    minimumAmountOut: currencyOut.minimumAmountFormatted,
+    currencyIn,
+    currencyOut,
+    totalImpact: {},
+    swapImpact: {},
+    slippageTolerance: Number.isFinite(slippageBps)
+      ? {
+          route: {
+            usd: "",
+            value: String(slippageBps / 10_000),
+            percent: String(slippageBps / 100),
+          },
+        }
+      : {},
+    routes,
+    fees: fees.filter(Boolean),
+    priceImpacts: [],
+    steps: [
+      {
+        id: "route-type",
+        kind: "route",
+        action: "route type",
+        description: String(quote.route || "PancakeSwap"),
+      },
+    ],
+    quotedAt: Date.now(),
   };
 }
 
@@ -1071,6 +1354,16 @@ export async function getPancakeSwapPreview(options = {}) {
     approvalNeeded: approval.needed,
     amountIn: route.amountIn.quotient.toString(),
     quote: route.quote,
+  };
+}
+
+export async function getPancakeSwapEstimate(options = {}) {
+  const route = await getPancakeRoute(options);
+
+  return {
+    ok: true,
+    dex: "PancakeSwap",
+    details: getPancakeQuoteDetails(route, options),
   };
 }
 

@@ -7,8 +7,10 @@ export const homeWalletModeCookie = "w3_home_wallet_mode";
 export const homeWalletSortModeCookie = "w3_home_wallet_sort_mode";
 export const homeWalletOrderCookie = "w3_home_wallet_order";
 export const homeWalletFavsCookie = "w3_home_wallet_favs";
+export const homeSectionOrderCookie = "w3_home_section_order";
 
 export const homeNavigationCookieMaxAge = 60 * 60 * 24 * 365;
+export const defaultHomeSectionOrder = ["data", "wallet", "ref"];
 
 export function parseHomeCollapsedKeys(value) {
   if (Array.isArray(value)) {
@@ -27,6 +29,29 @@ export function parseHomeCollapsedKeys(value) {
 
 export function encodeHomeCollapsedKeys(values) {
   return JSON.stringify([...new Set(Array.from(values || []).filter(Boolean))]);
+}
+
+export function parseHomeSectionOrder(value = "") {
+  try {
+    const parsed = Array.isArray(value)
+      ? value
+      : JSON.parse(String(value || "[]"));
+    const valid = new Set(defaultHomeSectionOrder);
+    const selected = Array.isArray(parsed)
+      ? [...new Set(parsed.map(String).filter((section) => valid.has(section)))]
+      : [];
+
+    return [
+      ...selected,
+      ...defaultHomeSectionOrder.filter((section) => !selected.includes(section)),
+    ];
+  } catch {
+    return [...defaultHomeSectionOrder];
+  }
+}
+
+export function encodeHomeSectionOrder(values = []) {
+  return JSON.stringify(parseHomeSectionOrder(values));
 }
 
 export function parseHomeWalletMode(value = "") {

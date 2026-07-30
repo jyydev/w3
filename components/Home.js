@@ -2,21 +2,40 @@
 
 import { deleteCookie, setCookie } from "cookies-next";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
-import { parseWalletHistoryValue } from "@/app/w/walletHistory";
+import {
+  readStoredWallet,
+  walletConnectEvent,
+} from "@/app/w/browserWalletStorage";
+import {
+  getDefaultWalletName,
+  isAddressOnlyWalletName,
+} from "@/app/w/favAddrs";
+import {
+  getWalletHistoryCookie,
+  parseWalletHistoryValue,
+  writeWalletHistoryStorage,
+} from "@/app/w/walletHistory";
+import { encodeSelectionOrder } from "@/fn/selectionOrder";
 import FavoriteButton from "./FavoriteButton";
+import Logo from "./Logo";
+import { HistoryRemoveButton, InteractiveInfoCard } from "./Shared";
 import {
   encodeHomeCollapsedKeys,
+  encodeHomeSectionOrder,
   encodeHomeWalletFavKeys,
   encodeHomeWalletOrder,
+  defaultHomeSectionOrder,
   homeCollapsedCookieM,
   homeNavigationCookieMaxAge,
+  homeSectionOrderCookie,
   homeWalletFavsCookie,
   homeWalletModeCookie,
   homeWalletOrderCookie,
   homeWalletSortModeCookie,
   parseHomeCollapsedKeys,
+  parseHomeSectionOrder,
   parseHomeWalletFavKeys,
   parseHomeWalletMode,
   parseHomeWalletOrder,
@@ -173,6 +192,31 @@ function getSectionCollapseNode(section = "") {
   };
 }
 
+function SectionDragHandle({ section, onDragEnd, onDragStart }) {
+  return (
+    <span
+      className="homeNavSectionDragHandle"
+      draggable
+      title={`drag ${section} section`}
+      aria-label={`drag ${section} section`}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    ></span>
+  );
+}
+
+function getSectionClassName(baseClassName = "", sectionDrag = {}) {
+  return [
+    "homeNavSection",
+    baseClassName,
+    sectionDrag.dragging ? "sectionDragging" : "",
+    sectionDrag.dropPosition == "before" ? "sectionDropBefore" : "",
+    sectionDrag.dropPosition == "after" ? "sectionDropAfter" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function useBranchToggle(cookieName, initialCollapsedKeys = []) {
   const [collapsedKeys, setCollapsedKeys] = useState(
     () => new Set(parseHomeCollapsedKeys(initialCollapsedKeys)),
@@ -314,7 +358,7 @@ function useWalletFavorites(initialFavoriteKeys = []) {
   };
 }
 
-function WalletHistoryNode({ node }) {
+function WalletHistoryNode({ node, onRemoveHistory }) {
   return (
     <div
       className="homeNavHistory"
@@ -323,26 +367,46 @@ function WalletHistoryNode({ node }) {
       <span className="homeNavHistoryLabel">history:</span>
       <span className="homeNavHistoryLinks">
         {node.items?.length ? (
-          node.items.map((item) =>
-            item.href ? (
-              <Link
-                href={item.href}
-                className="homeNavHistoryLink"
-                title={item.title || item.label}
-                key={item.homeKey}
-              >
-                {item.label}
-              </Link>
-            ) : (
-              <span
-                className="homeNavHistoryLink disabled"
-                title={item.title || item.label}
-                key={item.homeKey}
-              >
-                {item.label}
+          node.items.map((item) => (
+            <InteractiveInfoCard
+              activation="hover"
+              className="homeNavHistoryItem"
+              key={item.homeKey}
+            >
+              {item.href ? (
+                <Link
+                  href={item.href}
+                  className="homeNavHistoryLink"
+                  title={item.title || item.label}
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <span
+                  className="homeNavHistoryLink disabled"
+                  title={item.title || item.label}
+                >
+                  {item.label}
+                </span>
+              )}
+              <span className="infoCard homeNavHistoryInfoCard">
+                <span className="homeNavHistoryInfoRow">
+                  <span>remove from history</span>
+                  <HistoryRemoveButton
+                    label={item.label}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onRemoveHistory?.(
+                        node.walletType,
+                        item.historyValue,
+                      );
+                    }}
+                  />
+                </span>
               </span>
-            ),
-          )
+            </InteractiveInfoCard>
+          ))
         ) : (
           <span className="homeNavHistoryEmpty">empty</span>
         )}
@@ -467,10 +531,18 @@ function NavigationNode({
   favoriteKeySet,
   getHref,
   onMoveFavorite,
+  onRemoveHistory,
   onToggleFavorite,
   onToggleNode,
 }) {
-  if (node.type == "history") return <WalletHistoryNode node={node} />;
+  if (node.type == "history") {
+    return (
+      <WalletHistoryNode
+        node={node}
+        onRemoveHistory={onRemoveHistory}
+      />
+    );
+  }
   if (node.type == "homeFavorites") {
     return (
       <HomeWalletFavoritesNode
@@ -553,6 +625,7 @@ function NavigationMatrix({
   favoriteKeySet,
   getHref,
   onMoveFavorite,
+  onRemoveHistory,
   onToggleNode,
   onToggleFavorite,
   sortable = false,
@@ -690,6 +763,7 @@ function NavigationMatrix({
                 favoriteKeySet={favoriteKeySet}
                 getHref={getHref}
                 onMoveFavorite={onMoveFavorite}
+                onRemoveHistory={onRemoveHistory}
                 onToggleFavorite={onToggleFavorite}
                 onToggleNode={onToggleNode}
               />
@@ -707,6 +781,7 @@ function RouteSection({
   href,
   tree = [],
   initialCollapsedKeys = [],
+  sectionDrag = {},
 }) {
   const { collapsedKeys, expandAll, toggleNode } = useBranchToggle(
     homeCollapsedCookieM[section],
@@ -726,9 +801,20 @@ function RouteSection({
 
   return (
     <section
-      className={`homeNavSection ${sectionCollapsed ? "collapsed" : ""}`}
+      className={getSectionClassName(
+        sectionCollapsed ? "collapsed" : "",
+        sectionDrag,
+      )}
+      onDragOver={sectionDrag.onDragOver}
+      onDragLeave={sectionDrag.onDragLeave}
+      onDrop={sectionDrag.onDrop}
     >
       <header className="homeNavHeader">
+        <SectionDragHandle
+          section={section}
+          onDragStart={sectionDrag.onDragStart}
+          onDragEnd={sectionDrag.onDragEnd}
+        />
         <div className="homeNavSectionTitle">
           <h2>
             <Link href={href}>{title}</Link>
@@ -781,33 +867,39 @@ function getFavoriteWalletChildren(
       const address = String(fav.address || "").trim();
       const label =
         String(fav.name || "").trim() ||
-        `fav_${address.slice(-6) || index + 1}`;
+        getDefaultWalletName(address) ||
+        `fav_${index + 1}`;
+      const addressOnly = isAddressOnlyWalletName(label);
 
       return {
         type: "wallet",
         label,
         walletType,
-        walletAddress: address,
+        walletAddress: addressOnly ? address : "",
+        walletName: addressOnly ? "" : label,
         href: getWalletNavUrl(routeBase, {
           walletType,
-          walletAddress: address,
+          walletAddress: addressOnly ? address : "",
+          walletName: addressOnly ? "" : label,
         }),
         homeKey: `${walletType}:fav:${address}`,
       };
     })
-    .filter((node) => node.walletAddress);
+    .filter((node) => node.walletAddress || node.walletName);
 }
 
 function getWalletHistoryItems(
   historyValues = [],
   walletType = "evm",
   routeBase = "/w",
+  connectedWalletM = {},
 ) {
   return historyValues
     .map((historyValue, index) => {
       const entry = parseWalletHistoryValue(historyValue);
       const base = {
         homeKey: `${walletType}:history:${historyValue}:${index}`,
+        historyValue,
       };
 
       if (entry.type == "favs") {
@@ -837,6 +929,21 @@ function getWalletHistoryItems(
           }),
         };
       }
+      if (
+        entry.type == "walletPathName" &&
+        entry.filePath &&
+        entry.walletName
+      ) {
+        return {
+          ...base,
+          label: `${entry.filePath}:${entry.walletName}`,
+          href: getWalletNavUrl(routeBase, {
+            walletType,
+            filePath: entry.filePath,
+            walletName: entry.walletName,
+          }),
+        };
+      }
       if (entry.type == "address" && entry.value) {
         return {
           ...base,
@@ -861,10 +968,21 @@ function getWalletHistoryItems(
         };
       }
       if (entry.type == "connected") {
+        const connectedWallet = connectedWalletM?.[walletType];
         return {
           ...base,
           label: "connected",
-          title: "Connected wallet address is not stored in this cookie.",
+          title: connectedWallet?.address
+            ? `connected: ${connectedWallet.label || "wallet"} ${
+                connectedWallet.address
+              }`
+            : "Connected wallet address is not available.",
+          href: connectedWallet?.address
+            ? getWalletNavUrl(routeBase, {
+                walletType,
+                walletAddress: connectedWallet.address,
+              })
+            : "",
         };
       }
       if (entry.type == "file" && entry.value) {
@@ -968,6 +1086,7 @@ function getWalletRootChildren(
   routeBase,
   favAddrs,
   walletHistoryM,
+  connectedWalletM,
   favoriteKeys,
   favoriteCatalog,
 ) {
@@ -984,6 +1103,7 @@ function getWalletRootChildren(
         walletHistoryM?.[walletType],
         walletType,
         routeBase,
+        connectedWalletM,
       ),
     },
     {
@@ -1013,8 +1133,13 @@ function WalletSection({
   initialSortMode = "default",
   initialOrderM = {},
   initialFavoriteKeys = [],
+  sectionDrag = {},
 }) {
   const [mode, setMode] = useState(() => parseHomeWalletMode(initialMode));
+  const [connectedWalletM, setConnectedWalletM] = useState({});
+  const [walletHistoryOrderM, setWalletHistoryOrderM] = useState(
+    () => walletHistoryM,
+  );
   const { collapsedKeys, expandAll, toggleNode } = useBranchToggle(
     homeCollapsedCookieM.wallet,
     initialCollapsedKeys,
@@ -1039,6 +1164,30 @@ function WalletSection({
     });
   }, [mode]);
 
+  useEffect(() => {
+    function loadConnectedWallets() {
+      setConnectedWalletM(
+        Object.fromEntries(
+          ["evm", "solana", "tron"]
+            .map((walletType) => [
+              walletType,
+              readStoredWallet(walletType),
+            ])
+            .filter(([, wallet]) => wallet?.address),
+        ),
+      );
+    }
+
+    loadConnectedWallets();
+    window.addEventListener(walletConnectEvent, loadConnectedWallets);
+    window.addEventListener("storage", loadConnectedWallets);
+
+    return () => {
+      window.removeEventListener(walletConnectEvent, loadConnectedWallets);
+      window.removeEventListener("storage", loadConnectedWallets);
+    };
+  }, []);
+
   const routeBase = mode == "trade" ? "/t" : "/w";
   const favoriteCatalog = useMemo(
     () => buildWalletFavoriteCatalog(walletTree, routeBase, favAddrs),
@@ -1055,7 +1204,8 @@ function WalletSection({
                 node,
                 routeBase,
                 favAddrs,
-                walletHistoryM,
+                walletHistoryOrderM,
+                connectedWalletM,
                 favoriteKeys,
                 favoriteCatalog,
               )
@@ -1069,16 +1219,39 @@ function WalletSection({
       ),
     [
       collapsedKeys,
+      connectedWalletM,
       customOrderM,
       favAddrs,
       favoriteCatalog,
       favoriteKeys,
       routeBase,
       sortMode,
-      walletHistoryM,
+      walletHistoryOrderM,
       walletTree,
     ],
   );
+
+  function removeWalletHistory(walletType, historyValue) {
+    if (!walletType || !historyValue) return;
+
+    setWalletHistoryOrderM((current) => {
+      const previous = current?.[walletType] || [];
+      const next = previous.filter((entry) => entry != historyValue);
+      if (next.length == previous.length) return current;
+
+      const encoded = encodeSelectionOrder(next);
+      setCookie(getWalletHistoryCookie(walletType), encoded, {
+        maxAge: homeNavigationCookieMaxAge,
+        path: "/",
+      });
+      writeWalletHistoryStorage(walletType, encoded);
+
+      return {
+        ...current,
+        [walletType]: next,
+      };
+    });
+  }
 
   function moveNode(dragNode, targetNode, placeAfter) {
     if (
@@ -1123,11 +1296,20 @@ function WalletSection({
 
   return (
     <section
-      className={`homeNavSection homeWalletSection ${
-        sectionCollapsed ? "collapsed" : ""
-      }`}
+      className={getSectionClassName(
+        `homeWalletSection ${sectionCollapsed ? "collapsed" : ""}`,
+        sectionDrag,
+      )}
+      onDragOver={sectionDrag.onDragOver}
+      onDragLeave={sectionDrag.onDragLeave}
+      onDrop={sectionDrag.onDrop}
     >
       <header className="homeNavHeader">
+        <SectionDragHandle
+          section="wallet/trade"
+          onDragStart={sectionDrag.onDragStart}
+          onDragEnd={sectionDrag.onDragEnd}
+        />
         <div className="homeNavSectionTitle">
           <div className="homeNavMode" aria-label="wallet or trade">
             <button
@@ -1211,6 +1393,7 @@ function WalletSection({
           favoriteKeySet={favoriteKeySet}
           getHref={(node) => node.href || getWalletNavUrl(routeBase, node)}
           onMoveFavorite={moveFavorite}
+          onRemoveHistory={removeWalletHistory}
           onToggleNode={toggleNode}
           onToggleFavorite={toggleFavorite}
           sortable={sortMode == "custom"}
@@ -1226,6 +1409,7 @@ export default function Home({
   dataTree = [],
   refTree = [],
   initialCollapsedM = {},
+  initialSectionOrder = defaultHomeSectionOrder,
   favAddrs = [],
   walletHistoryM = {},
   initialWalletMode = "trade",
@@ -1234,6 +1418,12 @@ export default function Home({
   initialWalletFavKeys = [],
 }) {
   const [localTree, setLocalTree] = useState([]);
+  const [sectionOrder, setSectionOrder] = useState(() =>
+    parseHomeSectionOrder(initialSectionOrder),
+  );
+  const [dragSection, setDragSection] = useState("");
+  const dragSectionRef = useRef("");
+  const [sectionDrop, setSectionDrop] = useState(null);
   const mergedWalletTree = useMemo(
     () => mergeTrees(walletTree, localTree),
     [walletTree, localTree],
@@ -1254,32 +1444,182 @@ export default function Home({
     };
   }, []);
 
-  return (
-    <nav className="homeNav" aria-label="Site navigation">
+  useEffect(() => {
+    if (
+      sectionOrder.every(
+        (section, index) => section == defaultHomeSectionOrder[index],
+      )
+    ) {
+      deleteCookie(homeSectionOrderCookie);
+      return;
+    }
+
+    setCookie(homeSectionOrderCookie, encodeHomeSectionOrder(sectionOrder), {
+      maxAge: homeNavigationCookieMaxAge,
+      path: "/",
+    });
+  }, [sectionOrder]);
+
+  function moveSection(source, target, placeAfter) {
+    if (!source || !target || source == target) return;
+
+    setSectionOrder((current) => {
+      if (!current.includes(source) || !current.includes(target)) {
+        return current;
+      }
+
+      const withoutSource = current.filter((section) => section != source);
+      const targetIndex = withoutSource.indexOf(target);
+      if (targetIndex < 0) return current;
+
+      const insertIndex = targetIndex + (placeAfter ? 1 : 0);
+      return [
+        ...withoutSource.slice(0, insertIndex),
+        source,
+        ...withoutSource.slice(insertIndex),
+      ];
+    });
+  }
+
+  function resetSectionOrder() {
+    setSectionOrder([...defaultHomeSectionOrder]);
+  }
+
+  function isSectionDropAfter(event) {
+    const header = event.currentTarget.querySelector(
+      ":scope > .homeNavHeader",
+    );
+    const rect = (header || event.currentTarget).getBoundingClientRect();
+    return event.clientY > rect.top + rect.height / 2;
+  }
+
+  function getSectionDrag(section) {
+    const dropPosition =
+      sectionDrop?.section == section
+        ? sectionDrop.placeAfter
+          ? "after"
+          : "before"
+        : "";
+
+    return {
+      dragging: dragSection == section,
+      dropPosition,
+      onDragStart(event) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", section);
+        dragSectionRef.current = section;
+        setDragSection(section);
+      },
+      onDragOver(event) {
+        const source = dragSectionRef.current;
+        if (!source || source == section) return;
+
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        const placeAfter = isSectionDropAfter(event);
+        setSectionDrop((current) =>
+          current?.section == section &&
+          current?.placeAfter == placeAfter
+            ? current
+            : { section, placeAfter },
+        );
+      },
+      onDragLeave(event) {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setSectionDrop((current) =>
+            current?.section == section ? null : current,
+          );
+        }
+      },
+      onDrop(event) {
+        event.preventDefault();
+        const source =
+          event.dataTransfer.getData("text/plain") || dragSectionRef.current;
+        moveSection(source, section, isSectionDropAfter(event));
+        dragSectionRef.current = "";
+        setDragSection("");
+        setSectionDrop(null);
+      },
+      onDragEnd() {
+        dragSectionRef.current = "";
+        setDragSection("");
+        setSectionDrop(null);
+      },
+    };
+  }
+
+  function renderSection(section) {
+    const sectionDrag = getSectionDrag(section);
+
+    if (section == "data") {
+      return (
+        <RouteSection
+          key={section}
+          section="data"
+          title="data"
+          href="/d"
+          tree={dataTree}
+          initialCollapsedKeys={initialCollapsedM.data}
+          sectionDrag={sectionDrag}
+        />
+      );
+    }
+
+    if (section == "wallet") {
+      return (
+        <WalletSection
+          key={section}
+          walletTree={mergedWalletTree}
+          favAddrs={favAddrs}
+          walletHistoryM={walletHistoryM}
+          initialCollapsedKeys={initialCollapsedM.wallet}
+          initialMode={initialWalletMode}
+          initialSortMode={initialWalletSortMode}
+          initialOrderM={initialWalletOrderM}
+          initialFavoriteKeys={initialWalletFavKeys}
+          sectionDrag={sectionDrag}
+        />
+      );
+    }
+
+    return (
       <RouteSection
-        section="data"
-        title="data"
-        href="/d"
-        tree={dataTree}
-        initialCollapsedKeys={initialCollapsedM.data}
-      />
-      <WalletSection
-        walletTree={mergedWalletTree}
-        favAddrs={favAddrs}
-        walletHistoryM={walletHistoryM}
-        initialCollapsedKeys={initialCollapsedM.wallet}
-        initialMode={initialWalletMode}
-        initialSortMode={initialWalletSortMode}
-        initialOrderM={initialWalletOrderM}
-        initialFavoriteKeys={initialWalletFavKeys}
-      />
-      <RouteSection
+        key={section}
         section="ref"
         title="ref"
         href="/ref"
         tree={refTree}
         initialCollapsedKeys={initialCollapsedM.ref}
+        sectionDrag={sectionDrag}
       />
-    </nav>
+    );
+  }
+
+  return (
+    <>
+      <Logo
+        page={
+          <InteractiveInfoCard
+            activation="hover"
+            className="homeSectionOrderInfo"
+            tabIndex={0}
+          >
+            <span>home</span>
+            <span className="infoCard homeSectionOrderCard">
+              <button
+                type="button"
+                className="homeNavResetSort"
+                onClick={resetSectionOrder}
+              >
+                reset sections to default
+              </button>
+            </span>
+          </InteractiveInfoCard>
+        }
+      />
+      <nav className="homeNav" aria-label="Site navigation">
+        {sectionOrder.map(renderSection)}
+      </nav>
+    </>
   );
 }

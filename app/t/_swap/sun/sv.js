@@ -114,6 +114,7 @@ async function sunFetch(
   try {
     const res = await fetch(url, {
       headers,
+      cache: "no-store",
       ...(timeout.signal ? { signal: timeout.signal } : {}),
     });
     const text = await res.text();
@@ -494,6 +495,183 @@ function getSunQuoteDetails(routeE = {}) {
   };
 }
 
+function formatSunAmount(amount = "", decimals) {
+  if (amount === "" || amount === null || !Number.isInteger(decimals)) {
+    return "";
+  }
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeSunAmount({
+  coin = "",
+  coinE = {},
+  amount = "",
+  amountUsd = "",
+  minimumAmount = "",
+} = {}) {
+  const decimals = Number(coinE.decimals);
+
+  return {
+    chain: "Tron",
+    coin: String(coin || coinE.coin || coinE.symbol || ""),
+    name: String(coinE.name || coin || coinE.symbol || ""),
+    decimals: Number.isInteger(decimals) ? decimals : "",
+    amount: String(amount ?? ""),
+    amountFormatted: formatSunAmount(amount, decimals),
+    amountUsd: String(amountUsd ?? ""),
+    minimumAmount: String(minimumAmount ?? ""),
+    minimumAmountFormatted: formatSunAmount(minimumAmount, decimals),
+  };
+}
+
+function getSunPoolFeePercent(value = "") {
+  const fee = Number(value);
+  return Number.isFinite(fee) && fee > 0 ? fee / 10_000 : 0;
+}
+
+function getSunEstimateDetails(routeE = {}, options = {}) {
+  const route = routeE.route || {};
+  const currencyIn = normalizeSunAmount({
+    coin: options.fromCoin,
+    coinE: routeE.fromToken?.coinE,
+    amount: routeE.amountIn,
+    amountUsd: route.inUsd,
+  });
+  const currencyOut = normalizeSunAmount({
+    coin: options.toCoin,
+    coinE: routeE.toToken?.coinE,
+    amount: routeE.amountOut,
+    amountUsd: route.outUsd,
+    minimumAmount: routeE.amountOutMinimum,
+  });
+  const inputQty = Number(currencyIn.amountFormatted);
+  const outputQty = Number(currencyOut.amountFormatted);
+  const feeQty = Number(route.fee);
+  const inputUsd = Number(currencyIn.amountUsd);
+  const impact = Number(route.impact);
+  const symbols = Array.isArray(route.symbols)
+    ? route.symbols.map((value) => String(value || "")).filter(Boolean)
+    : [];
+  const poolVersions = Array.isArray(route.poolVersions)
+    ? route.poolVersions.map((value) => String(value || "")).filter(Boolean)
+    : [];
+  const poolFees = Array.isArray(route.poolFees) ? route.poolFees : [];
+  const poolFeeLabels = poolVersions
+    .map((version, index) => {
+      const percent = getSunPoolFeePercent(poolFees[index]);
+      return percent ? `${version} ${percent}%` : version;
+    })
+    .filter(Boolean);
+  const feePercent =
+    Number.isFinite(feeQty) &&
+    feeQty > 0 &&
+    Number.isFinite(inputQty) &&
+    inputQty > 0
+      ? (feeQty / inputQty) * 100
+      : 0;
+  const feeUsd =
+    Number.isFinite(feeQty) &&
+    feeQty > 0 &&
+    Number.isFinite(inputUsd) &&
+    inputUsd > 0 &&
+    Number.isFinite(inputQty) &&
+    inputQty > 0
+      ? (feeQty * inputUsd) / inputQty
+      : 0;
+
+  return {
+    rate:
+      Number.isFinite(inputQty) &&
+      inputQty > 0 &&
+      Number.isFinite(outputQty)
+        ? String(outputQty / inputQty)
+        : "",
+    timeEstimate: 0,
+    amountIn: currencyIn.amountFormatted,
+    amountOut: currencyOut.amountFormatted,
+    minimumAmountOut: currencyOut.minimumAmountFormatted,
+    currencyIn,
+    currencyOut,
+    totalImpact: {},
+    swapImpact: Number.isFinite(impact)
+      ? {
+          usd: "",
+          percent: String(-Math.abs(impact)),
+        }
+      : {},
+    slippageTolerance: {
+      route: {
+        usd: "",
+        value: String(Number(sunSlippageBips) / 10_000),
+        percent: String(Number(sunSlippageBips) / 100),
+      },
+    },
+    routes: [
+      {
+        side: "route",
+        chain: "Tron",
+        input: currencyIn,
+        output: currencyOut,
+        router: "SUN Smart Router",
+        sources: [
+          ...(symbols.length > 1 ? [symbols.join(" → ")] : []),
+          ...(poolVersions.length
+            ? [`pools: ${poolVersions.join(" → ")}`]
+            : []),
+          ...(poolFeeLabels.length
+            ? [`fee tiers: ${poolFeeLabels.join(" → ")}`]
+            : []),
+        ],
+      },
+    ],
+    fees:
+      Number.isFinite(feeQty) && feeQty > 0
+        ? [
+            {
+              key: "liquidity-fee",
+              label: "liquidity fee",
+              amount: String(route.fee),
+              amountFormatted: String(route.fee),
+              amountUsd: feeUsd > 0 ? String(feeUsd) : "",
+              coin: currencyIn.coin,
+              percent: feePercent > 0 ? String(feePercent) : "",
+              description: "combined fee across the selected SUN pool route",
+            },
+          ]
+        : [],
+    priceImpacts: [],
+    steps: poolVersions.length
+      ? poolVersions.map((version, index) => {
+          const fromSymbol = symbols[index] || `token ${index + 1}`;
+          const toSymbol = symbols[index + 1] || `token ${index + 2}`;
+          const feeTier = getSunPoolFeePercent(poolFees[index]);
+
+          return {
+            id: `pool-${index + 1}`,
+            kind: "route",
+            action: `pool ${index + 1}`,
+            description: `${fromSymbol} → ${toSymbol} via ${version}${
+              feeTier ? ` (${feeTier}% fee tier)` : ""
+            }`,
+          };
+        })
+      : [
+          {
+            id: "route-type",
+            kind: "route",
+            action: "route type",
+            description: "SUN Smart Router",
+          },
+        ],
+    quotedAt: Date.now(),
+  };
+}
+
 export async function getSunTokenDiscovery({
   chain = "",
   term = "",
@@ -586,6 +764,16 @@ export async function getSunTokenDiscovery({
       location: "client",
       ttlMs: discoveryCacheMs,
     }),
+  };
+}
+
+export async function getSunSwapEstimate(options = {}) {
+  const routeE = await getSunRoute(options);
+
+  return {
+    ok: true,
+    dex: "SUN",
+    details: getSunEstimateDetails(routeE, options),
   };
 }
 

@@ -116,6 +116,7 @@ async function acrossFetch(endpoint, params = {}, options = {}) {
       headers: getAcrossHeaders({
         required: options.requireApiKey !== false,
       }),
+      ...(options.cache ? { cache: options.cache } : {}),
       ...(timeout.signal ? { signal: timeout.signal } : {}),
     });
     const text = await res.text();
@@ -394,6 +395,7 @@ async function getAcrossQuote({
   toCoin = "",
   amount = "",
   recipient = "",
+  timeoutMs = 0,
 } = {}) {
   if (fromChain == toChain) {
     throw new Error("Across is for cross-chain swaps; choose a different buy chain");
@@ -413,19 +415,251 @@ async function getAcrossQuote({
 
   return {
     amountIn,
-    quote: await acrossFetch("/swap/approval", {
-      tradeType: "exactInput",
-      amount: amountIn.toString(),
-      inputToken: getAcrossToken(fromChain, fromCoin),
-      outputToken: getAcrossToken(toChain, toCoin),
-      originChainId: getAcrossChainId(fromChain),
-      destinationChainId: getAcrossChainId(toChain),
-      depositor,
-      recipient: recipientAddress,
-      refundAddress: depositor,
-      integratorId: getAcrossIntegratorId(),
-      slippage: "auto",
-    }),
+    quote: await acrossFetch(
+      "/swap/approval",
+      {
+        tradeType: "exactInput",
+        amount: amountIn.toString(),
+        inputToken: getAcrossToken(fromChain, fromCoin),
+        outputToken: getAcrossToken(toChain, toCoin),
+        originChainId: getAcrossChainId(fromChain),
+        destinationChainId: getAcrossChainId(toChain),
+        depositor,
+        recipient: recipientAddress,
+        refundAddress: depositor,
+        integratorId: getAcrossIntegratorId(),
+        slippage: "auto",
+      },
+      {
+        cache: "no-store",
+        timeoutMs,
+        timeoutMessage: "Across quote timeout",
+      },
+    ),
+  };
+}
+
+function formatAcrossAmount(amount = "", decimals) {
+  if (amount === "" || amount === null || !Number.isInteger(decimals)) {
+    return "";
+  }
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function formatAcrossPercent(pct = "") {
+  if (pct === "" || pct === null || pct === undefined) return "";
+
+  try {
+    return ethers.formatUnits(pct, 16);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeAcrossAmount({
+  token = {},
+  amount = "",
+  amountUsd = "",
+  minimumAmount = "",
+} = {}) {
+  const chainId = Number(token.chainId);
+  const decimals = Number(token.decimals);
+
+  return {
+    chain: acrossChainById[chainId] || String(token.chainId || ""),
+    chainId: Number.isFinite(chainId) ? chainId : "",
+    coin: String(token.symbol || ""),
+    name: String(token.name || ""),
+    decimals: Number.isInteger(decimals) ? decimals : "",
+    amount: String(amount ?? ""),
+    amountFormatted: formatAcrossAmount(amount, decimals),
+    amountUsd: String(amountUsd ?? ""),
+    minimumAmount: String(minimumAmount ?? ""),
+    minimumAmountFormatted: formatAcrossAmount(minimumAmount, decimals),
+  };
+}
+
+function normalizeAcrossFee(key = "", label = "", entry = {}) {
+  if (!entry || typeof entry != "object") return null;
+  const amountE = normalizeAcrossAmount({
+    token: entry.token,
+    amount: entry.amount,
+    amountUsd: entry.amountUsd,
+  });
+  const percent = formatAcrossPercent(entry.pct);
+  const hasValue =
+    Number(amountE.amount || 0) != 0 ||
+    Number(amountE.amountUsd || 0) != 0 ||
+    Number(percent || 0) != 0;
+  if (!hasValue) return null;
+
+  return {
+    key,
+    label,
+    percent,
+    ...amountE,
+  };
+}
+
+function getAcrossFees(quote = {}) {
+  const fees = quote.fees || {};
+  const totalDetails = fees.total?.details || {};
+  const bridgeDetails = totalDetails.bridge?.details || {};
+
+  return [
+    normalizeAcrossFee("total", "total fee", fees.total),
+    normalizeAcrossFee("maximum", "maximum fee", fees.totalMax),
+    normalizeAcrossFee(
+      "swap-impact",
+      "swap impact",
+      totalDetails.swapImpact,
+    ),
+    normalizeAcrossFee("app", "app fee", totalDetails.app),
+    normalizeAcrossFee("bridge", "bridge fee", totalDetails.bridge),
+    normalizeAcrossFee("lp", "LP fee", bridgeDetails.lp),
+    normalizeAcrossFee(
+      "relayer-capital",
+      "relayer capital",
+      bridgeDetails.relayerCapital,
+    ),
+    normalizeAcrossFee(
+      "destination-gas",
+      "destination gas",
+      bridgeDetails.destinationGas,
+    ),
+    normalizeAcrossFee("origin-gas", "origin gas", fees.originGas),
+  ].filter(Boolean);
+}
+
+const acrossStepLabelM = {
+  originSwap: "origin swap",
+  bridge: "bridge",
+  destinationSwap: "destination swap",
+};
+
+function normalizeAcrossRoute(key = "", step = {}) {
+  if (!step || typeof step != "object") return null;
+  const input = normalizeAcrossAmount({
+    token: step.tokenIn,
+    amount: step.inputAmount,
+  });
+  const output = normalizeAcrossAmount({
+    token: step.tokenOut,
+    amount: step.outputAmount,
+    minimumAmount: step.minOutputAmount,
+  });
+  const provider = step.swapProvider || {};
+  const router = String(provider.name || step.provider || "");
+  const sources = Array.isArray(provider.sources)
+    ? provider.sources.filter(Boolean).map(String)
+    : [];
+  if (!input.coin && !output.coin && !router && !sources.length) return null;
+
+  return {
+    side: acrossStepLabelM[key] || key,
+    chain:
+      input.chain && output.chain && input.chain != output.chain
+        ? `${input.chain} → ${output.chain}`
+        : input.chain || output.chain,
+    input,
+    output,
+    router,
+    sources,
+  };
+}
+
+function getAcrossQuoteDetails({ amountIn = 0n, quote = {} } = {}) {
+  const currencyIn = normalizeAcrossAmount({
+    token: quote.inputToken,
+    amount: quote.inputAmount || amountIn.toString(),
+  });
+  const currencyOut = normalizeAcrossAmount({
+    token: quote.outputToken,
+    amount: quote.expectedOutputAmount,
+    minimumAmount: quote.minOutputAmount,
+  });
+  const inputQty = Number(currencyIn.amountFormatted);
+  const outputQty = Number(currencyOut.amountFormatted);
+  const rate =
+    Number.isFinite(inputQty) &&
+    inputQty > 0 &&
+    Number.isFinite(outputQty)
+      ? String(outputQty / inputQty)
+      : "";
+  const totalFee = quote.fees?.total || {};
+  const swapImpact = totalFee.details?.swapImpact || {};
+  const totalFeePercent = formatAcrossPercent(totalFee.pct);
+  const totalFeeUsd = Number(totalFee.amountUsd);
+  const slippageTolerance = Object.fromEntries(
+    Object.entries(quote.steps || {})
+      .filter(
+        ([, step]) =>
+          step?.slippage !== null &&
+          step?.slippage !== undefined &&
+          Number.isFinite(Number(step.slippage)),
+      )
+      .map(([key, step]) => [
+        acrossStepLabelM[key] || key,
+        {
+          usd: "",
+          value: String(step.slippage),
+          percent: String(Number(step.slippage) * 100),
+        },
+      ]),
+  );
+
+  return {
+    rate,
+    timeEstimate: Number(quote.expectedFillTime) || 0,
+    amountIn: currencyIn.amountFormatted,
+    amountOut: currencyOut.amountFormatted,
+    minimumAmountOut: currencyOut.minimumAmountFormatted,
+    currencyIn,
+    currencyOut,
+    totalImpact: {
+      usd: Number.isFinite(totalFeeUsd) ? String(-Math.abs(totalFeeUsd)) : "",
+      percent: totalFeePercent ? String(-Math.abs(Number(totalFeePercent))) : "",
+    },
+    swapImpact: {
+      usd: String(swapImpact.amountUsd || ""),
+      percent: formatAcrossPercent(swapImpact.pct),
+    },
+    slippageTolerance,
+    routes: Object.entries(quote.steps || {})
+      .map(([key, step]) => normalizeAcrossRoute(key, step))
+      .filter(Boolean),
+    fees: getAcrossFees(quote),
+    priceImpacts: [],
+    steps: quote.crossSwapType
+      ? [
+          {
+            id: "route-type",
+            kind: "route",
+            action: "route type",
+            description: String(quote.crossSwapType),
+          },
+        ]
+      : [],
+    quotedAt: Date.now(),
+    expiresAt: Number(quote.quoteExpiryTimestamp) * 1000 || 0,
+  };
+}
+
+export async function getAcrossSwapEstimate(options = {}) {
+  const { amountIn, quote } = await getAcrossQuote({
+    ...options,
+    timeoutMs: 20_000,
+  });
+
+  return {
+    ok: true,
+    dex: "Across",
+    details: getAcrossQuoteDetails({ amountIn, quote }),
   };
 }
 

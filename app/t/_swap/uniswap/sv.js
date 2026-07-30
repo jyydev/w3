@@ -17,7 +17,8 @@ import {
   getWallet,
 } from "../../sharedServer";
 
-const defaultSlippageBps = 50n;const uniswapFeeTiers = [100, 500, 3000, 10000];
+const defaultSlippageBps = 50n;
+const uniswapFeeTiers = [100, 500, 3000, 10000];
 const uniswapV3M = {
   Ethereum: {
     quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
@@ -67,15 +68,21 @@ const uniswapRouterAbi = [
 ];
 const uniswapRouterInterface = new ethers.Interface(uniswapRouterAbi);
 
-function getUniswapToken(chain = "", coin = "") {
-  const coinE = getTradeCoinEntry(chain, coin);
+function getUniswapToken(chain = "", coin = "", dynamicCoinE = null) {
+  const coinE = getTradeCoinEntry(chain, coin, dynamicCoinE);
+  const decimals = Number.isInteger(coinE.decimals)
+    ? coinE.decimals
+    : getCoinDecimals(chain, coin, coinE);
   if (coinE.native) {
     const wrapped = uniswapWrappedNativeM[chain];
     if (!wrapped) throw new Error(`wrapped native missing: ${chain} ${coin}`);
 
     return {
       address: ethers.getAddress(wrapped),
+      decimals,
+      name: String(coinE.name || coin),
       native: true,
+      symbol: String(coinE.symbol || coin),
     };
   }
   if (!coinE.address || !ethers.isAddress(coinE.address)) {
@@ -84,11 +91,20 @@ function getUniswapToken(chain = "", coin = "") {
 
   return {
     address: ethers.getAddress(coinE.address),
+    decimals,
+    name: String(coinE.name || coin),
     native: false,
+    symbol: String(coinE.symbol || coin),
   };
 }
 
-async function getBestUniswapQuote({ chain, provider, tokenIn, tokenOut, amountIn }) {
+async function getBestUniswapQuote({
+  chain,
+  provider,
+  tokenIn,
+  tokenOut,
+  amountIn,
+}) {
   const uniswapE = uniswapV3M[chain];
   const quoter = new ethers.Contract(
     uniswapE.quoter,
@@ -108,7 +124,11 @@ async function getBestUniswapQuote({ chain, provider, tokenIn, tokenOut, amountI
       });
       const amountOut = BigInt(quote.amountOut ?? quote[0] ?? 0);
       if (amountOut > 0n && (!best || amountOut > best.amountOut)) {
-        best = { fee, amountOut };
+        best = {
+          fee,
+          amountOut,
+          gasEstimate: BigInt(quote.gasEstimate ?? quote[3] ?? 0),
+        };
       }
     } catch {
       // Try the next fee tier.
@@ -120,14 +140,227 @@ async function getBestUniswapQuote({ chain, provider, tokenIn, tokenOut, amountI
   return best;
 }
 
-function getUniswapAmountIn({ chain, fromCoin, amount }) {
+function getUniswapAmountIn({
+  chain,
+  fromCoin,
+  fromCoinE = null,
+  amount,
+}) {
   const amountIn = ethers.parseUnits(
     String(amount || "0"),
-    getCoinDecimals(chain, fromCoin),
+    Number.isInteger(fromCoinE?.decimals)
+      ? fromCoinE.decimals
+      : getCoinDecimals(chain, fromCoin, fromCoinE),
   );
   if (amountIn <= 0n) throw new Error("swap amount must be greater than 0");
 
   return amountIn;
+}
+
+function formatUniswapAmount(amount = "", decimals) {
+  if (amount === "" || amount === null || !Number.isInteger(decimals)) {
+    return "";
+  }
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeUniswapAmount({
+  chain = "",
+  coin = "",
+  token = {},
+  amount = "",
+  minimumAmount = "",
+} = {}) {
+  return {
+    chain,
+    coin: String(coin || token.symbol || ""),
+    name: String(token.name || coin || ""),
+    decimals: token.decimals,
+    amount: String(amount ?? ""),
+    amountFormatted: formatUniswapAmount(amount, token.decimals),
+    amountUsd: "",
+    minimumAmount: String(minimumAmount ?? ""),
+    minimumAmountFormatted: formatUniswapAmount(
+      minimumAmount,
+      token.decimals,
+    ),
+  };
+}
+
+function getUniswapQuoteDetails({
+  chain = "",
+  fromCoin = "",
+  toCoin = "",
+  tokenInE = {},
+  tokenOutE = {},
+  amountIn = 0n,
+  quote = {},
+} = {}) {
+  const amountOutMinimum =
+    (quote.amountOut * (10_000n - defaultSlippageBps)) / 10_000n;
+  const currencyIn = normalizeUniswapAmount({
+    chain,
+    coin: fromCoin,
+    token: tokenInE,
+    amount: amountIn,
+  });
+  const currencyOut = normalizeUniswapAmount({
+    chain,
+    coin: toCoin,
+    token: tokenOutE,
+    amount: quote.amountOut,
+    minimumAmount: amountOutMinimum,
+  });
+  const inputQty = Number(currencyIn.amountFormatted);
+  const outputQty = Number(currencyOut.amountFormatted);
+  const feePercent = Number(quote.fee) / 10_000;
+  const feeAmount =
+    (BigInt(amountIn) * BigInt(quote.fee || 0)) / 1_000_000n;
+
+  return {
+    rate:
+      Number.isFinite(inputQty) &&
+      inputQty > 0 &&
+      Number.isFinite(outputQty)
+        ? String(outputQty / inputQty)
+        : "",
+    timeEstimate: 0,
+    amountIn: currencyIn.amountFormatted,
+    amountOut: currencyOut.amountFormatted,
+    minimumAmountOut: currencyOut.minimumAmountFormatted,
+    currencyIn,
+    currencyOut,
+    totalImpact: {},
+    swapImpact: {},
+    slippageTolerance: {
+      route: {
+        usd: "",
+        value: String(Number(defaultSlippageBps) / 10_000),
+        percent: String(Number(defaultSlippageBps) / 100),
+      },
+    },
+    routes: [
+      {
+        side: "pool route",
+        chain,
+        input: currencyIn,
+        output: currencyOut,
+        router: "Uniswap V3",
+        sources: [`${feePercent}% fee tier`],
+      },
+    ],
+    fees:
+      feeAmount > 0n
+        ? [
+            {
+              key: "pool-fee",
+              label: "pool fee",
+              amount: feeAmount.toString(),
+              amountFormatted: formatUniswapAmount(
+                feeAmount,
+                tokenInE.decimals,
+              ),
+              amountUsd: "",
+              coin: currencyIn.coin,
+              percent: String(feePercent),
+              description: "Uniswap V3 liquidity-provider fee tier",
+            },
+          ]
+        : [],
+    priceImpacts: [],
+    steps: [
+      {
+        id: "route-type",
+        kind: "route",
+        action: "route type",
+        description: "direct Uniswap V3 pool",
+      },
+      ...(quote.gasEstimate > 0n
+        ? [
+            {
+              id: "quote-gas",
+              kind: "gas",
+              action: "quote gas estimate",
+              description: `${quote.gasEstimate.toString()} gas units`,
+            },
+          ]
+        : []),
+    ],
+    quotedAt: Date.now(),
+  };
+}
+
+export async function getUniswapSwapEstimate({
+  walletAddress = "",
+  chain = "",
+  fromChain = "",
+  toChain = "",
+  fromCoin = "",
+  toCoin = "",
+  fromCoinE = null,
+  toCoinE = null,
+  amount = "",
+} = {}) {
+  const finalChain = chain || fromChain;
+  if (toChain && finalChain != toChain) {
+    throw new Error("Uniswap estimate requires the same sell and buy chain");
+  }
+  if (!uniswapV3M[finalChain]) {
+    throw new Error(`Uniswap not configured: ${finalChain}`);
+  }
+  if (!ethers.isAddress(walletAddress)) {
+    throw new Error("EVM wallet address required");
+  }
+
+  const rpc = getChainRpc(finalChain);
+  if (!rpc) throw new Error(`rpc not configured: ${finalChain}`);
+
+  const tokenInE = getUniswapToken(finalChain, fromCoin, fromCoinE);
+  const tokenOutE = getUniswapToken(finalChain, toCoin, toCoinE);
+  if (tokenInE.address == tokenOutE.address) {
+    throw new Error("sell coin and buy coin are the same");
+  }
+  const amountIn = getUniswapAmountIn({
+    chain: finalChain,
+    fromCoin,
+    fromCoinE: tokenInE,
+    amount,
+  });
+  const provider = createJsonRpcProvider(rpc, {
+    chain: finalChain,
+    scope: "Uniswap estimate",
+  });
+
+  try {
+    const quote = await getBestUniswapQuote({
+      chain: finalChain,
+      provider,
+      tokenIn: tokenInE.address,
+      tokenOut: tokenOutE.address,
+      amountIn,
+    });
+
+    return {
+      ok: true,
+      dex: "Uniswap",
+      details: getUniswapQuoteDetails({
+        chain: finalChain,
+        fromCoin,
+        toCoin,
+        tokenInE,
+        tokenOutE,
+        amountIn,
+        quote,
+      }),
+    };
+  } finally {
+    provider.destroy?.();
+  }
 }
 
 export async function getUniswapSwapPreview({

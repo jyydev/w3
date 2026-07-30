@@ -11,6 +11,7 @@ import {
   TableSortHeader,
 } from "@/components/Shared";
 import {
+  homeSectionOrderCookie,
   homeWalletOrderCookie,
   homeWalletSortModeCookie,
 } from "@/components/homeNavigationState";
@@ -568,6 +569,7 @@ function WalletSettings({
     const prefixes = [...new Set([ckPrefix || "", "w3_"].filter(Boolean))];
     const walletSortCookies = ["assetSort", "rowSort", "chainSort"];
     const homeSortCookies = [
+      homeSectionOrderCookie,
       homeWalletOrderCookie,
       homeWalletSortModeCookie,
     ];

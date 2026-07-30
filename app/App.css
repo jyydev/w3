@@ -1486,6 +1486,50 @@ img.assetIcon {
 .tradeMiddleRange {
   width: 120px;
 }
+.swapEstimateInfo {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+.swapEstimateButton {
+  min-width: 30px;
+}
+.swapEstimateValue {
+  color: var(--orange);
+  white-space: nowrap;
+}
+.swapEstimateCard {
+  top: auto;
+  bottom: 100%;
+  min-width: 300px;
+  max-width: min(460px, 90vw);
+  max-height: min(520px, 70vh);
+  gap: 4px !important;
+  overflow-y: auto;
+  white-space: normal;
+}
+.swapEstimateCard::before {
+  top: auto;
+  bottom: -8px;
+}
+.swapEstimateSummary,
+.swapEstimateSectionTitle {
+  color: white;
+}
+.swapEstimateSection,
+.swapEstimateRoute,
+.swapEstimateFee {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.swapEstimateSection {
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px solid #333;
+}
 .tradeGasSelect {
   display: inline-flex;
   gap: 4px;

@@ -8,7 +8,33 @@
 }
 
 .homeNavSection {
+  position: relative;
   padding: 8px 0 11px;
+}
+
+.homeNavSection.sectionDragging {
+  opacity: 0.45;
+}
+
+.homeNavSection.sectionDropBefore::before,
+.homeNavSection.sectionDropAfter::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--orange);
+  box-shadow: 0 0 8px rgba(255, 145, 0, 0.65);
+  pointer-events: none;
+}
+
+.homeNavSection.sectionDropBefore::before {
+  top: 0;
+}
+
+.homeNavSection.sectionDropAfter::after {
+  bottom: 0;
 }
 
 .homeNavSection:first-child {
@@ -21,6 +47,41 @@
   gap: 8px;
   min-height: 29px;
   margin-bottom: 4px;
+}
+
+.homeNavSectionDragHandle {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 8px;
+  width: 8px;
+  height: 12px;
+  color: #666;
+  cursor: grab;
+}
+
+.homeNavSectionDragHandle:active {
+  cursor: grabbing;
+}
+
+.homeNavSectionDragHandle::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow:
+    0 4px currentColor,
+    0 8px currentColor,
+    4px 0 currentColor,
+    4px 4px currentColor,
+    4px 8px currentColor;
+}
+
+.homeNavSectionDragHandle:hover {
+  color: var(--orange);
 }
 
 .homeNavSectionTitle {
@@ -57,6 +118,11 @@
 .homeNavExpandAll:hover,
 .homeNavResetSort:hover {
   color: var(--orange);
+}
+
+.homeSectionOrderCard {
+  min-width: max-content;
+  padding: 5px 7px;
 }
 
 .homeNavMatrix {
@@ -159,7 +225,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .homeNavHistoryLink {
@@ -173,6 +239,20 @@
 
 .homeNavHistoryLink.disabled {
   color: #666;
+}
+
+.homeNavHistoryItem {
+  flex: 0 0 auto;
+}
+
+.homeNavHistoryInfoCard {
+  min-width: 0;
+}
+
+.homeNavHistoryInfoRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .homeNavFavorites {

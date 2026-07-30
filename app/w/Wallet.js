@@ -62,7 +62,9 @@ import {
 import {
   encodeFavAddrs,
   favAddrCookie,
+  getDefaultWalletName,
   getFavAddrKey,
+  isAddressOnlyWalletName,
   parseFavAddrs,
 } from "./favAddrs";
 import { readStoredWallet, walletConnectEvent } from "./browserWalletStorage";
@@ -90,10 +92,14 @@ import {
 } from "./walletSettingData";
 import {
   connectedWalletValue,
+  createWalletPathNameHistoryValue,
   favWalletHistoryValue,
   getWalletHistoryCookie,
+  parseWalletHistoryValue,
+  readWalletHistoryStorage,
   walletHistoryCap,
   walletNotFoundValue,
+  writeWalletHistoryStorage,
 } from "./walletHistory";
 import {
   buildAaveStakingClaimTxs,
@@ -524,20 +530,6 @@ function toNum(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function getDefaultWalletName(address = "") {
-  const clean = String(address || "")
-    .trim()
-    .replace(/^0x/i, "")
-    .replace(/[^\w]/g, "");
-
-  return clean ? `addr_${clean.slice(-6)}` : "";
-}
-
-function isAddressOnlyWalletName(name = "") {
-  const clean = String(name || "").trim();
-  return /^addr(?:[_-].*)?$/i.test(clean) || /^fav[_-].+/i.test(clean);
-}
-
 function getNameDisableKey(name = "") {
   return String(name || "")
     .trim()
@@ -589,7 +581,6 @@ const allChainSortValue = "__all__";
 const chainSortCap = 10;
 const lastWalletCookiePrefix = `${ckPrefix ?? ""}lastWallet_`;
 const lastWalletStoragePrefix = `${ckPrefix ?? ""}lastWalletStorage_`;
-const walletHistoryStoragePrefix = `${ckPrefix ?? ""}walletHistoryStorage_`;
 const walletHistorySkipStorageKey = `${ckPrefix ?? ""}walletHistorySkip`;
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
@@ -605,10 +596,6 @@ function getInitialActiveChain({ data, initialCookieM = {} } = {}) {
 
   const savedActiveChain = getInitialCookie(initialCookieM, activeChainCookie);
   return chainNames.includes(savedActiveChain) ? savedActiveChain : "";
-}
-
-function getWalletHistoryStorageKey(type = "evm") {
-  return `${walletHistoryStoragePrefix}${type}`;
 }
 
 function getLastWalletStorageKey(type = "evm") {
@@ -660,6 +647,7 @@ function getWalletNotFoundPath(value = "") {
 
 function getStoredWalletHistoryOption(value = "") {
   const text = String(value || "");
+  const historyEntry = parseWalletHistoryValue(text);
   if (text === "") return { value: "", label: "favs" };
   if (text == "all") return { value: text, label: "all" };
   if (text.startsWith(`${walletNotFoundValue}:`)) {
@@ -675,6 +663,16 @@ function getStoredWalletHistoryOption(value = "") {
   if (text.startsWith("__walletName__:")) {
     const name = text.slice("__walletName__:".length);
     return { value: text, label: `w: ${name}` };
+  }
+  if (
+    historyEntry.type == "walletPathName" &&
+    historyEntry.filePath &&
+    historyEntry.walletName
+  ) {
+    return {
+      value: text,
+      label: `${historyEntry.filePath}:${historyEntry.walletName}`,
+    };
   }
   if (text.startsWith("__address__:")) {
     const address = text.slice("__address__:".length);
@@ -699,7 +697,7 @@ function WalletSelectPicker({
   disabled = false,
 }) {
   const optionM = new Map(options.map((option) => [option.value, option]));
-  const selected = optionM.get(value);
+  const selected = optionM.get(value) || getStoredWalletHistoryOption(value);
   const historyOptions = historyValues
     .filter((entry) => {
       const notFoundPath = getWalletNotFoundPath(entry);
@@ -868,7 +866,7 @@ function Wallet({
     parseSelectionOrder(
       [
         getInitialCookie(initialCookieM, getWalletHistoryCookie(walletType)),
-        readBrowserStorage(getWalletHistoryStorageKey(walletType)),
+        readWalletHistoryStorage(walletType),
       ]
         .filter(Boolean)
         .join("|"),
@@ -1178,6 +1176,13 @@ function Wallet({
     : selectedAddress
       ? `__address__:${selectedAddress}`
       : "";
+  const walletPathNameHistoryValue =
+    effectiveSelectedWallet && selectedWalletName
+      ? createWalletPathNameHistoryValue(
+          effectiveSelectedWallet,
+          selectedWalletName,
+        )
+      : "";
   const walletNotFoundSelectValue = getWalletNotFoundValue(requestedWallet);
   const connectedSelected =
     connectedWallet?.address &&
@@ -1188,7 +1193,10 @@ function Wallet({
     ? connectedWalletValue
     : effectiveSelectedWalletNotFound
       ? walletNotFoundSelectValue
-      : effectiveSelectedWallet || walletFilterValue || "";
+      : walletPathNameHistoryValue ||
+        effectiveSelectedWallet ||
+        walletFilterValue ||
+        "";
   const canCycleWalletType = walletTypeOptions.length > 1;
   const hasError = visibleChainList.some(
     (chainE) => chainE?.error || chainE?.rows?.some((row) => row.error),
@@ -2448,14 +2456,14 @@ function Wallet({
       maxAge: cookieMaxAge,
       path: "/",
     });
-    writeBrowserStorage(getWalletHistoryStorageKey(type), encoded);
+    writeWalletHistoryStorage(type, encoded);
   }
 
   function getSavedWalletHistoryOrder(type = walletType) {
     return parseSelectionOrder(
       [
         getCookie(getWalletHistoryCookie(type)),
-        readBrowserStorage(getWalletHistoryStorageKey(type)),
+        readWalletHistoryStorage(type),
       ]
         .filter(Boolean)
         .join("|"),
@@ -2539,27 +2547,35 @@ function Wallet({
     return getWalletUrl("", type);
   }
 
-  function getWalletUrl(wallet, type = walletType) {
-    const cleanWallet = wallet.replace(/\/+$/, "");
-    const query =
-      type && type != "evm" ? `?chain=${encodeURIComponent(type)}` : "";
-    if (!cleanWallet) return `${basePath}${query}`;
-    if (cleanWallet == "all") return `${basePath}/all${query}`;
-
-    const path = `${basePath}/${cleanWallet
-      .split("/")
-      .filter(Boolean)
-      .map((part) => encodeURIComponent(part))
-      .join("/")}`;
-    return `${path}${query}`;
-  }
-
-  function getWalletNameUrl(walletName, type = walletType) {
+  function getWalletUrl(wallet, type = walletType, queryM = {}) {
+    const cleanWallet = String(wallet || "").replace(/\/+$/, "");
+    const path = !cleanWallet
+      ? basePath
+      : cleanWallet == "all"
+        ? `${basePath}/all`
+        : `${basePath}/${cleanWallet
+            .split("/")
+            .filter(Boolean)
+            .map((part) => encodeURIComponent(part))
+            .join("/")}`;
     const params = new URLSearchParams();
     if (type && type != "evm") params.set("chain", type);
-    params.set("w", walletName);
+    for (const [key, value] of Object.entries(queryM || {})) {
+      if (value !== undefined && value !== null && value !== "") {
+        params.set(key, value);
+      }
+    }
 
-    return `${basePath}?${params.toString()}`;
+    const query = params.toString();
+    return query ? `${path}?${query}` : path;
+  }
+
+  function getWalletNameUrl(
+    walletName,
+    type = walletType,
+    walletPath = "",
+  ) {
+    return getWalletUrl(walletPath, type, { w: walletName });
   }
 
   function getAddressUrl(address, type = walletType) {
@@ -2900,22 +2916,28 @@ function Wallet({
     if (!option) return;
 
     const historyValue = getCanonicalWalletHistoryValue(value);
-    const resolvedHistoryPath = getWalletHistoryValue(value).replace(
-      /\/+$/,
-      "",
-    );
+    const historyEntry = parseWalletHistoryValue(historyValue);
+    const resolvedHistoryPath =
+      historyEntry.type == "walletPathName"
+        ? historyEntry.filePath
+        : getWalletHistoryValue(value).replace(/\/+$/, "");
     setWalletHistoryOrder((prev) => {
       const basePrev = walletHistoryByTypeRef.current[walletType] || prev;
       const validValues = [
         ...walletHistoryOptionValues,
         ...basePrev,
         getWalletHistoryValue(value),
+        historyValue,
         connectedWalletValue,
       ];
       const nextPrev = basePrev.filter(
         (entry) =>
           !isSameCanonicalWalletHistoryValue(entry, historyValue) &&
-          getWalletNotFoundPath(entry) != resolvedHistoryPath,
+          getWalletNotFoundPath(entry) != resolvedHistoryPath &&
+          !(
+            historyEntry.type == "walletPathName" &&
+            entry == historyEntry.filePath
+          ),
       );
       const next = rememberSelectionValue(
         nextPrev,
@@ -3038,6 +3060,22 @@ function Wallet({
       if (!missingWallet) return;
       setLoadingWallet(true);
       router.push(getWalletUrl(missingWallet));
+      return;
+    }
+    const historyEntry = parseWalletHistoryValue(wallet);
+    if (
+      historyEntry.type == "walletPathName" &&
+      historyEntry.filePath &&
+      historyEntry.walletName
+    ) {
+      setLoadingWallet(true);
+      router.push(
+        getWalletNameUrl(
+          historyEntry.walletName,
+          walletType,
+          historyEntry.filePath,
+        ),
+      );
       return;
     }
     if (String(wallet || "").startsWith("__walletName__:")) {

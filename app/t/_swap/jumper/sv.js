@@ -104,6 +104,7 @@ async function jumperFetch(endpoint, params = {}, options = {}) {
         ...(options.headers || {}),
       },
       ...(options.body ? { body: options.body } : {}),
+      ...(options.cache ? { cache: options.cache } : {}),
       ...(timeout.signal ? { signal: timeout.signal } : {}),
     });
     const text = await res.text();
@@ -438,6 +439,7 @@ async function getJumperQuote({
   toCoinE = null,
   amount = "",
   recipient = "",
+  timeoutMs = 0,
 } = {}) {
   if (fromChain == toChain && fromCoin == toCoin) {
     throw new Error("sell coin and buy coin are the same");
@@ -460,20 +462,28 @@ async function getJumperQuote({
     fromCoinE,
     amount,
   });
-  const quote = await jumperFetch("/quote", {
-    fromChain: fromChainId,
-    toChain: toChainId,
-    fromToken: getJumperToken(fromChain, fromCoin, fromCoinE),
-    toToken: getJumperToken(toChain, toCoin, toCoinE),
-    fromAmount: amountIn.toString(),
-    fromAddress,
-    toAddress,
-    slippage: defaultSlippage,
-    integrator:
-      process.env.LIFI_INTEGRATOR ||
-      process.env.lifi_integrator ||
-      "w3",
-  });
+  const quote = await jumperFetch(
+    "/quote",
+    {
+      fromChain: fromChainId,
+      toChain: toChainId,
+      fromToken: getJumperToken(fromChain, fromCoin, fromCoinE),
+      toToken: getJumperToken(toChain, toCoin, toCoinE),
+      fromAmount: amountIn.toString(),
+      fromAddress,
+      toAddress,
+      slippage: defaultSlippage,
+      integrator:
+        process.env.LIFI_INTEGRATOR ||
+        process.env.lifi_integrator ||
+        "w3",
+    },
+    {
+      cache: "no-store",
+      timeoutMs,
+      timeoutMessage: "Jumper quote timeout",
+    },
+  );
 
   return { amountIn, quote };
 }
@@ -592,25 +602,183 @@ async function getJumperUnsignedTx({
   });
 }
 
+function formatJumperAmount(amount = "", decimals) {
+  if (!amount || !Number.isInteger(decimals)) return "";
+
+  try {
+    return ethers.formatUnits(amount, decimals);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeJumperAmount({
+  token = {},
+  amount = "",
+  amountUsd = "",
+  minimumAmount = "",
+} = {}) {
+  const chainId = Number(token.chainId);
+  const decimals = Number(token.decimals);
+
+  return {
+    chain: jumperChainById[chainId] || String(token.chainId || ""),
+    chainId: Number.isFinite(chainId) ? chainId : "",
+    coin: String(token.symbol || token.coinKey || ""),
+    name: String(token.name || ""),
+    decimals: Number.isInteger(decimals) ? decimals : "",
+    amount: String(amount || ""),
+    amountFormatted: formatJumperAmount(amount, decimals),
+    amountUsd: String(amountUsd || ""),
+    minimumAmount: String(minimumAmount || ""),
+    minimumAmountFormatted: formatJumperAmount(minimumAmount, decimals),
+  };
+}
+
+function normalizeJumperCost(entry = {}, index = 0, kind = "fee") {
+  const amountE = normalizeJumperAmount({
+    token: entry.token,
+    amount: entry.amount,
+    amountUsd: entry.amountUSD,
+  });
+  const percentage = Number(entry.percentage);
+
+  return {
+    key: `${kind}-${index}`,
+    label:
+      String(entry.name || "") ||
+      (kind == "gas" ? `${String(entry.type || "").toLowerCase()} gas` : kind),
+    description: String(entry.description || ""),
+    percent: Number.isFinite(percentage)
+      ? String(percentage * 100)
+      : "",
+    included: entry.included !== false,
+    ...amountE,
+  };
+}
+
+function flattenJumperSteps(steps = [], depth = 0) {
+  return (Array.isArray(steps) ? steps : []).flatMap((step) => [
+    { step, depth },
+    ...flattenJumperSteps(step?.includedSteps, depth + 1),
+  ]);
+}
+
+function normalizeJumperRoute(step = {}, index = 0, depth = 0) {
+  const action = step.action || {};
+  const estimate = step.estimate || {};
+  const input = normalizeJumperAmount({
+    token: action.fromToken,
+    amount: action.fromAmount || estimate.fromAmount,
+    amountUsd: estimate.fromAmountUSD,
+  });
+  const output = normalizeJumperAmount({
+    token: action.toToken,
+    amount: estimate.toAmount,
+    amountUsd: estimate.toAmountUSD,
+    minimumAmount: estimate.toAmountMin,
+  });
+
+  return {
+    side: `${index + 1}. ${String(step.type || "step")}`,
+    depth,
+    chain:
+      input.chain && output.chain && input.chain != output.chain
+        ? `${input.chain} → ${output.chain}`
+        : input.chain || output.chain,
+    input,
+    output,
+    router: String(step.toolDetails?.name || step.tool || ""),
+    sources: [],
+  };
+}
+
 function getJumperQuoteDetails({ amountIn = 0n, quote = {} } = {}) {
+  const action = quote.action || {};
+  const estimate = quote.estimate || {};
+  const currencyIn = normalizeJumperAmount({
+    token: action.fromToken,
+    amount: action.fromAmount || estimate.fromAmount || amountIn.toString(),
+    amountUsd: estimate.fromAmountUSD,
+  });
+  const currencyOut = normalizeJumperAmount({
+    token: action.toToken,
+    amount: estimate.toAmount,
+    amountUsd: estimate.toAmountUSD,
+    minimumAmount: estimate.toAmountMin,
+  });
+  const inputQty = Number(currencyIn.amountFormatted);
+  const outputQty = Number(currencyOut.amountFormatted);
+  const rate =
+    Number.isFinite(inputQty) &&
+    inputQty > 0 &&
+    Number.isFinite(outputQty)
+      ? String(outputQty / inputQty)
+      : "";
+  const fromUsd = Number(estimate.fromAmountUSD);
+  const toUsd = Number(estimate.toAmountUSD);
+  const impactUsd =
+    Number.isFinite(fromUsd) && Number.isFinite(toUsd)
+      ? toUsd - fromUsd
+      : null;
+  const impactPercent =
+    impactUsd !== null && fromUsd > 0 ? (impactUsd / fromUsd) * 100 : null;
+  const slippage = Number(action.slippage);
+  const routeSteps = flattenJumperSteps(quote.includedSteps);
+  const feeCosts = Array.isArray(estimate.feeCosts) ? estimate.feeCosts : [];
+  const gasCosts = Array.isArray(estimate.gasCosts) ? estimate.gasCosts : [];
+
   return {
     id: quote.id || "",
     transactionId: quote.transactionId || "",
     tool: quote.toolDetails?.name || quote.tool || "",
     amountIn: amountIn.toString(),
-    amountOut: quote.estimate?.toAmount,
-    amountOutMinimum: quote.estimate?.toAmountMin,
-    fromAmountUsd: quote.estimate?.fromAmountUSD,
-    toAmountUsd: quote.estimate?.toAmountUSD,
-    executionDuration: quote.estimate?.executionDuration,
-    gasUsd: (quote.estimate?.gasCosts || []).reduce(
+    amountOut: estimate.toAmount,
+    amountOutMinimum: estimate.toAmountMin,
+    fromAmountUsd: estimate.fromAmountUSD,
+    toAmountUsd: estimate.toAmountUSD,
+    executionDuration: estimate.executionDuration,
+    gasUsd: gasCosts.reduce(
       (sum, entry) => sum + Number(entry.amountUSD || 0),
       0,
     ),
-    feeUsd: (quote.estimate?.feeCosts || []).reduce(
+    feeUsd: feeCosts.reduce(
       (sum, entry) => sum + Number(entry.amountUSD || 0),
       0,
     ),
+    rate,
+    timeEstimate: Number(estimate.executionDuration) || 0,
+    currencyIn,
+    currencyOut,
+    totalImpact: {
+      usd: impactUsd === null ? "" : String(impactUsd),
+      percent: impactPercent === null ? "" : String(impactPercent),
+    },
+    swapImpact: {
+      usd: "",
+      percent: "",
+    },
+    slippageTolerance: {
+      route: {
+        usd: "",
+        value: Number.isFinite(slippage) ? String(slippage) : "",
+        percent: Number.isFinite(slippage) ? String(slippage * 100) : "",
+      },
+    },
+    routes: routeSteps.map(({ step, depth }, index) =>
+      normalizeJumperRoute(step, index, depth),
+    ),
+    fees: [
+      ...feeCosts.map((entry, index) =>
+        normalizeJumperCost(entry, index, "fee"),
+      ),
+      ...gasCosts.map((entry, index) =>
+        normalizeJumperCost(entry, index, "gas"),
+      ),
+    ],
+    priceImpacts: [],
+    steps: [],
+    quotedAt: Date.now(),
   };
 }
 
@@ -731,6 +899,19 @@ export async function getJumperSwapPreview({
     spender: approval.spender,
     amountIn: amountIn.toString(),
     quote: getJumperQuoteDetails({ amountIn, quote }),
+  };
+}
+
+export async function getJumperSwapEstimate(options = {}) {
+  const { amountIn, quote } = await getJumperQuote({
+    ...options,
+    timeoutMs: 20_000,
+  });
+
+  return {
+    ok: true,
+    dex: "Jumper",
+    details: getJumperQuoteDetails({ amountIn, quote }),
   };
 }
 

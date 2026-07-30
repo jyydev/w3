@@ -1,12 +1,13 @@
-import Logo from "@/components/Logo";
 import Home from "@/components/Home";
 import {
   homeCollapsedCookieM,
+  homeSectionOrderCookie,
   homeWalletModeCookie,
   homeWalletFavsCookie,
   homeWalletOrderCookie,
   homeWalletSortModeCookie,
   parseHomeCollapsedKeys,
+  parseHomeSectionOrder,
   parseHomeWalletFavKeys,
   parseHomeWalletMode,
   parseHomeWalletOrder,
@@ -30,6 +31,9 @@ export default async function App() {
       section,
       parseHomeCollapsedKeys(cookieStore.get(cookieName)?.value),
     ]),
+  );
+  const initialSectionOrder = parseHomeSectionOrder(
+    cookieStore.get(homeSectionOrderCookie)?.value,
   );
   const favAddrs = parseFavAddrs(cookieStore.get(favAddrCookie)?.value);
   const walletHistoryM = Object.fromEntries(
@@ -55,12 +59,12 @@ export default async function App() {
 
   return (
     <main className="homePage">
-      <Logo page="home" />
       <Home
         walletTree={walletNavTree}
         dataTree={dataNavTree}
         refTree={refNavTree}
         initialCollapsedM={initialCollapsedM}
+        initialSectionOrder={initialSectionOrder}
         favAddrs={favAddrs}
         walletHistoryM={walletHistoryM}
         initialWalletMode={initialWalletMode}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
 import toast from "react-hot-toast";
+import { InteractiveInfoCard } from "@/components/Shared";
 import {
   encodeGroupedSelectionOrder,
   encodeSelectionOrder,
@@ -44,12 +45,14 @@ import {
   buildAcrossSwapTxs,
   executeAcrossSwap,
   getAcrossSupportedBridge,
+  getAcrossSwapEstimate,
   getAcrossSwapPreview,
 } from "./across/sv";
 import AcrossClient from "./across/Client";
 import {
   buildJupiterSwapTxs,
   executeJupiterSwap,
+  getJupiterSwapEstimate,
   getJupiterSwapPreview,
   getJupiterTokenDiscovery,
 } from "./jupiter/sv";
@@ -58,6 +61,7 @@ import {
   buildJumperSwapTxs,
   executeJumperSwap,
   getJumperSupportedBridge,
+  getJumperSwapEstimate,
   getJumperSwapPreview,
   getJumperTokenDiscovery,
 } from "./jumper/sv";
@@ -65,6 +69,7 @@ import JumperClient from "./jumper/Client";
 import {
   buildPancakeSwapTxs,
   executePancakeSwap,
+  getPancakeSwapEstimate,
   getPancakeSwapPreview,
   getPancakeTokenDiscovery,
 } from "./pancake/sv";
@@ -76,12 +81,14 @@ import {
   executeRelaySwap,
   getRelayCurrencyDiscovery,
   getRelaySupportedBridge,
+  getRelaySwapEstimate,
   getRelaySwapPreview,
 } from "./relay/sv";
 import RelayClient, { signBrowserRelayItem } from "./relay/Client";
 import {
   buildSunSwapTxs,
   executeSunSwap,
+  getSunSwapEstimate,
   getSunSwapPreview,
   getSunTokenDiscovery,
 } from "./sun/sv";
@@ -89,6 +96,7 @@ import SunClient from "./sun/Client";
 import {
   buildUniswapSwapTxs,
   executeUniswapSwap,
+  getUniswapSwapEstimate,
   getUniswapSwapPreview,
 } from "./uniswap/sv";
 import UniswapClient from "./uniswap/Client";
@@ -194,6 +202,242 @@ function isSwapRecipientAddressForChain(chain = "", address = "") {
   if (chain == "Tron") return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(clean);
 
   return /^0x[0-9a-fA-F]{40}$/.test(clean);
+}
+
+const swapEstimateProtocolM = {
+  relay: "Relay",
+  jumper: "Jumper",
+  across: "Across.to",
+  pancake: "PancakeSwap",
+  uniswap: "Uniswap",
+  jupiter: "Jupiter",
+  sun: "SUN",
+};
+const swapEstimateActionM = {
+  relay: getRelaySwapEstimate,
+  jumper: getJumperSwapEstimate,
+  across: getAcrossSwapEstimate,
+  pancake: getPancakeSwapEstimate,
+  uniswap: getUniswapSwapEstimate,
+  jupiter: getJupiterSwapEstimate,
+  sun: getSunSwapEstimate,
+};
+
+function formatSwapEstimateQty(value = "") {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return String(value || "-");
+
+  return fmt(amount, Math.abs(amount) > 0 && Math.abs(amount) < 0.001 ? 10 : 6);
+}
+
+function formatSwapEstimateUsd(value = "") {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "";
+
+  return `${amount < 0 ? "-" : ""}$${fmt(Math.abs(amount), 6)}`;
+}
+
+function formatSwapEstimatePercent(value = "") {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `${fmt(amount, 6)}%` : "";
+}
+
+function formatSwapEstimateDuration(seconds = 0) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (total < 60) return `${total}s`;
+
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
+function SwapEstimateInfo({
+  protocol = "",
+  estimateE = {},
+  onEstimate = () => {},
+}) {
+  const details = estimateE.data;
+  const input = details?.currencyIn || {};
+  const output = details?.currencyOut || {};
+  const summary =
+    details && input.coin && output.coin
+      ? `${formatSwapEstimateQty(input.amountFormatted)} ${input.coin} → ${formatSwapEstimateQty(
+          output.amountFormatted,
+        )} ${output.coin}`
+      : "";
+  const totalImpact = details?.totalImpact || {};
+  const swapImpact = details?.swapImpact || {};
+  const slippageRows = Object.entries(details?.slippageTolerance || {}).filter(
+    ([, entry]) => entry?.percent || entry?.value || entry?.usd,
+  );
+
+  return (
+    <InteractiveInfoCard activation="hover" className="swapEstimateInfo">
+      <button
+        type="button"
+        className="btn small bgGray swapEstimateButton"
+        onClick={onEstimate}
+        disabled={!!estimateE.loading}
+        aria-label={`query ${protocol} estimate`}
+        aria-busy={!!estimateE.loading}
+      >
+        est
+      </button>
+      {summary && <span className="swapEstimateValue">{summary}</span>}
+      <span className="infoCard swapEstimateCard">
+        <span className="infoCardTitle">{protocol} estimate</span>
+        {estimateE.loading && <span>querying {protocol}...</span>}
+        {estimateE.error && <span className="red">{estimateE.error}</span>}
+        {!details && !estimateE.loading && !estimateE.error && (
+          <span>click est to query a fresh quote</span>
+        )}
+        {details && (
+          <>
+            <span className="swapEstimateSummary">{summary}</span>
+            {output.minimumAmountFormatted && (
+              <span>
+                <span className="gray">minimum received:</span>{" "}
+                {formatSwapEstimateQty(output.minimumAmountFormatted)}{" "}
+                {output.coin}
+              </span>
+            )}
+            {output.amountUsd && (
+              <span>
+                <span className="gray">estimated value:</span>{" "}
+                {formatSwapEstimateUsd(output.amountUsd)}
+              </span>
+            )}
+            {details.rate && (
+              <span>
+                <span className="gray">quote rate:</span> 1 {input.coin} ={" "}
+                {fmtRate(details.rate)} {output.coin}
+              </span>
+            )}
+            {!!details.timeEstimate && (
+              <span>
+                <span className="gray">ETA:</span>{" "}
+                {formatSwapEstimateDuration(details.timeEstimate)}
+              </span>
+            )}
+            {(totalImpact.percent || totalImpact.usd) && (
+              <span>
+                <span className="gray">total impact:</span>{" "}
+                {formatSwapEstimatePercent(totalImpact.percent)}
+                {totalImpact.percent && totalImpact.usd ? " / " : ""}
+                {totalImpact.usd ? formatSwapEstimateUsd(totalImpact.usd) : ""}
+              </span>
+            )}
+            {(swapImpact.percent || swapImpact.usd) && (
+              <span>
+                <span className="gray">swap impact:</span>{" "}
+                {formatSwapEstimatePercent(swapImpact.percent)}
+                {swapImpact.percent && swapImpact.usd ? " / " : ""}
+                {swapImpact.usd ? formatSwapEstimateUsd(swapImpact.usd) : ""}
+              </span>
+            )}
+            {!!slippageRows.length && (
+              <span className="swapEstimateSection">
+                <span className="swapEstimateSectionTitle">slippage</span>
+                {slippageRows.map(([side, entry]) => (
+                  <span key={side}>
+                    <span className="gray">{side}:</span>{" "}
+                    {entry.percent
+                      ? formatSwapEstimatePercent(entry.percent)
+                      : entry.value}
+                    {entry.usd ? ` (${formatSwapEstimateUsd(entry.usd)})` : ""}
+                  </span>
+                ))}
+              </span>
+            )}
+            {!!details.routes?.length && (
+              <span className="swapEstimateSection">
+                <span className="swapEstimateSectionTitle">routes</span>
+                {details.routes.map((route, index) => (
+                  <span
+                    className="swapEstimateRoute"
+                    key={`${route.side}-${index}`}
+                  >
+                    <span>
+                      <span className="gray">{route.side}:</span>{" "}
+                      {route.chain ? `${route.chain}: ` : ""}
+                      {formatSwapEstimateQty(route.input?.amountFormatted)}{" "}
+                      {route.input?.coin} →{" "}
+                      {formatSwapEstimateQty(route.output?.amountFormatted)}{" "}
+                      {route.output?.coin}
+                      {route.router ? ` via ${route.router}` : ""}
+                    </span>
+                    {!!route.sources?.length && (
+                      <span className="gray">
+                        sources: {route.sources.join(", ")}
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </span>
+            )}
+            {!!details.fees?.length && (
+              <span className="swapEstimateSection">
+                <span className="swapEstimateSectionTitle">fees</span>
+                {details.fees.map((fee) => (
+                  <span className="swapEstimateFee" key={fee.key}>
+                    <span>
+                      <span className="gray">{fee.label}:</span>{" "}
+                      {formatSwapEstimateQty(fee.amountFormatted)} {fee.coin}
+                      {fee.amountUsd
+                        ? ` (${formatSwapEstimateUsd(fee.amountUsd)})`
+                        : ""}
+                      {fee.percent
+                        ? ` / ${formatSwapEstimatePercent(fee.percent)}`
+                        : ""}
+                    </span>
+                    {fee.description && (
+                      <span className="gray">{fee.description}</span>
+                    )}
+                  </span>
+                ))}
+              </span>
+            )}
+            {!!details.priceImpacts?.length && (
+              <span className="swapEstimateSection">
+                <span className="swapEstimateSectionTitle">price impact</span>
+                {details.priceImpacts.map((entry) => (
+                  <span key={entry.key}>
+                    <span className="gray">{entry.key}:</span>{" "}
+                    {formatSwapEstimatePercent(entry.percent)}
+                    {entry.percent && entry.usd ? " / " : ""}
+                    {entry.usd ? formatSwapEstimateUsd(entry.usd) : ""}
+                  </span>
+                ))}
+              </span>
+            )}
+            {!!details.steps?.length && (
+              <span className="swapEstimateSection">
+                <span className="swapEstimateSectionTitle">steps</span>
+                {details.steps.map((step, index) => (
+                  <span key={`${step.id || step.kind}-${index}`}>
+                    <span className="gray">
+                      {step.action || step.id || step.kind}:
+                    </span>{" "}
+                    {step.description || step.kind}
+                  </span>
+                ))}
+              </span>
+            )}
+            {!!details.quotedAt && (
+              <span className="gray">
+                quoted: {new Date(details.quotedAt).toLocaleTimeString()}
+              </span>
+            )}
+            {!!details.expiresAt && (
+              <span className="gray">
+                expires: {new Date(details.expiresAt).toLocaleTimeString()}
+              </span>
+            )}
+          </>
+        )}
+      </span>
+    </InteractiveInfoCard>
+  );
 }
 
 export default function SwapPanel({
@@ -379,6 +623,14 @@ export default function SwapPanel({
   const [qtyInputSide, setQtyInputSide] = useState("sell");
   const [swapPending, setSwapPending] = useState(false);
   const [swapResult, setSwapResult] = useState(null);
+  const [swapEstimateE, setSwapEstimateE] = useState({
+    key: "",
+    side: "from",
+    loading: false,
+    data: null,
+    error: "",
+  });
+  const swapEstimateRequestRef = useRef(0);
   const [recipient, setRecipient] = useState(
     selectedWalletEntry?.address || "",
   );
@@ -491,6 +743,7 @@ export default function SwapPanel({
   );
   const defiE =
     availableDexOptions.find((entry) => entry.value == defi) || noDex;
+  const swapEstimateProtocol = swapEstimateProtocolM[defi] || "";
   const ProtocolClient =
     defi == "across"
       ? AcrossClient
@@ -668,6 +921,42 @@ export default function SwapPanel({
       toNum(toQty) < 0,
       toCoinDecimals,
     );
+  const swapEstimateKey = JSON.stringify([
+    defi,
+    selectedWalletEntry?.value || "",
+    selectedWalletEntry?.address || "",
+    fromChain,
+    fromCoin,
+    fromCoinInfo.address || "",
+    fromQty,
+    sellEndWith ? sellEndInputValue : "",
+    toChain,
+    toCoin,
+    toCoinInfo.address || "",
+    toQty,
+    buyEndWith ? buyEndInputValue : "",
+    qtyInputSide,
+    recipient,
+    maxSellQty,
+    maxBuyQty,
+  ]);
+  const currentSwapEstimateE =
+    swapEstimateE.key == swapEstimateKey
+      ? swapEstimateE
+      : {
+          key: swapEstimateKey,
+          side: "from",
+          loading: false,
+          data: null,
+          error: "",
+        };
+  const estimateQuoteRate = toNum(currentSwapEstimateE.data?.rate);
+  const displayedSwapRate =
+    swapEstimateProtocol && estimateQuoteRate > 0
+      ? currentSwapEstimateE.side == "to"
+        ? 1 / estimateQuoteRate
+        : estimateQuoteRate
+      : swapRate;
   const sellQtyUsd = fromPrice ? sellQty * fromPrice : 0;
   const sellEndUsd = fromPrice ? toNum(sellEndInputValue) * fromPrice : 0;
   const buyQtyUsd = toPrice ? buyQty * toPrice : 0;
@@ -1221,6 +1510,111 @@ export default function SwapPanel({
         error,
       });
       if (!silent) toast.error(error);
+    }
+  }
+
+  async function querySwapEstimate() {
+    if (!swapEstimateProtocol) return;
+    const walletEntry = selectedWalletEntry;
+    if (!walletEntry?.address) {
+      toast.error("wallet address missing");
+      return;
+    }
+
+    const requestId = swapEstimateRequestRef.current + 1;
+    swapEstimateRequestRef.current = requestId;
+    const requestKey = swapEstimateKey;
+    setSwapEstimateE((prev) => ({
+      key: requestKey,
+      side: prev.key == requestKey ? prev.side : "from",
+      loading: true,
+      data: prev.key == requestKey ? prev.data : null,
+      error: "",
+    }));
+
+    let sellSide = qtyInputSide == "buy" ? "to" : "from";
+    const getRoute = () => {
+      const buySide = sellSide == "to" ? "from" : "to";
+      const sellChain = sellSide == "to" ? toChain : fromChain;
+      const buyChain = sellSide == "to" ? fromChain : toChain;
+      const sellCoin = sellSide == "to" ? toCoin : fromCoin;
+      const buyCoin = sellSide == "to" ? fromCoin : toCoin;
+
+      return {
+        buySide,
+        sellChain,
+        buyChain,
+        sellCoin,
+        buyCoin,
+        sellCoinE: getSelectedSwapCoinE(sellChain, sellCoin, sellSide),
+        buyCoinE: getSelectedSwapCoinE(buyChain, buyCoin, buySide),
+      };
+    };
+
+    try {
+      let route = getRoute();
+      let amount = await getSwapSellAmountForWallet(walletEntry, {
+        side: sellSide,
+      });
+      if (toNum(amount) < 0) {
+        sellSide = sellSide == "to" ? "from" : "to";
+        route = getRoute();
+        amount = formatTradeQty(
+          sellSide == "to" ? toQty : fromQty,
+          sellSide == "to" ? toCoinDecimals : fromCoinDecimals,
+        );
+      }
+      if (route.sellChain == route.buyChain && route.sellCoin == route.buyCoin) {
+        throw new Error("sell coin and buy coin are the same");
+      }
+      if (toNum(amount) <= 0) {
+        throw new Error("sell qty must be greater than 0");
+      }
+
+      const routeUsesRecipient =
+        route.sellChain != route.buyChain &&
+        getSwapWalletTypeForChain(route.sellChain) !=
+          getSwapWalletTypeForChain(route.buyChain);
+      const toAddress =
+        routeUsesRecipient && sellSide == "from"
+          ? String(recipient || "").trim()
+          : walletEntry.address;
+      const getEstimate = swapEstimateActionM[defi];
+      if (!getEstimate) {
+        throw new Error(`${swapEstimateProtocol} estimate unavailable`);
+      }
+      const result = await getEstimate({
+        walletAddress: walletEntry.address,
+        fromChain: route.sellChain,
+        toChain: route.buyChain,
+        fromCoin: route.sellCoin,
+        toCoin: route.buyCoin,
+        fromCoinE: route.sellCoinE,
+        toCoinE: route.buyCoinE,
+        amount,
+        recipient: toAddress,
+      });
+      if (swapEstimateRequestRef.current != requestId) return;
+
+      setSwapEstimateE({
+        key: requestKey,
+        side: sellSide,
+        loading: false,
+        data: result?.details || null,
+        error: "",
+      });
+    } catch (e) {
+      if (swapEstimateRequestRef.current != requestId) return;
+      const error =
+        e?.message || `${swapEstimateProtocol || "swap"} estimate failed`;
+      setSwapEstimateE((prev) => ({
+        key: requestKey,
+        side: prev.key == requestKey ? prev.side : sellSide,
+        loading: false,
+        data: prev.key == requestKey ? prev.data : null,
+        error,
+      }));
+      toast.error(error);
     }
   }
 
@@ -3026,11 +3420,18 @@ export default function SwapPanel({
           )}
           <span className="swapRateLine">
             <span className="gray">rate:</span>{" "}
-            {swapRate > 0
-              ? `1 ${fromCoin} = ${fmtRate(swapRate)} ${toCoin}`
+            {displayedSwapRate > 0
+              ? `1 ${fromCoin} = ${fmtRate(displayedSwapRate)} ${toCoin}`
               : "-"}
             {priceStatus && <span className="gray"> {priceStatus}</span>}
           </span>
+          {swapEstimateProtocol && (
+            <SwapEstimateInfo
+              protocol={swapEstimateProtocol}
+              estimateE={currentSwapEstimateE}
+              onEstimate={querySwapEstimate}
+            />
+          )}
         </div>
 
         <div className="swapBox">

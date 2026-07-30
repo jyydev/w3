@@ -21,7 +21,7 @@ const cookieRows = [
   ],
   [
     "Home navigation",
-    "Separate data, wallet/trade, and ref cookies remember collapsed sections and navigation branches. Wallet/trade also remembers its selected mode, custom sibling order, sort mode, and ordered home favorites in w3_home_wallet_favs.",
+    "Separate data, wallet/trade, and ref cookies remember collapsed sections and navigation branches. w3_home_section_order remembers the draggable section order. Wallet/trade also remembers its selected mode, custom sibling order, sort mode, and ordered home favorites in w3_home_wallet_favs.",
   ],
   [
     "Data tables",
@@ -59,7 +59,7 @@ const sortingCookieRows = [
   ["Wallet", "assetSort, rowSort, and chainSort. chainSort is capped at 10."],
   [
     "Home wallet tree",
-    "w3_home_wallet_sort_mode and w3_home_wallet_order store custom vertical sibling ordering. History and home-favorite rows stay pinned first.",
+    "w3_home_section_order stores the data, wallet/trade, and ref section order. w3_home_wallet_sort_mode and w3_home_wallet_order store custom vertical sibling ordering. History and home-favorite rows stay pinned first.",
   ],
   ["Trade pane", "w3_trade_pane_order, capped at 5."],
   [
