@@ -33,6 +33,7 @@ export const venusComptrollerSeedsM = {
 export const venusLendingChains = Object.keys(venusComptrollerSeedsM);
 export const venusFluxChains = ["BSC"];
 
+export const venusApiBase = "https://api.venus.io";
 export const venusFluxApiBase = "https://api.fluid.instadapp.io";
 export const venusFluxMarketFetchTimeoutMs = 12000;
 export const venusFluxTokenMetaTimeoutMs = 8000;

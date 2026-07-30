@@ -32,7 +32,7 @@ const lendRows = [
   ],
   [
     "Venus markets",
-    "on-chain RPC from shared hardcoded comptroller seeds, then comptroller.getAllMarkets().",
+    "on-chain RPC from shared hardcoded comptroller seeds and comptroller.getAllMarkets(); total supply APY is matched by vToken address from the official Venus API.",
   ],
   [
     "Morpho chains",

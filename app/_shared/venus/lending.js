@@ -11,6 +11,7 @@ import {
 import { logRpcFailure } from "@/app/_fn/shared";
 import {
   getVenusExchangeRate,
+  venusApiBase,
   venusBlocksPerYearM,
   venusComptrollerAbi,
   venusComptrollerSeedsM,
@@ -30,8 +31,9 @@ const venusMarketFetchTimeoutMs = 15000;
 const venusTokenMetaTimeoutMs = 8000;
 const venusMarketFetchConcurrency = 8;
 const venusGoodMarketRatio = 0.8;
+const venusMaxTotalSupplyApyPercent = 10000;
 const venusMarketCacheM = getSharedDiscoveryCacheMap(
-  "venus:lending:markets",
+  "venus:lending:markets:v3",
 );
 
 function getVenusRateApr(rate = 0n, multiplier = 0) {
@@ -64,6 +66,72 @@ async function getVenusSupplyApr(vToken, chain = "") {
   }
 
   return 0;
+}
+
+function getVenusApiSupplyApy(entry = {}) {
+  const totalApyDecimal = Number(entry.totalSupplyApyDecimal);
+  const totalApyPercent = totalApyDecimal * 100;
+  if (
+    Number.isFinite(totalApyPercent) &&
+    totalApyPercent >= 0 &&
+    totalApyPercent <= venusMaxTotalSupplyApyPercent
+  ) {
+    return totalApyPercent;
+  }
+
+  const supplyApy = Number(entry.supplyApy);
+  if (Number.isFinite(supplyApy) && supplyApy >= 0) return supplyApy;
+
+  const supplyApyDecimal = Number(entry.supplyApyDecimal);
+  return Number.isFinite(supplyApyDecimal) && supplyApyDecimal >= 0
+    ? supplyApyDecimal * 100
+    : null;
+}
+
+async function getVenusApiSupplyApyM(chain = "") {
+  const chainId = chainIds[chain];
+  if (!chainId) return new Map();
+
+  const limit = 100;
+  const entries = [];
+  let page = 0;
+  let total = 0;
+
+  do {
+    const response = await withTimeout(
+      fetch(
+        `${venusApiBase}/markets?chainId=${encodeURIComponent(chainId)}&limit=${limit}&page=${page}`,
+        {
+          cache: "no-store",
+          headers: { "accept-version": "stable" },
+        },
+      ),
+      venusMarketFetchTimeoutMs,
+      `${chain} Venus market rates timeout`,
+    );
+    if (!response.ok) {
+      throw new Error(`${chain} Venus market rates HTTP ${response.status}`);
+    }
+
+    const json = await response.json();
+    const pageEntries = Array.isArray(json?.result) ? json.result : [];
+    if (!pageEntries.length) break;
+    entries.push(...pageEntries);
+    total = Math.max(0, Number(json?.total) || pageEntries.length);
+    page += 1;
+  } while (entries.length < total);
+
+  return new Map(
+    entries
+      .map((entry) => {
+        if (!ethers.isAddress(entry?.address || "")) return null;
+        const supplyApy = getVenusApiSupplyApy(entry);
+        return supplyApy === null
+          ? null
+          : [ethers.getAddress(entry.address).toLowerCase(), supplyApy];
+      })
+      .filter(Boolean),
+  );
 }
 
 function getVenusComptrollerSeeds(chain = "") {
@@ -128,6 +196,7 @@ export async function getVenusAllMarkets({
   const seedComptrollers = getVenusComptrollerSeeds(chain);
   const rpcList = getUsableChainRpcs(chain);
   if (!rpcList.length) throw new Error(`rpc not configured: ${chain}`);
+  const apiSupplyApyM = await getVenusApiSupplyApyM(chain).catch(() => new Map());
 
   let bestResult = null;
   let lastError = null;
@@ -184,7 +253,9 @@ export async function getVenusAllMarkets({
                 venusTokenMetaTimeoutMs,
                 `${chain} Venus exchange rate timeout`,
               ).catch(() => 0n),
-              getVenusSupplyApr(vToken, chain),
+              apiSupplyApyM.has(lendAddress.toLowerCase())
+                ? apiSupplyApyM.get(lendAddress.toLowerCase())
+                : getVenusSupplyApr(vToken, chain),
             ]);
             const [underlyingMeta, lendMeta] = await Promise.all([
               getTokenMeta(provider, underlyingAddress, chain),

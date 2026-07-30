@@ -131,7 +131,7 @@ export default function VenusMarketTable({
   const title = isFlux ? "Venus Flux" : "Venus lending";
   const description = isFlux
     ? "Venus Flux markets loaded from the Fluid API and on-chain vault metadata."
-    : "Venus lending markets loaded from configured comptrollers through on-chain RPC.";
+    : "Venus lending markets loaded from configured comptrollers through on-chain RPC, with total supply APY from the Venus API.";
 
   async function reloadCache() {
     if (reloadingCache) return;
