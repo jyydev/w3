@@ -373,9 +373,15 @@
   overflow: visible;
 }
 
-.breadcrumbHistoryButtons {
+.breadcrumbHistoryControls {
+  display: inline-flex;
+  align-items: center;
   gap: 1px;
   margin-right: 1px;
+}
+
+.breadcrumbHistoryButtons {
+  gap: 1px;
 }
 
 .breadcrumbHistoryButton.btn {
@@ -394,6 +400,13 @@
   background: #303030;
   color: #666;
   opacity: 0.8;
+}
+
+.breadcrumbRefreshIcon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
 }
 
 .breadcrumbHome {

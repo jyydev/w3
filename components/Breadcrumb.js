@@ -599,23 +599,40 @@ function BreadcrumbHistoryButtons() {
   }, [routeKey]);
 
   return (
-    <CycleButtonPair
-      className="breadcrumbHistoryButtons"
-      onPrev={() => window.history.back()}
-      onNext={() => window.history.forward()}
-      prevDisabled={!availability.canGoBack}
-      nextDisabled={!availability.canGoForward}
-      prevProps={{
-        className: "breadcrumbHistoryButton",
-        "aria-label": "back",
-        title: "back",
-      }}
-      nextProps={{
-        className: "breadcrumbHistoryButton",
-        "aria-label": "forward",
-        title: "forward",
-      }}
-    />
+    <span className="breadcrumbHistoryControls">
+      <CycleButtonPair
+        className="breadcrumbHistoryButtons"
+        onPrev={() => window.history.back()}
+        onNext={() => window.history.forward()}
+        prevDisabled={!availability.canGoBack}
+        nextDisabled={!availability.canGoForward}
+        prevProps={{
+          className: "breadcrumbHistoryButton",
+          "aria-label": "back",
+          title: "back",
+        }}
+        nextProps={{
+          className: "breadcrumbHistoryButton",
+          "aria-label": "forward",
+          title: "forward",
+        }}
+      />
+      <button
+        type="button"
+        className="btn small bgGray breadcrumbHistoryButton"
+        aria-label="refresh"
+        title="refresh"
+        onClick={() => window.location.reload()}
+      >
+        <svg
+          className="breadcrumbRefreshIcon"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.09A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z" />
+        </svg>
+      </button>
+    </span>
   );
 }
 
