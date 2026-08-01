@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteCookie, setCookie } from "cookies-next";
+import { deleteCookie, getCookie, setCookie } from "cookies-next";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
@@ -14,7 +14,9 @@ import {
 } from "@/app/w/favAddrs";
 import {
   getWalletHistoryCookie,
+  parseWalletHistoryCookie,
   parseWalletHistoryValue,
+  readWalletHistoryStorage,
   writeWalletHistoryStorage,
 } from "@/app/w/walletHistory";
 import { encodeSelectionOrder } from "@/fn/selectionOrder";
@@ -46,6 +48,29 @@ import {
   getWalletNavUrl,
   mergeTrees,
 } from "./NavbarWalletMenu";
+
+function getCurrentHomeCookie(cookieName, initialValue, emptyValue = "") {
+  if (typeof window == "undefined") return initialValue;
+  return getCookie(cookieName) ?? emptyValue;
+}
+
+function getCurrentWalletHistoryM(initialHistoryM = {}) {
+  if (typeof window == "undefined") return initialHistoryM;
+
+  return Object.fromEntries(
+    ["evm", "solana", "tron"].map((walletType) => [
+      walletType,
+      parseWalletHistoryCookie(
+        [
+          getCookie(getWalletHistoryCookie(walletType)),
+          readWalletHistoryStorage(walletType),
+        ]
+          .filter(Boolean)
+          .join("|"),
+      ),
+    ]),
+  );
+}
 
 function buildTreeMatrix(
   nodes = [],
@@ -219,19 +244,25 @@ function getSectionClassName(baseClassName = "", sectionDrag = {}) {
 
 function useBranchToggle(cookieName, initialCollapsedKeys = []) {
   const [collapsedKeys, setCollapsedKeys] = useState(
-    () => new Set(parseHomeCollapsedKeys(initialCollapsedKeys)),
+    () =>
+      new Set(
+        parseHomeCollapsedKeys(
+          getCurrentHomeCookie(cookieName, initialCollapsedKeys, []),
+        ),
+      ),
   );
 
   useEffect(() => {
     if (!cookieName) return;
 
     if (!collapsedKeys.size) {
-      deleteCookie(cookieName);
+      deleteCookie(cookieName, { path: "/" });
       return;
     }
 
     setCookie(cookieName, encodeHomeCollapsedKeys(collapsedKeys), {
       maxAge: homeNavigationCookieMaxAge,
+      path: "/",
     });
   }, [collapsedKeys, cookieName]);
 
@@ -256,30 +287,36 @@ function useBranchToggle(cookieName, initialCollapsedKeys = []) {
 
 function useWalletSort(initialSortMode = "default", initialOrderM = {}) {
   const [sortMode, setSortMode] = useState(() =>
-    parseHomeWalletSortMode(initialSortMode),
+    parseHomeWalletSortMode(
+      getCurrentHomeCookie(homeWalletSortModeCookie, initialSortMode),
+    ),
   );
   const [customOrderM, setCustomOrderM] = useState(() =>
-    parseHomeWalletOrder(initialOrderM),
+    parseHomeWalletOrder(
+      getCurrentHomeCookie(homeWalletOrderCookie, initialOrderM),
+    ),
   );
 
   useEffect(() => {
     if (sortMode == "custom") {
       setCookie(homeWalletSortModeCookie, sortMode, {
         maxAge: homeNavigationCookieMaxAge,
+        path: "/",
       });
     } else {
-      deleteCookie(homeWalletSortModeCookie);
+      deleteCookie(homeWalletSortModeCookie, { path: "/" });
     }
   }, [sortMode]);
 
   useEffect(() => {
     if (!Object.keys(customOrderM).length) {
-      deleteCookie(homeWalletOrderCookie);
+      deleteCookie(homeWalletOrderCookie, { path: "/" });
       return;
     }
 
     setCookie(homeWalletOrderCookie, encodeHomeWalletOrder(customOrderM), {
       maxAge: homeNavigationCookieMaxAge,
+      path: "/",
     });
   }, [customOrderM]);
 
@@ -299,12 +336,14 @@ function useWalletSort(initialSortMode = "default", initialOrderM = {}) {
 
 function useWalletFavorites(initialFavoriteKeys = []) {
   const [favoriteKeys, setFavoriteKeys] = useState(() =>
-    parseHomeWalletFavKeys(initialFavoriteKeys),
+    parseHomeWalletFavKeys(
+      getCurrentHomeCookie(homeWalletFavsCookie, initialFavoriteKeys),
+    ),
   );
 
   useEffect(() => {
     if (!favoriteKeys.length) {
-      deleteCookie(homeWalletFavsCookie);
+      deleteCookie(homeWalletFavsCookie, { path: "/" });
       return;
     }
 
@@ -1171,10 +1210,15 @@ function WalletSection({
   initialFavoriteKeys = [],
   sectionDrag = {},
 }) {
-  const [mode, setMode] = useState(() => parseHomeWalletMode(initialMode));
+  const [mode, setMode] = useState(() =>
+    parseHomeWalletMode(
+      getCurrentHomeCookie(homeWalletModeCookie, initialMode),
+    ),
+  );
+  const [sortCardOpen, setSortCardOpen] = useState(false);
   const [connectedWalletM, setConnectedWalletM] = useState({});
   const [walletHistoryOrderM, setWalletHistoryOrderM] = useState(
-    () => walletHistoryM,
+    () => getCurrentWalletHistoryM(walletHistoryM),
   );
   const { collapsedKeys, expandAll, toggleNode } = useBranchToggle(
     homeCollapsedCookieM.wallet,
@@ -1197,6 +1241,7 @@ function WalletSection({
   useEffect(() => {
     setCookie(homeWalletModeCookie, mode, {
       maxAge: homeNavigationCookieMaxAge,
+      path: "/",
     });
   }, [mode]);
 
@@ -1384,7 +1429,8 @@ function WalletSection({
           <span className="homeNavSortLabel">sort:</span>
           <div className="homeNavSortMode" aria-label="wallet row sorting">
             <InteractiveInfoCard
-              activation="hover"
+              open={sortMode == "custom" && sortCardOpen}
+              onOpenChange={setSortCardOpen}
               className="homeNavSortCustomInfo"
             >
               <button
@@ -1400,9 +1446,12 @@ function WalletSection({
                   <button
                     type="button"
                     className="homeNavResetSort"
-                    onClick={resetToDefault}
+                    onClick={() => {
+                      resetToDefault();
+                      setSortCardOpen(false);
+                    }}
                   >
-                    reset
+                    reset to default
                   </button>
                 </span>
               )}
@@ -1459,7 +1508,9 @@ export default function Home({
 }) {
   const [localTree, setLocalTree] = useState([]);
   const [sectionOrder, setSectionOrder] = useState(() =>
-    parseHomeSectionOrder(initialSectionOrder),
+    parseHomeSectionOrder(
+      getCurrentHomeCookie(homeSectionOrderCookie, initialSectionOrder),
+    ),
   );
   const [dragSection, setDragSection] = useState("");
   const dragSectionRef = useRef("");
@@ -1490,7 +1541,7 @@ export default function Home({
         (section, index) => section == defaultHomeSectionOrder[index],
       )
     ) {
-      deleteCookie(homeSectionOrderCookie);
+      deleteCookie(homeSectionOrderCookie, { path: "/" });
       return;
     }
 
