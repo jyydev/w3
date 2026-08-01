@@ -1383,14 +1383,30 @@ function WalletSection({
         <div className="homeNavSort">
           <span className="homeNavSortLabel">sort:</span>
           <div className="homeNavSortMode" aria-label="wallet row sorting">
-            <button
-              type="button"
-              className={sortMode == "custom" ? "active" : ""}
-              aria-pressed={sortMode == "custom"}
-              onClick={() => setSortMode("custom")}
+            <InteractiveInfoCard
+              activation="hover"
+              className="homeNavSortCustomInfo"
             >
-              custom
-            </button>
+              <button
+                type="button"
+                className={sortMode == "custom" ? "active" : ""}
+                aria-pressed={sortMode == "custom"}
+                onClick={() => setSortMode("custom")}
+              >
+                custom
+              </button>
+              {sortMode == "custom" && (
+                <span className="infoCard homeNavSortResetCard">
+                  <button
+                    type="button"
+                    className="homeNavResetSort"
+                    onClick={resetToDefault}
+                  >
+                    reset
+                  </button>
+                </span>
+              )}
+            </InteractiveInfoCard>
             <button
               type="button"
               className={sortMode == "default" ? "active" : ""}
@@ -1401,15 +1417,6 @@ function WalletSection({
             </button>
           </div>
         </div>
-        {sortMode == "custom" && (
-          <button
-            type="button"
-            className="homeNavResetSort"
-            onClick={resetToDefault}
-          >
-            reset to default
-          </button>
-        )}
         {(sectionCollapsed || !!matrix.collapsedCount) && (
           <button
             type="button"

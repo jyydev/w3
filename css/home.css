@@ -125,6 +125,17 @@
   padding: 5px 7px;
 }
 
+.infoCard.homeNavSortResetCard {
+  min-width: max-content;
+  padding: 2px 4px;
+  line-height: 1.15;
+}
+
+.homeNavSortResetCard .homeNavResetSort {
+  padding: 0;
+  font-size: 11px;
+}
+
 .homeNavMatrix {
   display: grid;
   width: max-content;
@@ -500,8 +511,17 @@
   border-radius: 4px;
 }
 
-.homeNavMode button,
-.homeNavSortMode button {
+.homeNavSortMode {
+  overflow: visible;
+}
+
+.homeNavSortCustomInfo {
+  display: inline-flex;
+}
+
+.homeNavMode > button,
+.homeNavSortMode > button,
+.homeNavSortMode > .homeNavSortCustomInfo > button {
   min-width: 61px;
   height: 25px;
   border: 0;
@@ -512,19 +532,21 @@
   cursor: pointer;
 }
 
-.homeNavMode button:last-child,
-.homeNavSortMode button:last-child {
+.homeNavMode > button:last-child,
+.homeNavSortMode > button:last-child {
   border-right: 0;
 }
 
-.homeNavMode button:hover,
-.homeNavSortMode button:hover {
+.homeNavMode > button:hover,
+.homeNavSortMode > button:hover,
+.homeNavSortMode > .homeNavSortCustomInfo > button:hover {
   color: white;
   background: #1b1b1b;
 }
 
-.homeNavMode button.active,
-.homeNavSortMode button.active {
+.homeNavMode > button.active,
+.homeNavSortMode > button.active,
+.homeNavSortMode > .homeNavSortCustomInfo > button.active {
   background: #282300;
   color: var(--orange);
 }
