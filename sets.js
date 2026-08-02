@@ -247,7 +247,7 @@ exports.scanners = {
 };
 
 exports.publicWallets = {
-  // yb24: "0x21eb436144d38d07d8e0c41b706c02c65b771f45",
+  // s1: "0xAAA",
 };
 
 exports.walletNotes = {};
