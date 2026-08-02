@@ -252,6 +252,22 @@ exports.publicWallets = {
 
 exports.walletNotes = {};
 
+/*** whitelist: copy and modify in set.js */
+exports.onWhitelist = false; //true false
+let jsonWallets = [
+  // ...[
+  //   {
+  //     wallet: "walletName",
+  //     address: "0xAAA",
+  //     ref: "",
+  //   },
+  // ], //eg: wallets/evm/y/etc.json, copy from editor
+];
+exports.whitelists = [
+  // "0xAAA", "0xBBB",
+  jsonWallets.map((e) => e.address),
+];
+
 /***** DON'T copy this into set.js */
 if (typeof window == "undefined") {
   try {
