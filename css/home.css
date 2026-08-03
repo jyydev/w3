@@ -136,6 +136,157 @@
   font-size: 11px;
 }
 
+.homeWalletSearch {
+  position: relative;
+  z-index: 30;
+  width: min(430px, calc(100vw - 12px));
+  margin: 0 0 5px;
+}
+
+.homeWalletSearchControl {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.homeWalletSearchControl input {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  height: 27px;
+  padding: 2px 7px;
+  border: 1px solid #3b3b3b;
+  border-right: 0;
+  border-radius: 4px 0 0 4px;
+  outline: 0;
+  background: #090909;
+  color: white;
+  font-size: 13px;
+}
+
+.homeWalletSearchControl input:focus {
+  border-color: #666;
+}
+
+.homeWalletSearchButton {
+  position: relative;
+  flex: 0 0 29px;
+  width: 29px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid #3b3b3b;
+  border-radius: 0 4px 4px 0;
+  background: #181818;
+  color: #aaa;
+  cursor: pointer;
+}
+
+.homeWalletSearchButton:hover:not(:disabled) {
+  background: #242424;
+  color: var(--orange);
+}
+
+.homeWalletSearchButton:disabled {
+  color: #555;
+  cursor: default;
+}
+
+.homeWalletSearchIcon {
+  position: absolute;
+  top: 6px;
+  left: 7px;
+  width: 13px;
+  height: 13px;
+}
+
+.homeWalletSearchIcon::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+.homeWalletSearchIcon::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  width: 6px;
+  height: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+  transform-origin: right center;
+}
+
+.homeWalletSearchResults {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  max-width: calc(100vw - 12px);
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #444;
+  background: #080808;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+}
+
+.homeWalletSearchResult {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(130px, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 27px;
+  padding: 3px 7px;
+  color: #aaa;
+  font-size: 12px;
+}
+
+.homeWalletSearchResult + .homeWalletSearchResult {
+  border-top: 1px solid #242424;
+}
+
+.homeWalletSearchResult:hover,
+.homeWalletSearchResult:focus {
+  outline: 0;
+  background: #292929;
+}
+
+.homeWalletSearchResult:hover .homeWalletSearchName,
+.homeWalletSearchResult:focus .homeWalletSearchName {
+  color: var(--orange);
+}
+
+.homeWalletSearchName {
+  color: white;
+}
+
+.homeWalletSearchContext {
+  color: #777;
+}
+
+.homeWalletSearchAddress {
+  overflow: hidden;
+  max-width: 330px;
+  text-overflow: ellipsis;
+}
+
+.homeWalletSearchEmpty {
+  padding: 5px 7px;
+  color: #777;
+  font-size: 12px;
+}
+
 .homeNavMatrix {
   display: grid;
   width: max-content;

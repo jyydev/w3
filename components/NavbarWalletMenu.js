@@ -89,6 +89,7 @@ function mergeNode(target, source) {
     if (existing) {
       if (existing.type != child.type) existing.type = "mixed";
       if (!existing.deletable && child.deletable) existing.deletable = child.deletable;
+      if (child.address) existing.address = child.address;
       mergeNode(existing, child);
     }
     else {
@@ -123,6 +124,7 @@ function ensureChild(parent, child) {
     existing.type = "mixed";
   }
   if (!existing.deletable && child.deletable) existing.deletable = child.deletable;
+  if (child.address) existing.address = child.address;
 
   return existing;
 }
@@ -155,18 +157,18 @@ function addLocalWalletFile(typeNode, record) {
     });
   }
 
-  const walletNames = entries
-    .map((entry) => entry.name)
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
+  const walletEntries = entries
+    .filter((entry) => entry.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const walletName of walletNames) {
+  for (const entry of walletEntries) {
     ensureChild(parent, {
       type: "wallet",
-      label: walletName,
+      label: entry.name,
       walletType,
       filePath: source,
-      walletName,
+      walletName: entry.name,
+      address: entry.address,
       children: [],
     });
   }

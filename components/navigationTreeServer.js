@@ -18,7 +18,7 @@ function getWalletTypeLabel(type = "") {
   return walletTypeLabels[type] || type;
 }
 
-function parseWalletNames(input = "") {
+function parseWalletEntries(input = "") {
   let rows = input;
   const text = String(input || "").trim();
   try {
@@ -27,20 +27,22 @@ function parseWalletNames(input = "") {
     rows = [];
   }
 
-  const names = [];
+  const walletEntries = [];
   const seen = new Set();
-  const entries = Array.isArray(rows)
-    ? rows.map((entry) => String(entry?.wallet ?? entry?.name ?? "").trim())
-    : [];
+  const entries = Array.isArray(rows) ? rows : [];
 
-  for (const name of entries) {
-    if (!name || seen.has(name)) continue;
+  for (const entry of entries) {
+    const walletName = String(entry?.wallet ?? entry?.name ?? "").trim();
+    if (!walletName || seen.has(walletName)) continue;
 
-    seen.add(name);
-    names.push(name);
+    seen.add(walletName);
+    walletEntries.push({
+      walletName,
+      address: String(entry?.address ?? "").trim(),
+    });
   }
 
-  return names;
+  return walletEntries;
 }
 
 async function readWalletNavChildren(dir, walletType, relPath = "") {
@@ -74,21 +76,22 @@ async function readWalletNavChildren(dir, walletType, relPath = "") {
       const fileText = file
         ? await fs.readFile(path.join(dir, file.name), "utf8")
         : "";
-      const walletNames = file ? parseWalletNames(fileText) : [];
+      const walletEntries = file ? parseWalletEntries(fileText) : [];
       const folderChildren = folder
         ? await readWalletNavChildren(folderPath, walletType, filePath)
         : [];
       const folderEmpty = folder
         ? !(await fs.readdir(folderPath)).length
         : false;
-      const fileEmpty = file ? !walletNames.length : false;
+      const fileEmpty = file ? !walletEntries.length : false;
       const walletChildren = file
-        ? walletNames.map((walletName) => ({
+        ? walletEntries.map(({ walletName, address }) => ({
             type: "wallet",
             label: walletName,
             walletType,
             filePath,
             walletName,
+            address,
           }))
         : [];
 

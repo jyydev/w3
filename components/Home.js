@@ -2,6 +2,7 @@
 
 import { deleteCookie, getCookie, setCookie } from "cookies-next";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
 import {
@@ -1199,6 +1200,189 @@ function getWalletRootChildren(
   ];
 }
 
+function getWalletTypeSearchLabel(walletType = "evm") {
+  if (walletType == "solana") return "Solana";
+  if (walletType == "tron") return "Tron";
+  return "EVM";
+}
+
+function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
+  const entries = [];
+  const seen = new Set();
+
+  function addNode(node) {
+    if (node?.type == "wallet") {
+      const walletName = String(node.walletName || node.label || "").trim();
+      const address = String(node.address || "").trim();
+      const walletType = node.walletType || "evm";
+      const filePath = String(node.filePath || "").trim();
+      const key = `${walletType}:${filePath}:${walletName}:${address}`;
+
+      if (walletName && !seen.has(key)) {
+        seen.add(key);
+        entries.push({
+          key,
+          walletName,
+          address,
+          context: [getWalletTypeSearchLabel(walletType), filePath]
+            .filter(Boolean)
+            .join(" / "),
+          href: getWalletNavUrl(routeBase, node),
+        });
+      }
+    }
+
+    for (const child of node?.children || []) addNode(child);
+  }
+
+  for (const node of walletTree || []) addNode(node);
+  return entries;
+}
+
+function getWalletSearchMatches(entries = [], query = "") {
+  const term = String(query || "").trim().toLowerCase();
+  if (!term) return [];
+
+  return entries
+    .map((entry, index) => {
+      const name = entry.walletName.toLowerCase();
+      const address = entry.address.toLowerCase();
+      let rank = Infinity;
+
+      if (name == term || address == term) rank = 0;
+      else if (name.startsWith(term)) rank = 1;
+      else if (address.startsWith(term)) rank = 2;
+      else if (name.includes(term)) rank = 3;
+      else if (address.includes(term)) rank = 4;
+
+      return { ...entry, index, rank };
+    })
+    .filter((entry) => Number.isFinite(entry.rank))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index);
+}
+
+function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
+  const address = String(query || "").trim();
+  let walletType = "";
+
+  if (/^0x[0-9a-f]{40}$/i.test(address)) walletType = "evm";
+  else if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) walletType = "tron";
+  else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+    walletType = "solana";
+  }
+  if (!walletType) return null;
+
+  return {
+    key: `direct:${walletType}:${address}`,
+    walletName: "address",
+    address,
+    context: getWalletTypeSearchLabel(walletType),
+    href: getWalletNavUrl(routeBase, { walletType, walletAddress: address }),
+  };
+}
+
+function WalletSearch({ walletTree = [], routeBase = "/w" }) {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const entries = useMemo(
+    () => getWalletSearchEntries(walletTree, routeBase),
+    [routeBase, walletTree],
+  );
+  const matches = useMemo(
+    () => getWalletSearchMatches(entries, query),
+    [entries, query],
+  );
+  const directEntry = useMemo(
+    () => getDirectWalletSearchEntry(query, routeBase),
+    [query, routeBase],
+  );
+  const results = matches.length ? matches : directEntry ? [directEntry] : [];
+  const showResults = resultsOpen && !!query.trim();
+
+  function submitSearch(event) {
+    event.preventDefault();
+    if (results[0]?.href) router.push(results[0].href);
+  }
+
+  return (
+    <form
+      className="homeWalletSearch"
+      role="search"
+      onSubmit={submitSearch}
+      onFocus={() => setResultsOpen(true)}
+      onBlur={(event) => {
+        const form = event.currentTarget;
+        if (event.relatedTarget && form.contains(event.relatedTarget)) return;
+
+        requestAnimationFrame(() => {
+          if (!form.contains(document.activeElement)) setResultsOpen(false);
+        });
+      }}
+    >
+      <div className="homeWalletSearchControl">
+        <input
+          type="search"
+          value={query}
+          aria-label="search added wallets by name or address"
+          aria-expanded={showResults}
+          aria-controls="home-wallet-search-results"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="wallet name or address"
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setResultsOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key == "Escape") setResultsOpen(false);
+          }}
+        />
+        <button
+          type="submit"
+          className="homeWalletSearchButton"
+          aria-label="search wallets"
+          title="search wallets"
+          disabled={!results.length}
+        >
+          <span className="homeWalletSearchIcon" aria-hidden="true"></span>
+        </button>
+      </div>
+      {showResults && (
+        <span
+          id="home-wallet-search-results"
+          className="homeWalletSearchResults"
+        >
+          {results.length ? (
+            results.map((entry) => (
+              <Link
+                key={entry.key}
+                href={entry.href}
+                className="homeWalletSearchResult"
+                title={[entry.walletName, entry.context, entry.address]
+                  .filter(Boolean)
+                  .join(" | ")}
+              >
+                <span className="homeWalletSearchName">
+                  {entry.walletName}
+                </span>
+                <span className="homeWalletSearchContext">
+                  {entry.context}
+                </span>
+                <span className="homeWalletSearchAddress">
+                  {entry.address || "-"}
+                </span>
+              </Link>
+            ))
+          ) : (
+            <span className="homeWalletSearchEmpty">no added wallet matches</span>
+          )}
+        </span>
+      )}
+    </form>
+  );
+}
+
 function WalletSection({
   walletTree = [],
   favAddrs = [],
@@ -1477,17 +1661,20 @@ function WalletSection({
         )}
       </header>
       {!sectionCollapsed && (
-        <NavigationMatrix
-          matrix={matrix}
-          favoriteKeySet={favoriteKeySet}
-          getHref={(node) => node.href || getWalletNavUrl(routeBase, node)}
-          onMoveFavorite={moveFavorite}
-          onRemoveHistory={removeWalletHistory}
-          onToggleNode={toggleNode}
-          onToggleFavorite={toggleFavorite}
-          sortable={sortMode == "custom"}
-          onMoveNode={moveNode}
-        />
+        <>
+          <WalletSearch walletTree={walletTree} routeBase={routeBase} />
+          <NavigationMatrix
+            matrix={matrix}
+            favoriteKeySet={favoriteKeySet}
+            getHref={(node) => node.href || getWalletNavUrl(routeBase, node)}
+            onMoveFavorite={moveFavorite}
+            onRemoveHistory={removeWalletHistory}
+            onToggleNode={toggleNode}
+            onToggleFavorite={toggleFavorite}
+            sortable={sortMode == "custom"}
+            onMoveNode={moveNode}
+          />
+        </>
       )}
     </section>
   );
