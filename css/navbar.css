@@ -219,6 +219,11 @@
     transform 120ms ease;
 }
 
+.navQuickFavTrigger {
+  display: inline-flex;
+  align-items: center;
+}
+
 .navQuickFav:hover {
   transform: translateY(-1px);
 }
@@ -257,7 +262,7 @@
   right: -2px;
 }
 
-.navbar .navQuickFav a {
+.navbar .navQuickFavTrigger > a.navQuickFavLink {
   float: none;
   display: inline-flex;
   align-items: center;
@@ -271,36 +276,79 @@
   cursor: grab;
 }
 
-.navQuickFav:active a {
+.navQuickFav.hasChildren .navQuickFavTrigger > a.navQuickFavLink {
+  padding-right: 1px;
+}
+
+.navQuickFavTrigger:active > a.navQuickFavLink {
   cursor: grabbing;
 }
 
-.navbar .navQuickFav a:hover {
+.navbar .navQuickFavTrigger > a.navQuickFavLink:hover {
   color: var(--orange);
   background: transparent;
+}
+
+.navQuickFavToggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  border: 0;
+  background: transparent;
+  color: #aaa;
+  padding: 0 3px 0 0;
+  cursor: pointer;
+}
+
+.navQuickFavCaret {
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid #aaa;
+}
+
+.navQuickFav:hover .navQuickFavCaret,
+.navQuickFav:focus-within .navQuickFavCaret,
+.navQuickFav.navMenuOpen .navQuickFavCaret {
+  border-top-color: var(--orange);
+}
+
+.navQuickFavMenu {
+  top: 100%;
+  left: 0;
+  min-width: 150px;
+  z-index: 80;
+}
+
+.navQuickFav.navMenuOpen > .navQuickFavMenu {
+  display: block;
 }
 
 .navQuickFavCard {
   display: none;
   position: absolute;
-  top: 100%;
+  top: auto;
+  bottom: calc(100% - 6px);
   left: 0;
-  min-width: 230px;
-  max-width: 360px;
-  padding: 8px 10px;
+  min-width: 0;
+  max-width: 160px;
+  padding: 1px 3px;
   background: #1d1d1d;
   border: 1px solid #444;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
   color: #ddd;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: normal;
+  font-size: 9px;
+  line-height: 1.1;
+  white-space: nowrap;
   z-index: 90;
 }
 
-.navQuickFav:hover .navQuickFavCard {
-  display: grid;
-  gap: 4px;
+.navQuickFavTrigger:hover .navQuickFavCard {
+  display: block;
 }
 
 .navQuickFavTitle {
@@ -309,13 +357,19 @@
 }
 
 .navQuickUnfav {
+  display: block;
   width: fit-content;
-  margin-top: 2px;
+  max-width: 152px;
+  margin-top: 0;
   border: 0;
   background: transparent;
   color: var(--orange);
   padding: 0;
-  font-size: 12px;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 

@@ -55,6 +55,7 @@ function getFavEntry(routeBase, node) {
     href: getWalletNavUrl(routeBase, node),
     label: node.label,
     title: detail || node.label,
+    node,
   };
 }
 
@@ -453,6 +454,8 @@ function NavbarWalletMenu({
   }
 
   function renderQuickFav(fav) {
+    const visibleChildren = fav.node?.children || [];
+    const hasChildren = !!visibleChildren.length;
     const isDropSpot = dropSpot?.href == fav.href;
     const dropClass = isDropSpot
       ? dropSpot.placeAfter
@@ -461,54 +464,97 @@ function NavbarWalletMenu({
       : "";
 
     return (
-      <span
-        className={`navQuickFav${dragHref == fav.href ? " dragging" : ""}${dropClass}`}
-        draggable
+      <HoverMenu
+        className={`navQuickFav${hasChildren ? " hasChildren" : ""}${
+          dragHref == fav.href ? " dragging" : ""
+        }${dropClass}`}
+        disabled={!hasChildren}
         key={fav.href}
-        onDragStart={(e) => {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", fav.href);
-          setDragHref(fav.href);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          const rect = e.currentTarget.getBoundingClientRect();
-          updateDropSpot(fav.href, e.clientX > rect.left + rect.width / 2);
-        }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget)) {
-            setDropSpot((prev) => (prev?.href == fav.href ? null : prev));
-          }
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          const rect = e.currentTarget.getBoundingClientRect();
-          const placeAfter = e.clientX > rect.left + rect.width / 2;
-          moveFav(e.dataTransfer.getData("text/plain"), fav.href, placeAfter);
-          setDragHref("");
-          setDropSpot(null);
-        }}
-        onDragEnd={() => {
-          setDragHref("");
-          setDropSpot(null);
-        }}
       >
-        <Link href={fav.href}>{fav.label}</Link>
-        <span className="navQuickFavCard">
-          <button
-            type="button"
-            className="navQuickUnfav"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              toggleFav(fav);
-            }}
+        <span
+          className="navQuickFavTrigger"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", fav.href);
+            setDragHref(fav.href);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            const rect = e.currentTarget.getBoundingClientRect();
+            updateDropSpot(fav.href, e.clientX > rect.left + rect.width / 2);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) {
+              setDropSpot((prev) =>
+                prev?.href == fav.href ? null : prev,
+              );
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            const placeAfter = e.clientX > rect.left + rect.width / 2;
+            moveFav(e.dataTransfer.getData("text/plain"), fav.href, placeAfter);
+            setDragHref("");
+            setDropSpot(null);
+          }}
+          onDragEnd={() => {
+            setDragHref("");
+            setDropSpot(null);
+          }}
+        >
+          <Link
+            href={fav.href}
+            title={fav.title}
+            className={`navQuickFavLink${
+              hasChildren ? " navigationMenuTrigger" : ""
+            }`}
           >
-            ★ unfav <span className="gray">{fav.href}</span>
-          </button>
+            {fav.label}
+          </Link>
+          {hasChildren && (
+            <button
+              type="button"
+              className="navigationMenuTrigger navQuickFavToggle"
+              aria-label={`${fav.label} options`}
+              aria-haspopup="menu"
+            >
+              <span className="navQuickFavCaret"></span>
+            </button>
+          )}
+          <span className="navQuickFavCard">
+            <button
+              type="button"
+              className="navQuickUnfav"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleFav(fav);
+              }}
+            >
+              ★ unfav <span className="gray">{fav.href}</span>
+            </button>
+          </span>
         </span>
-      </span>
+        {hasChildren && (
+          <div className="navigationMenuPanel dropdown-content navMenuTree navQuickFavMenu">
+            {visibleChildren.map((child) => (
+              <WalletNavNode
+                key={`${child.walletType}:${child.type}:${child.filePath}:${
+                  child.walletName ?? ""
+                }`}
+                node={child}
+                routeBase={routeBase}
+                favHrefM={favHrefM}
+                onToggleFav={toggleFav}
+                onDeleteEmpty={deleteEmptyNode}
+              />
+            ))}
+          </div>
+        )}
+      </HoverMenu>
     );
   }
 
