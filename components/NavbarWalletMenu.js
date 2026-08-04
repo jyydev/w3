@@ -10,6 +10,10 @@ import { deleteEmptyWalletPath } from "@/app/w/walletActions";
 import FavoriteButton from "./FavoriteButton";
 import HoverMenu from "./HoverMenu";
 import {
+  NavbarSortableRow,
+  useNavbarTreeSorting,
+} from "./NavbarTreeSorting";
+import {
   deleteLocalEditorFile,
   listLocalWalletFileRecords,
   localEditorStorageEvent,
@@ -210,6 +214,18 @@ export function mergeTrees(baseTree = [], localTree = []) {
   });
 }
 
+function addNavbarSortIds(tree = []) {
+  return tree.map((node) => ({
+    ...node,
+    navbarSortId: [
+      node.walletType || "wallet",
+      node.filePath || "",
+      node.walletName || "",
+    ].join(":"),
+    children: addNavbarSortIds(node.children || []),
+  }));
+}
+
 function normalizeFavs(favs = [], validHrefM = new Map()) {
   const seen = new Set();
 
@@ -226,6 +242,8 @@ function normalizeFavs(favs = [], validHrefM = new Map()) {
 
 function WalletNavNode({
   node,
+  siblings,
+  sorting,
   routeBase,
   favHrefM,
   onToggleFav,
@@ -265,49 +283,61 @@ function WalletNavNode({
 
   if (!hasChildren) {
     return (
-      <div className="navMenuRow navLeafRow">
-        <Link
-          href={fav.href}
-          title={fav.title}
-          className={node.type == "wallet" ? "walletLeaf" : ""}
-        >
-          {node.label}
-        </Link>
-        {favButton}
-        {trashButton}
-      </div>
+      <NavbarSortableRow
+        entry={node}
+        siblings={siblings}
+        sorting={sorting}
+      >
+        <div className="navMenuRow navLeafRow">
+          <Link
+            href={fav.href}
+            title={fav.title}
+            className={node.type == "wallet" ? "walletLeaf" : ""}
+          >
+            {node.label}
+          </Link>
+          {favButton}
+          {trashButton}
+        </div>
+      </NavbarSortableRow>
     );
   }
 
   return (
-    <HoverMenu className="navSubmenu">
-      <div className="navMenuRow">
-        <Link
-          href={fav.href}
-          title={fav.title}
-          className="navigationMenuTrigger"
-        >
-          {node.label}
-        </Link>
-        {favButton}
-        {trashButton}
-        <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
-      </div>
-      <div className="navigationMenuPanel navSubmenuContent">
-        {visibleChildren.map((child) => (
-          <WalletNavNode
-            key={`${child.walletType}:${child.type}:${child.filePath}:${
-              child.walletName ?? ""
-            }`}
-            node={child}
-            routeBase={routeBase}
-            favHrefM={favHrefM}
-            onToggleFav={onToggleFav}
-            onDeleteEmpty={onDeleteEmpty}
-          />
-        ))}
-      </div>
-    </HoverMenu>
+    <NavbarSortableRow
+      entry={node}
+      siblings={siblings}
+      sorting={sorting}
+    >
+      <HoverMenu className="navSubmenu">
+        <div className="navMenuRow">
+          <Link
+            href={fav.href}
+            title={fav.title}
+            className="navigationMenuTrigger"
+          >
+            {node.label}
+          </Link>
+          {favButton}
+          {trashButton}
+          <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
+        </div>
+        <div className="navigationMenuPanel navSubmenuContent">
+          {visibleChildren.map((child) => (
+            <WalletNavNode
+              key={child.navbarSortKey}
+              node={child}
+              siblings={visibleChildren}
+              sorting={sorting}
+              routeBase={routeBase}
+              favHrefM={favHrefM}
+              onToggleFav={onToggleFav}
+              onDeleteEmpty={onDeleteEmpty}
+            />
+          ))}
+        </div>
+      </HoverMenu>
+    </NavbarSortableRow>
   );
 }
 
@@ -323,6 +353,7 @@ function NavbarWalletMenu({
   tree = [],
   cookieName,
   initialFavs = [],
+  initialOrderM = {},
 }) {
   const router = useRouter();
   const [localTree, setLocalTree] = useState([]);
@@ -330,9 +361,18 @@ function NavbarWalletMenu({
     () => mergeTrees(tree, localTree),
     [tree, localTree],
   );
+  const sortableTree = useMemo(
+    () => addNavbarSortIds(mergedTree),
+    [mergedTree],
+  );
+  const { orderedEntries: orderedTree, sorting } = useNavbarTreeSorting({
+    entries: sortableTree,
+    scope: cookieName || routeBase,
+    initialOrderM,
+  });
   const validFavs = useMemo(
-    () => flattenFavs(mergedTree, routeBase),
-    [routeBase, mergedTree],
+    () => flattenFavs(orderedTree, routeBase),
+    [routeBase, orderedTree],
   );
   const validHrefM = useMemo(
     () => new Map(validFavs.map((fav) => [fav.href, fav])),
@@ -542,10 +582,10 @@ function NavbarWalletMenu({
           <div className="navigationMenuPanel dropdown-content navMenuTree navQuickFavMenu">
             {visibleChildren.map((child) => (
               <WalletNavNode
-                key={`${child.walletType}:${child.type}:${child.filePath}:${
-                  child.walletName ?? ""
-                }`}
+                key={child.navbarSortKey}
                 node={child}
+                siblings={visibleChildren}
+                sorting={sorting}
                 routeBase={routeBase}
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
@@ -569,11 +609,13 @@ function NavbarWalletMenu({
           <i className="custom-caret"></i>
         </Link>
         <div className="navigationMenuPanel dropdown-content navMenuTree">
-          {mergedTree.length ? (
-            mergedTree.map((node) => (
+          {orderedTree.length ? (
+            orderedTree.map((node) => (
               <WalletNavNode
-                key={`${routeBase}:${node.walletType}`}
+                key={node.navbarSortKey}
                 node={node}
+                siblings={orderedTree}
+                sorting={sorting}
                 routeBase={routeBase}
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}

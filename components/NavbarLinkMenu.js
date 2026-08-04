@@ -8,6 +8,10 @@ import {
   saveLocalNavFavs,
 } from "@/app/_editorData/browserEditorStorage";
 import HoverMenu from "./HoverMenu";
+import {
+  NavbarSortableRow,
+  useNavbarTreeSorting,
+} from "./NavbarTreeSorting";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
@@ -87,9 +91,24 @@ function FavButton({ active, onClick }) {
   );
 }
 
-function NavbarLinkNode({ entry, favHrefM, onToggleFav }) {
+function NavbarLinkNode({
+  entry,
+  siblings,
+  sorting,
+  favHrefM,
+  onToggleFav,
+  favoritesEnabled,
+}) {
   if (entry.type == "section") {
-    return <div className="section">{entry.label}</div>;
+    return (
+      <NavbarSortableRow
+        entry={entry}
+        siblings={siblings}
+        sorting={sorting}
+      >
+        <div className="section">{entry.label}</div>
+      </NavbarSortableRow>
+    );
   }
 
   const hasChildren = !!entry.children?.length;
@@ -114,7 +133,7 @@ function NavbarLinkNode({ entry, favHrefM, onToggleFav }) {
       {entry.label}
     </span>
   );
-  const favButton = fav ? (
+  const favButton = favoritesEnabled && fav ? (
     <FavButton
       active={favHrefM.has(fav.href)}
       onClick={(e) => {
@@ -127,31 +146,46 @@ function NavbarLinkNode({ entry, favHrefM, onToggleFav }) {
 
   if (!hasChildren) {
     return (
-      <div className="navMenuRow navLeafRow">
-        {content}
-        {favButton}
-      </div>
+      <NavbarSortableRow
+        entry={entry}
+        siblings={siblings}
+        sorting={sorting}
+      >
+        <div className="navMenuRow navLeafRow">
+          {content}
+          {favButton}
+        </div>
+      </NavbarSortableRow>
     );
   }
 
   return (
-    <HoverMenu className="navSubmenu">
-      <div className="navMenuRow">
-        {content}
-        {favButton}
-        <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
-      </div>
-      <div className="navigationMenuPanel navSubmenuContent">
-        {entry.children.map((child) => (
-          <NavbarLinkNode
-            key={child.href || `${child.type}:${child.value}:${child.label}`}
-            entry={child}
-            favHrefM={favHrefM}
-            onToggleFav={onToggleFav}
-          />
-        ))}
-      </div>
-    </HoverMenu>
+    <NavbarSortableRow
+      entry={entry}
+      siblings={siblings}
+      sorting={sorting}
+    >
+      <HoverMenu className="navSubmenu">
+        <div className="navMenuRow">
+          {content}
+          {favButton}
+          <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
+        </div>
+        <div className="navigationMenuPanel navSubmenuContent">
+          {entry.children.map((child) => (
+            <NavbarLinkNode
+              key={child.navbarSortKey}
+              entry={child}
+              siblings={entry.children}
+              sorting={sorting}
+              favHrefM={favHrefM}
+              onToggleFav={onToggleFav}
+              favoritesEnabled={favoritesEnabled}
+            />
+          ))}
+        </div>
+      </HoverMenu>
+    </NavbarSortableRow>
   );
 }
 
@@ -161,14 +195,22 @@ function NavbarLinkMenu({
   items = [],
   cookieName,
   initialFavs = [],
+  orderScope = cookieName,
+  initialOrderM = {},
 }) {
   const entries = useMemo(() => items.map(getLinkEntry), [items]);
+  const favoritesEnabled = !!cookieName;
+  const { orderedEntries, sorting } = useNavbarTreeSorting({
+    entries,
+    scope: orderScope || title || "links",
+    initialOrderM,
+  });
   const validFavs = useMemo(
     () =>
-      flattenLinkEntries(entries).filter(
+      flattenLinkEntries(orderedEntries).filter(
         (entry) => entry.href && !entry.disabled,
       ),
-    [entries],
+    [orderedEntries],
   );
   const validHrefM = useMemo(
     () => new Map(validFavs.map((fav) => [fav.href, fav])),
@@ -177,15 +219,24 @@ function NavbarLinkMenu({
   const [favs, setFavs] = useState(initialFavs);
   const [dragHref, setDragHref] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
-  const visibleFavs = normalizeFavs(favs, validHrefM);
+  const visibleFavs = favoritesEnabled
+    ? normalizeFavs(favs, validHrefM)
+    : [];
   const favHrefM = new Map(visibleFavs.map((fav) => [fav.href, fav]));
 
   useEffect(() => {
+    if (!favoritesEnabled) {
+      setFavs([]);
+      return;
+    }
+
     const localFavs = readLocalNavFavs(cookieName);
     setFavs(localFavs === null ? initialFavs : localFavs);
-  }, [cookieName, initialFavs]);
+  }, [cookieName, favoritesEnabled, initialFavs]);
 
   function saveFavs(nextFavs) {
+    if (!favoritesEnabled) return;
+
     saveLocalNavFavs(cookieName, nextFavs);
     setCookie(cookieName, encodeFavs(nextFavs), {
       maxAge: cookieMaxAge,
@@ -324,13 +375,13 @@ function NavbarLinkMenu({
           <div className="navigationMenuPanel dropdown-content navMenuTree navQuickFavMenu">
             {fav.children.map((child) => (
               <NavbarLinkNode
-                key={
-                  child.href ||
-                  `${child.type}:${child.value}:${child.label}`
-                }
+                key={child.navbarSortKey}
                 entry={child}
+                siblings={fav.children}
+                sorting={sorting}
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
+                favoritesEnabled={favoritesEnabled}
               />
             ))}
           </div>
@@ -341,7 +392,7 @@ function NavbarLinkMenu({
 
   return (
     <div className="walletNavGroup">
-      <HoverMenu className="dropdown title">
+      <HoverMenu className={title ? "dropdown title" : "dropdown"}>
         {titleHref ? (
           <Link
             className="navigationMenuTrigger dropbtn navTitleLink"
@@ -357,12 +408,15 @@ function NavbarLinkMenu({
           </button>
         )}
         <div className="navigationMenuPanel dropdown-content navMenuTree">
-          {entries.map((entry) => (
+          {orderedEntries.map((entry) => (
             <NavbarLinkNode
-              key={entry.href || `${entry.type}:${entry.value}:${entry.label}`}
+              key={entry.navbarSortKey}
               entry={entry}
+              siblings={orderedEntries}
+              sorting={sorting}
               favHrefM={favHrefM}
               onToggleFav={toggleFav}
+              favoritesEnabled={favoritesEnabled}
             />
           ))}
         </div>

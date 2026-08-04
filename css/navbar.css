@@ -21,6 +21,74 @@
   display: table;
   clear: both;
 }
+
+.navSortableTop {
+  position: relative;
+  float: left;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.navSortableTop:active {
+  cursor: grabbing;
+}
+
+.navSortableTop > .walletNavGroup {
+  float: none;
+}
+
+.navSortableTop > a,
+.navSortableTop > .tx,
+.navSortableTop > .navbarHomeLink > a,
+.navSortableTop > .walletNavGroup > .dropdown > .dropbtn {
+  cursor: grab;
+}
+
+.navSortableTop:active > a,
+.navSortableTop:active > .tx,
+.navSortableTop:active > .navbarHomeLink > a,
+.navSortableTop:active > .walletNavGroup > .dropdown > .dropbtn {
+  cursor: grabbing;
+}
+
+.navSortableTop.dragging {
+  opacity: 0.45;
+  transform: scale(0.96);
+}
+
+.navSortableTop.dropBefore::before,
+.navSortableTop.dropAfter::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--orange);
+  box-shadow: 0 0 8px rgba(255, 145, 0, 0.65);
+  z-index: 95;
+}
+
+.navSortableTop.dropBefore::before {
+  left: -2px;
+}
+
+.navSortableTop.dropAfter::after {
+  right: -2px;
+}
+
+.navbarHomeLink {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.navbar .navbarHomeLink > a {
+  float: none;
+}
 .navbar a,
 .navbar .tx {
   float: left;
@@ -122,6 +190,48 @@
   display: flex;
   align-items: center;
   background-color: #222;
+}
+
+.navSortableRow {
+  position: relative;
+}
+
+.navSortableRow.sortable,
+.navSortableRow.sortable .navMenuRow,
+.navSortableRow.sortable .section,
+.navSortableRow.sortable .navMenuRow > a {
+  cursor: grab;
+}
+
+.navSortableRow.sortable:active,
+.navSortableRow.sortable:active .navMenuRow,
+.navSortableRow.sortable:active .section,
+.navSortableRow.sortable:active .navMenuRow > a {
+  cursor: grabbing;
+}
+
+.navSortableRow.dragging {
+  opacity: 0.45;
+}
+
+.navSortableRow.dropBefore::before,
+.navSortableRow.dropAfter::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--orange);
+  box-shadow: 0 0 8px rgba(255, 145, 0, 0.65);
+  z-index: 95;
+}
+
+.navSortableRow.dropBefore::before {
+  top: -1px;
+}
+
+.navSortableRow.dropAfter::after {
+  bottom: -1px;
 }
 
 .navMenuRow a {
