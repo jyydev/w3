@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_OPTIONS=--disable-warning=MaxListenersExceededWarning next dev -p 6",
+    "dev": "next dev",
+    "d": "NODE_OPTIONS=--disable-warning=MaxListenersExceededWarning next dev -p 3",
     "build": "next build",
     "start": "next start -p 6",
     "lint": "eslint --cache --cache-location node_modules/.cache/eslint/.eslintcache ."
