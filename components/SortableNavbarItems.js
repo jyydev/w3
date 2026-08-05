@@ -13,12 +13,16 @@ import {
   rootNavbarSortPath,
   saveLocalNavbarOrder,
 } from "./navbarSorting";
+import { NavbarHideButton } from "./navbarVisibility";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
+const emptyHiddenKeys = new Set();
 
 export default function SortableNavbarItems({
   scope,
   initialOrderM = {},
+  firstItemFixed = false,
+  visibility,
   children,
 }) {
   const cookieName = getNavbarOrderCookie(scope);
@@ -87,6 +91,15 @@ export default function SortableNavbarItems({
 
   return orderedItems.map((item) => {
     const key = item.navbarSortKey;
+    const titleVisibilityKey = item.child?.props?.titleVisibilityKey || "";
+    const hideable = !(
+      firstItemFixed && item.navbarSortDefaultIndex == 0
+    );
+    const hiddenKey = titleVisibilityKey || `top:${key}`;
+    const hiddenKeys = visibility?.hiddenKeys ?? emptyHiddenKeys;
+    const hidden = hideable && hiddenKeys.has(hiddenKey);
+    if (hidden && !visibility?.showHidden) return null;
+
     const isDropSpot = dropSpot?.key == key;
     const dropClass = isDropSpot
       ? dropSpot.placeAfter
@@ -97,7 +110,9 @@ export default function SortableNavbarItems({
     return (
       <div
         key={key}
-        className={`navSortableTop${dragKey == key ? " dragging" : ""}${dropClass}`}
+        className={`navSortableTop${dragKey == key ? " dragging" : ""}${
+          hidden ? " navItemHidden" : ""
+        }${dropClass}`}
         draggable={sortable || undefined}
         onDragStart={(event) => {
           if (
@@ -151,6 +166,20 @@ export default function SortableNavbarItems({
         }}
       >
         {item.child}
+        {hideable && !titleVisibilityKey && visibility?.toggleHidden && (
+          <span className="navQuickFavCard navTopHideCard">
+            <NavbarHideButton
+              hidden={hidden}
+              label="navbar link"
+              className="navTopHideButton"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                visibility.toggleHidden(hiddenKey);
+              }}
+            />
+          </span>
+        )}
       </div>
     );
   });

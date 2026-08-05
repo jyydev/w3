@@ -14,6 +14,11 @@ import {
   useNavbarTreeSorting,
 } from "./NavbarTreeSorting";
 import {
+  NavbarHideButton,
+  getNavbarVisibilityKey,
+  useNavbarVisibilityContext,
+} from "./navbarVisibility";
+import {
   deleteLocalEditorFile,
   listLocalWalletFileRecords,
   localEditorStorageEvent,
@@ -248,7 +253,14 @@ function WalletNavNode({
   favHrefM,
   onToggleFav,
   onDeleteEmpty,
+  visibility,
+  visibilityScope,
 }) {
+  const visibilityKey = getNavbarVisibilityKey(visibilityScope, node);
+  const hidden =
+    !!visibility?.toggleHidden && visibility.hiddenKeys.has(visibilityKey);
+  if (hidden && !visibility.showHidden) return null;
+
   const visibleChildren = node.children || [];
   const hasChildren = !!visibleChildren.length;
   const fav = getFavEntry(routeBase, node);
@@ -280,6 +292,17 @@ function WalletNavNode({
       <TrashIcon />
     </button>
   ) : null;
+  const hideButton = visibility?.toggleHidden ? (
+    <NavbarHideButton
+      hidden={hidden}
+      label={node.label}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        visibility.toggleHidden(visibilityKey);
+      }}
+    />
+  ) : null;
 
   if (!hasChildren) {
     return (
@@ -288,7 +311,9 @@ function WalletNavNode({
         siblings={siblings}
         sorting={sorting}
       >
-        <div className="navMenuRow navLeafRow">
+        <div
+          className={`navMenuRow navLeafRow${hidden ? " navItemHidden" : ""}`}
+        >
           <Link
             href={fav.href}
             title={fav.title}
@@ -297,6 +322,7 @@ function WalletNavNode({
             {node.label}
           </Link>
           {favButton}
+          {hideButton}
           {trashButton}
         </div>
       </NavbarSortableRow>
@@ -310,7 +336,7 @@ function WalletNavNode({
       sorting={sorting}
     >
       <HoverMenu className="navSubmenu">
-        <div className="navMenuRow">
+        <div className={`navMenuRow${hidden ? " navItemHidden" : ""}`}>
           <Link
             href={fav.href}
             title={fav.title}
@@ -319,6 +345,7 @@ function WalletNavNode({
             {node.label}
           </Link>
           {favButton}
+          {hideButton}
           {trashButton}
           <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
         </div>
@@ -333,6 +360,8 @@ function WalletNavNode({
               favHrefM={favHrefM}
               onToggleFav={onToggleFav}
               onDeleteEmpty={onDeleteEmpty}
+              visibility={visibility}
+              visibilityScope={visibilityScope}
             />
           ))}
         </div>
@@ -355,6 +384,8 @@ function NavbarWalletMenu({
   initialFavs = [],
   initialOrderM = {},
 }) {
+  const visibility = useNavbarVisibilityContext();
+  const visibilityScope = `menu:${cookieName || routeBase || title || "wallets"}`;
   const router = useRouter();
   const [localTree, setLocalTree] = useState([]);
   const mergedTree = useMemo(
@@ -494,6 +525,11 @@ function NavbarWalletMenu({
   }
 
   function renderQuickFav(fav) {
+    const visibilityKey = getNavbarVisibilityKey(visibilityScope, fav.node);
+    const hidden =
+      !!visibility?.toggleHidden && visibility.hiddenKeys.has(visibilityKey);
+    if (hidden && !visibility.showHidden) return null;
+
     const visibleChildren = fav.node?.children || [];
     const hasChildren = !!visibleChildren.length;
     const isDropSpot = dropSpot?.href == fav.href;
@@ -506,6 +542,8 @@ function NavbarWalletMenu({
     return (
       <HoverMenu
         className={`navQuickFav${hasChildren ? " hasChildren" : ""}${
+          hidden ? " navItemHidden" : ""
+        }${
           dragHref == fav.href ? " dragging" : ""
         }${dropClass}`}
         disabled={!hasChildren}
@@ -590,6 +628,8 @@ function NavbarWalletMenu({
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
                 onDeleteEmpty={deleteEmptyNode}
+                visibility={visibility}
+                visibilityScope={visibilityScope}
               />
             ))}
           </div>
@@ -597,6 +637,8 @@ function NavbarWalletMenu({
       </HoverMenu>
     );
   }
+
+  const quickFavs = visibleFavs.map(renderQuickFav).filter(Boolean);
 
   return (
     <div className="walletNavGroup">
@@ -620,6 +662,8 @@ function NavbarWalletMenu({
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
                 onDeleteEmpty={deleteEmptyNode}
+                visibility={visibility}
+                visibilityScope={visibilityScope}
               />
             ))
           ) : (
@@ -627,8 +671,8 @@ function NavbarWalletMenu({
           )}
         </div>
       </HoverMenu>
-      {!!visibleFavs.length && (
-        <div className="navQuickFavs">{visibleFavs.map(renderQuickFav)}</div>
+      {!!quickFavs.length && (
+        <div className="navQuickFavs">{quickFavs}</div>
       )}
     </div>
   );

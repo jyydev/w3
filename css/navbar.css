@@ -111,6 +111,41 @@
   outline: none;
 }
 
+.navHiddenToggle {
+  position: relative;
+  float: left;
+  display: inline-flex;
+  align-items: center;
+}
+
+.navHiddenToggleButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: #888;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.navHiddenToggleButton svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  transform: translateY(3px);
+}
+
+.navHiddenToggleButton:hover,
+.navHiddenToggleButton:focus-visible,
+.navHiddenToggleButton.active {
+  color: var(--orange);
+  background: #222;
+  outline: none;
+}
+
 .navbarHomeLink {
   position: relative;
   display: inline-flex;
@@ -318,6 +353,46 @@
   color: var(--orange);
 }
 
+.navHideBtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #777;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.navHideBtn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.navHideBtn:hover,
+.navHideBtn:focus-visible,
+.navHideBtn.active {
+  color: var(--orange);
+  outline: none;
+}
+
+.navMenuRow.navItemHidden,
+.navQuickFav.navItemHidden > .navQuickFavTrigger,
+.navSortableTop.navItemHidden
+  > .walletNavGroup
+  > .dropdown
+  > .dropbtn,
+.navSortableTop.navItemHidden
+  > .walletNavGroup
+  > .navQuickFavs
+  .navQuickFavTrigger {
+  opacity: 0.42;
+}
+
 .navMenuAddRow {
   display: flex;
   min-width: 150px;
@@ -522,11 +597,68 @@
   display: block;
 }
 
+.navHiddenResetCard {
+  left: 0;
+  max-width: none;
+}
+
+.navHiddenToggle:hover > .navHiddenResetCard,
+.navHiddenToggle:focus-within > .navHiddenResetCard,
+.navHiddenResetCard:hover {
+  display: block;
+}
+
+.navHiddenResetButton {
+  display: block;
+  width: max-content;
+  border: 0;
+  background: transparent;
+  color: var(--orange);
+  padding: 0;
+  font-size: 9px;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.navHiddenResetButton:hover {
+  color: white;
+}
+
+.navHiddenResetButton:disabled {
+  color: #666;
+  cursor: default;
+}
+
+.navTopHideCard {
+  right: auto;
+  left: 0;
+  padding: 1px;
+}
+
+.navSortableTop:hover > .navTopHideCard,
+.navSortableTop:focus-within > .navTopHideCard,
+.navTopHideCard:hover {
+  display: block;
+}
+
+.navTopHideButton {
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+}
+
+.navTopHideButton svg {
+  width: 14px;
+  height: 14px;
+}
+
 .navCustomTitleGroup {
   position: relative;
 }
 
 .navCustomTitleCard {
+  align-items: center;
+  gap: 2px;
   left: var(--navleftSpace);
   max-width: 200px;
 }
@@ -535,7 +667,7 @@
 .navCustomTitleMenu:focus-within + .navCustomTitleCard,
 .navCustomTitleCard:hover,
 .navCustomTitleCard:focus-within {
-  display: block;
+  display: flex;
 }
 
 .navCustomTitleRemove {
@@ -568,6 +700,17 @@
 
 .navCustomTitleRemove:hover {
   color: white;
+}
+
+.navCustomTitleHideButton {
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+}
+
+.navCustomTitleHideButton svg {
+  width: 14px;
+  height: 14px;
 }
 
 .navQuickFavTitle {

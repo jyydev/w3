@@ -13,6 +13,11 @@ import {
   NavbarSortableRow,
   useNavbarTreeSorting,
 } from "./NavbarTreeSorting";
+import {
+  NavbarHideButton,
+  getNavbarVisibilityKey,
+  useNavbarVisibilityContext,
+} from "./navbarVisibility";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 const emptyFavs = [];
@@ -139,6 +144,8 @@ function NavbarLinkNode({
   favoritesEnabled,
   onAddChild,
   onRemoveItem,
+  visibility,
+  visibilityScope,
 }) {
   if (entry.type == "section") {
     return (
@@ -151,6 +158,11 @@ function NavbarLinkNode({
       </NavbarSortableRow>
     );
   }
+
+  const visibilityKey = getNavbarVisibilityKey(visibilityScope, entry);
+  const hidden =
+    !!visibility?.toggleHidden && visibility.hiddenKeys.has(visibilityKey);
+  if (hidden && !visibility.showHidden) return null;
 
   const hasChildren = !!entry.children?.length;
   const canAddChildren = !!entry.id && typeof onAddChild == "function";
@@ -203,6 +215,17 @@ function NavbarLinkNode({
       <TrashIcon />
     </button>
   ) : null;
+  const hideButton = visibility?.toggleHidden ? (
+    <NavbarHideButton
+      hidden={hidden}
+      label={entry.label}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        visibility.toggleHidden(visibilityKey);
+      }}
+    />
+  ) : null;
 
   if (!hasSubmenu) {
     return (
@@ -211,9 +234,12 @@ function NavbarLinkNode({
         siblings={siblings}
         sorting={sorting}
       >
-        <div className="navMenuRow navLeafRow">
+        <div
+          className={`navMenuRow navLeafRow${hidden ? " navItemHidden" : ""}`}
+        >
           {content}
           {favButton}
+          {hideButton}
           {trashButton}
         </div>
       </NavbarSortableRow>
@@ -227,9 +253,10 @@ function NavbarLinkNode({
       sorting={sorting}
     >
       <HoverMenu className="navSubmenu">
-        <div className="navMenuRow">
+        <div className={`navMenuRow${hidden ? " navItemHidden" : ""}`}>
           {content}
           {favButton}
+          {hideButton}
           {trashButton}
           <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
         </div>
@@ -245,6 +272,8 @@ function NavbarLinkNode({
               favoritesEnabled={favoritesEnabled}
               onAddChild={onAddChild}
               onRemoveItem={onRemoveItem}
+              visibility={visibility}
+              visibilityScope={visibilityScope}
             />
           ))}
           {canAddChildren && (
@@ -268,9 +297,12 @@ function NavbarLinkMenu({
   onAddChild,
   onRemoveItem,
   onRemoveTitle,
+  titleVisibilityKey = "",
 }) {
+  const visibility = useNavbarVisibilityContext();
   const entries = useMemo(() => items.map(getLinkEntry), [items]);
   const favoritesEnabled = !!cookieName;
+  const visibilityScope = `menu:${cookieName || orderScope || titleHref || title || "links"}`;
   const initialFavsText = JSON.stringify(cleanFavs(initialFavs));
   const { orderedEntries, sorting } = useNavbarTreeSorting({
     entries,
@@ -376,6 +408,11 @@ function NavbarLinkMenu({
   }
 
   function renderQuickFav(fav) {
+    const visibilityKey = getNavbarVisibilityKey(visibilityScope, fav);
+    const hidden =
+      !!visibility?.toggleHidden && visibility.hiddenKeys.has(visibilityKey);
+    if (hidden && !visibility.showHidden) return null;
+
     const canAddChildren = !!fav.id && typeof onAddChild == "function";
     const hasChildren = !!fav.children?.length || canAddChildren;
     const isDropSpot = dropSpot?.href == fav.href;
@@ -388,6 +425,8 @@ function NavbarLinkMenu({
     return (
       <HoverMenu
         className={`navQuickFav${hasChildren ? " hasChildren" : ""}${
+          hidden ? " navItemHidden" : ""
+        }${
           dragHref == fav.href ? " dragging" : ""
         }${dropClass}`}
         disabled={!hasChildren}
@@ -474,6 +513,8 @@ function NavbarLinkMenu({
                 favoritesEnabled={favoritesEnabled}
                 onAddChild={onAddChild}
                 onRemoveItem={removeItem}
+                visibility={visibility}
+                visibilityScope={visibilityScope}
               />
             ))}
             {canAddChildren && (
@@ -485,7 +526,12 @@ function NavbarLinkMenu({
     );
   }
 
+  const quickFavs = visibleFavs.map(renderQuickFav).filter(Boolean);
   const titleRemovable = typeof onRemoveTitle == "function";
+  const titleHidden =
+    !!titleVisibilityKey &&
+    !!visibility?.toggleHidden &&
+    visibility.hiddenKeys.has(titleVisibilityKey);
 
   return (
     <div
@@ -523,6 +569,8 @@ function NavbarLinkMenu({
               favoritesEnabled={favoritesEnabled}
               onAddChild={onAddChild}
               onRemoveItem={removeItem}
+              visibility={visibility}
+              visibilityScope={visibilityScope}
             />
           ))}
           {!!addChildParentId && typeof onAddChild == "function" && (
@@ -547,10 +595,22 @@ function NavbarLinkMenu({
             <TrashIcon />
             <span className="gray">{titleHref}</span>
           </button>
+          {!!titleVisibilityKey && visibility?.toggleHidden && (
+            <NavbarHideButton
+              hidden={titleHidden}
+              label={title}
+              className="navCustomTitleHideButton"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                visibility.toggleHidden(titleVisibilityKey);
+              }}
+            />
+          )}
         </span>
       )}
-      {!!visibleFavs.length && (
-        <div className="navQuickFavs">{visibleFavs.map(renderQuickFav)}</div>
+      {!!quickFavs.length && (
+        <div className="navQuickFavs">{quickFavs}</div>
       )}
     </div>
   );

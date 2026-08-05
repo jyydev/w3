@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { ckPrefix } from "@/sets";
 import NavbarLinkMenu from "./NavbarLinkMenu";
 import SortableNavbarItems from "./SortableNavbarItems";
+import {
+  NavbarVisibilityProvider,
+  NavbarVisibilityToggle,
+  useNavbarVisibility,
+} from "./navbarVisibility";
 
 const storagePrefix = `${ckPrefix ?? ""}navCustomLinks:`;
 const favoriteCookiePrefix = `${ckPrefix ?? ""}navCustomFav_`;
@@ -187,26 +192,38 @@ export default function NavbarCustomLinks({
   children,
 }) {
   const { links, addLink, removeLink } = useNavbarCustomLinks(scope);
+  const visibility = useNavbarVisibility(scope);
 
   return (
-    <>
-      <SortableNavbarItems scope={scope} initialOrderM={initialOrderM}>
+    <NavbarVisibilityProvider visibility={visibility}>
+      <NavbarVisibilityToggle visibility={visibility} />
+      <SortableNavbarItems
+        scope={scope}
+        initialOrderM={initialOrderM}
+        firstItemFixed
+        visibility={visibility}
+      >
         {children}
-        {links.map((link) => (
-          <NavbarLinkMenu
-            key={`custom:${link.id}`}
-            title={link.label}
-            titleHref={link.href}
-            items={link.children}
-            cookieName={`${favoriteCookiePrefix}${link.id}`}
-            addChildParentId={link.id}
-            onAddChild={addLink}
-            onRemoveItem={removeLink}
-            onRemoveTitle={() => removeLink(link.id)}
-          />
-        ))}
+        {links.map((link) => {
+          const titleVisibilityKey = `top:custom:${link.id}`;
+
+          return (
+            <NavbarLinkMenu
+              key={`custom:${link.id}`}
+              title={link.label}
+              titleHref={link.href}
+              items={link.children}
+              cookieName={`${favoriteCookiePrefix}${link.id}`}
+              addChildParentId={link.id}
+              onAddChild={addLink}
+              onRemoveItem={removeLink}
+              onRemoveTitle={() => removeLink(link.id)}
+              titleVisibilityKey={titleVisibilityKey}
+            />
+          );
+        })}
       </SortableNavbarItems>
       <NavbarAddButton onClick={() => addLink()} />
-    </>
+    </NavbarVisibilityProvider>
   );
 }
