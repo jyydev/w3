@@ -7,6 +7,7 @@ import {
   readLocalNavFavs,
   saveLocalNavFavs,
 } from "@/app/_editorData/browserEditorStorage";
+import { TrashIcon } from "@/components/Shared";
 import HoverMenu from "./HoverMenu";
 import {
   NavbarSortableRow,
@@ -14,12 +15,24 @@ import {
 } from "./NavbarTreeSorting";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
+const emptyFavs = [];
+
+function cleanFavs(favs = []) {
+  return (Array.isArray(favs) ? favs : [])
+    .filter((fav) => fav?.href && fav?.label)
+    .map((fav) => ({
+      href: String(fav.href),
+      label: String(fav.label),
+      title: String(fav.title || fav.href),
+    }));
+}
 
 function getLinkEntry(item) {
   if (item && typeof item == "object" && !Array.isArray(item)) {
     const href = item.href ? String(item.href) : "";
 
     return {
+      id: item.id ? String(item.id) : "",
       type: item.type || (!href && !item.children?.length ? "section" : ""),
       value: String(item.value || href || item.label || ""),
       href,
@@ -77,6 +90,12 @@ function encodeFavs(favs) {
   );
 }
 
+function getExternalLinkProps(href, custom = false) {
+  return custom && /^https?:\/\//i.test(String(href || ""))
+    ? { target: "_blank", rel: "noopener noreferrer" }
+    : {};
+}
+
 function FavButton({ active, onClick }) {
   return (
     <button
@@ -91,6 +110,26 @@ function FavButton({ active, onClick }) {
   );
 }
 
+function AddLinkButton({ onClick }) {
+  return (
+    <div className="navMenuAddRow">
+      <button
+        type="button"
+        className="navMenuAddButton"
+        title="add child link"
+        aria-label="add child link"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClick();
+        }}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 function NavbarLinkNode({
   entry,
   siblings,
@@ -98,6 +137,8 @@ function NavbarLinkNode({
   favHrefM,
   onToggleFav,
   favoritesEnabled,
+  onAddChild,
+  onRemoveItem,
 }) {
   if (entry.type == "section") {
     return (
@@ -112,6 +153,8 @@ function NavbarLinkNode({
   }
 
   const hasChildren = !!entry.children?.length;
+  const canAddChildren = !!entry.id && typeof onAddChild == "function";
+  const hasSubmenu = hasChildren || canAddChildren;
   const canNavigate = !!entry.href && !entry.disabled;
   const fav = canNavigate
     ? {
@@ -124,12 +167,13 @@ function NavbarLinkNode({
     <Link
       href={entry.href}
       title={entry.title}
-      className={hasChildren ? "navigationMenuTrigger" : ""}
+      className={hasSubmenu ? "navigationMenuTrigger" : ""}
+      {...getExternalLinkProps(entry.href, !!entry.id)}
     >
       {entry.label}
     </Link>
   ) : (
-    <span className={hasChildren ? "navigationMenuTrigger" : ""}>
+    <span className={hasSubmenu ? "navigationMenuTrigger" : ""}>
       {entry.label}
     </span>
   );
@@ -143,8 +187,24 @@ function NavbarLinkNode({
       }}
     />
   ) : null;
+  const trashButton = entry.id && typeof onRemoveItem == "function" ? (
+    <button
+      type="button"
+      className="navTrashBtn"
+      title="remove link"
+      aria-label={`remove ${entry.label}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!window.confirm(`Remove "${entry.label}"?`)) return;
+        onRemoveItem(entry);
+      }}
+    >
+      <TrashIcon />
+    </button>
+  ) : null;
 
-  if (!hasChildren) {
+  if (!hasSubmenu) {
     return (
       <NavbarSortableRow
         entry={entry}
@@ -154,6 +214,7 @@ function NavbarLinkNode({
         <div className="navMenuRow navLeafRow">
           {content}
           {favButton}
+          {trashButton}
         </div>
       </NavbarSortableRow>
     );
@@ -169,6 +230,7 @@ function NavbarLinkNode({
         <div className="navMenuRow">
           {content}
           {favButton}
+          {trashButton}
           <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
         </div>
         <div className="navigationMenuPanel navSubmenuContent">
@@ -181,8 +243,13 @@ function NavbarLinkNode({
               favHrefM={favHrefM}
               onToggleFav={onToggleFav}
               favoritesEnabled={favoritesEnabled}
+              onAddChild={onAddChild}
+              onRemoveItem={onRemoveItem}
             />
           ))}
+          {canAddChildren && (
+            <AddLinkButton onClick={() => onAddChild(entry.id)} />
+          )}
         </div>
       </HoverMenu>
     </NavbarSortableRow>
@@ -194,12 +261,17 @@ function NavbarLinkMenu({
   titleHref = "",
   items = [],
   cookieName,
-  initialFavs = [],
+  initialFavs = emptyFavs,
   orderScope = cookieName,
   initialOrderM = {},
+  addChildParentId = "",
+  onAddChild,
+  onRemoveItem,
+  onRemoveTitle,
 }) {
   const entries = useMemo(() => items.map(getLinkEntry), [items]);
   const favoritesEnabled = !!cookieName;
+  const initialFavsText = JSON.stringify(cleanFavs(initialFavs));
   const { orderedEntries, sorting } = useNavbarTreeSorting({
     entries,
     scope: orderScope || title || "links",
@@ -216,7 +288,7 @@ function NavbarLinkMenu({
     () => new Map(validFavs.map((fav) => [fav.href, fav])),
     [validFavs],
   );
-  const [favs, setFavs] = useState(initialFavs);
+  const [favs, setFavs] = useState(() => cleanFavs(initialFavs));
   const [dragHref, setDragHref] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
   const visibleFavs = favoritesEnabled
@@ -231,8 +303,10 @@ function NavbarLinkMenu({
     }
 
     const localFavs = readLocalNavFavs(cookieName);
-    setFavs(localFavs === null ? initialFavs : localFavs);
-  }, [cookieName, favoritesEnabled, initialFavs]);
+    setFavs(
+      localFavs === null ? cleanFavs(JSON.parse(initialFavsText)) : localFavs,
+    );
+  }, [cookieName, favoritesEnabled, initialFavsText]);
 
   function saveFavs(nextFavs) {
     if (!favoritesEnabled) return;
@@ -252,6 +326,20 @@ function NavbarLinkMenu({
 
     setFavs(next);
     saveFavs(next);
+  }
+
+  function removeItem(entry) {
+    const removedHrefs = new Set(
+      flattenLinkEntries([entry]).map((item) => item.href).filter(Boolean),
+    );
+    const clean = normalizeFavs(favs, validHrefM);
+    const nextFavs = clean.filter((fav) => !removedHrefs.has(fav.href));
+
+    if (nextFavs.length != clean.length) {
+      setFavs(nextFavs);
+      saveFavs(nextFavs);
+    }
+    onRemoveItem?.(entry.id);
   }
 
   function moveFav(dragHref, targetHref, placeAfter) {
@@ -288,7 +376,8 @@ function NavbarLinkMenu({
   }
 
   function renderQuickFav(fav) {
-    const hasChildren = !!fav.children?.length;
+    const canAddChildren = !!fav.id && typeof onAddChild == "function";
+    const hasChildren = !!fav.children?.length || canAddChildren;
     const isDropSpot = dropSpot?.href == fav.href;
     const dropClass = isDropSpot
       ? dropSpot.placeAfter
@@ -344,6 +433,7 @@ function NavbarLinkMenu({
             className={`navQuickFavLink${
               hasChildren ? " navigationMenuTrigger" : ""
             }`}
+            {...getExternalLinkProps(fav.href, !!fav.id)}
           >
             {fav.label}
           </Link>
@@ -382,21 +472,35 @@ function NavbarLinkMenu({
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
                 favoritesEnabled={favoritesEnabled}
+                onAddChild={onAddChild}
+                onRemoveItem={removeItem}
               />
             ))}
+            {canAddChildren && (
+              <AddLinkButton onClick={() => onAddChild(fav.id)} />
+            )}
           </div>
         )}
       </HoverMenu>
     );
   }
 
+  const titleRemovable = typeof onRemoveTitle == "function";
+
   return (
-    <div className="walletNavGroup">
-      <HoverMenu className={title ? "dropdown title" : "dropdown"}>
+    <div
+      className={`walletNavGroup${titleRemovable ? " navCustomTitleGroup" : ""}`}
+    >
+      <HoverMenu
+        className={`${title ? "dropdown title" : "dropdown"}${
+          titleRemovable ? " navCustomTitleMenu" : ""
+        }`}
+      >
         {titleHref ? (
           <Link
             className="navigationMenuTrigger dropbtn navTitleLink"
             href={titleHref}
+            {...getExternalLinkProps(titleHref, titleRemovable)}
           >
             {title}
             <i className="custom-caret"></i>
@@ -417,10 +521,34 @@ function NavbarLinkMenu({
               favHrefM={favHrefM}
               onToggleFav={toggleFav}
               favoritesEnabled={favoritesEnabled}
+              onAddChild={onAddChild}
+              onRemoveItem={removeItem}
             />
           ))}
+          {!!addChildParentId && typeof onAddChild == "function" && (
+            <AddLinkButton onClick={() => onAddChild(addChildParentId)} />
+          )}
         </div>
       </HoverMenu>
+      {titleRemovable && (
+        <span className="navQuickFavCard navCustomTitleCard">
+          <button
+            type="button"
+            className="navCustomTitleRemove"
+            title="remove custom link"
+            aria-label={`remove ${title}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!window.confirm(`Remove "${title}"?`)) return;
+              onRemoveTitle();
+            }}
+          >
+            <TrashIcon />
+            <span className="gray">{titleHref}</span>
+          </button>
+        </span>
+      )}
       {!!visibleFavs.length && (
         <div className="navQuickFavs">{visibleFavs.map(renderQuickFav)}</div>
       )}

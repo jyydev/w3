@@ -124,9 +124,7 @@ function Ck({ ck, caption, rows, input = false, prefix }) {
                 style={{ width: `${Math.max(ckInput[ckName]?.length ?? 0, 20)}ch` }}
                 placeholder={
                   ckInput[ckName] == undefined
-                    ? ["navFavs", "navLinks"].includes(ckName)
-                      ? "   link, [link, title],.."
-                      : "   space between items"
+                    ? "   space between items"
                     : ""
                 }
                 title={ckHint ?? ""}

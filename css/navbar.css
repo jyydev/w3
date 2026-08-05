@@ -80,6 +80,37 @@
   right: -2px;
 }
 
+.navbarAddButton {
+  float: left;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 30px;
+  margin-left: 4px;
+  border: 0;
+  background: transparent;
+  color: #999;
+  padding: 0;
+  font-family: Arial;
+  font-size: 21px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+}
+
+.navbarAddButton > span {
+  display: block;
+  transform: translateY(4px);
+}
+
+.navbarAddButton:hover,
+.navbarAddButton:focus-visible {
+  color: var(--orange);
+  background: #222;
+  outline: none;
+}
+
 .navbarHomeLink {
   position: relative;
   display: inline-flex;
@@ -287,6 +318,36 @@
   color: var(--orange);
 }
 
+.navMenuAddRow {
+  display: flex;
+  min-width: 150px;
+  background: #222;
+  border-top: 1px solid #333;
+}
+
+.navMenuAddButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  color: #999;
+  padding: 0;
+  font-family: Arial;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.navMenuAddButton:hover,
+.navMenuAddButton:focus-visible {
+  color: var(--orange);
+  background: #333;
+  outline: none;
+}
+
 .navTrashBtn {
   flex: 0 0 auto;
   width: 22px;
@@ -459,6 +520,54 @@
 
 .navQuickFavTrigger:hover .navQuickFavCard {
   display: block;
+}
+
+.navCustomTitleGroup {
+  position: relative;
+}
+
+.navCustomTitleCard {
+  left: var(--navleftSpace);
+  max-width: 200px;
+}
+
+.navCustomTitleMenu:hover + .navCustomTitleCard,
+.navCustomTitleMenu:focus-within + .navCustomTitleCard,
+.navCustomTitleCard:hover,
+.navCustomTitleCard:focus-within {
+  display: block;
+}
+
+.navCustomTitleRemove {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  max-width: 192px;
+  border: 0;
+  background: transparent;
+  color: #ff7b7b;
+  padding: 0;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.navCustomTitleRemove svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+}
+
+.navCustomTitleRemove > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navCustomTitleRemove:hover {
+  color: white;
 }
 
 .navQuickFavTitle {

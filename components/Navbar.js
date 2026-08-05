@@ -4,26 +4,13 @@ import { ckPrefix } from "@/sets";
 import NavbarLinkMenu from "./NavbarLinkMenu";
 import NavbarWalletMenu from "./NavbarWalletMenu";
 import NavbarHomeLink from "./NavbarHomeLink";
-import SortableNavbarItems from "./SortableNavbarItems";
+import NavbarCustomLinks from "./NavbarCustomLinks";
 import Breadcrumb from "./Breadcrumb";
 import { getNavigationTrees } from "./navigationTreeServer";
 import {
   getNavbarOrderCookie,
   parseNavbarOrder,
 } from "./navbarSorting";
-
-const split4nestedBrackets = (s) => {
-  let r = [],
-    c = "",
-    d = 0;
-  for (let i = 0; i < s.length; i++) {
-    let x = s[i];
-    d += x === "[" ? 1 : x === "]" ? -1 : 0;
-    if (x === "," && s[i + 1] === " " && d === 0) (r.push(c), (c = ""), i++);
-    else c += x;
-  }
-  return r.concat(c);
-};
 
 function getWalletFavCookieKey(routeBase = "/w") {
   return routeBase == "/t" ? "navTradeFavs" : "navWalletFavs";
@@ -129,31 +116,13 @@ export default async function Navbar() {
     "etc",
   ]);
 
-  if (ck.navFavs) {
-    let fav = isAr(ck.navFavs)
-      ? [ck.navFavs]
-      : isOb(ck.navFavs)
-        ? "" //empty if is object
-        : parse(
-            ck.navFavs?.split(/, (?=(?:[^\[\]]*(?:\[[^\[\]]*\]))*[^()\[\]]*$)/),
-          );
-    if (fav) links.push([fav, "fav"]);
-  }
-
-  if (ck.navLinks) {
-    let navLinks = isAr(ck.navLinks)
-      ? [ck.navLinks]
-      : parse(split4nestedBrackets(ck.navLinks));
-    links.push(...navLinks);
-  }
-
   const topOrderScope = getFullCookieName("navbarTop");
   const keyedLinks = getKeyedNavbarLinks(links);
 
   return (
     <>
       <div className="navbar">
-        <SortableNavbarItems
+        <NavbarCustomLinks
           scope={topOrderScope}
           initialOrderM={getInitialNavbarOrder(allCookies, topOrderScope)}
         >
@@ -227,7 +196,7 @@ export default async function Navbar() {
 
             return <Fragment key={key}>{content}</Fragment>;
           })}
-        </SortableNavbarItems>
+        </NavbarCustomLinks>
       </div>
       <Breadcrumb
         walletTree={walletNavTree}
