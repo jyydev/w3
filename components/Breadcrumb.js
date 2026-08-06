@@ -3,10 +3,15 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
+import {
+  listLocalEditorFiles,
+  localEditorStorageEvent,
+  shouldUseLocalStorageEditor,
+} from "@/app/_editorData/browserEditorStorage";
 import useCgb from "@/app/context";
 import HoverMenu from "./HoverMenu";
 import { CycleButtonPair } from "./Shared";
+import { buildEditorNavTree } from "./editorNavigation";
 import {
   getLocalWalletTree,
   getWalletNavUrl,
@@ -124,7 +129,15 @@ function getTopValue(pathname = "/") {
 function getPathParts(pathname = "", routeBase = "") {
   const base = String(routeBase || "").replace(/^\/+|\/+$/g, "");
   const parts = pathname.split("/").filter(Boolean);
-  return parts[0] == base ? parts.slice(1).map(decodeURIComponent) : [];
+  if (parts[0] != base) return [];
+
+  return parts.slice(1).map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  });
 }
 
 function getWalletType(searchParams) {
@@ -203,7 +216,12 @@ function getWalletTypeOptions(routeBase, tree = []) {
   }));
 }
 
-function getTopMenuOptions(tree = [], refTree = [], dataTree = []) {
+function getTopMenuOptions(
+  tree = [],
+  refTree = [],
+  dataTree = [],
+  editorTree = [],
+) {
   return topOptions.map((option) => {
     if (option.value == "wallet") {
       return { ...option, children: getWalletTypeOptions("/w", tree) };
@@ -213,6 +231,9 @@ function getTopMenuOptions(tree = [], refTree = [], dataTree = []) {
     }
     if (option.value == "data") return { ...option, children: dataTree };
     if (option.value == "ref") return { ...option, children: refTree };
+    if (option.value == "editor") {
+      return { ...option, children: editorTree };
+    }
 
     return option;
   });
@@ -511,7 +532,7 @@ function RouteCrumbs({ routeBase, tree = [] }) {
   let currentNode = null;
 
   for (let i = 0; i < parts.length; i++) {
-    const part = decodeURIComponent(parts[i]);
+    const part = parts[i];
     const known = options.find((entry) => entry.value == part);
     if (!known) {
       crumbs.push(
@@ -640,35 +661,52 @@ function BreadcrumbInner({
   walletTree = [],
   refTree = [],
   dataTree = [],
+  editorFiles = [],
+  editorEmptyFolders = [],
+  editorTree = [],
 }) {
   const pathname = usePathname() || "/";
   const topValue = getTopValue(pathname);
   const topCurrent = topOptions.find((option) => option.value == topValue);
   const { navigationLoading } = useCgb();
   const [localTree, setLocalTree] = useState([]);
+  const [resolvedEditorTree, setResolvedEditorTree] = useState(editorTree);
+  const editorFilesText = JSON.stringify(editorFiles);
+  const editorEmptyFoldersText = JSON.stringify(editorEmptyFolders);
   const tree = useMemo(
     () => mergeTrees(walletTree, localTree),
     [walletTree, localTree],
   );
   const topMenuOptions = useMemo(
-    () => getTopMenuOptions(tree, refTree, dataTree),
-    [tree, refTree, dataTree],
+    () => getTopMenuOptions(tree, refTree, dataTree, resolvedEditorTree),
+    [tree, refTree, dataTree, resolvedEditorTree],
   );
 
   useEffect(() => {
-    function refreshLocalTree() {
+    const baseEditorFiles = JSON.parse(editorFilesText);
+    const baseEditorEmptyFolders = JSON.parse(editorEmptyFoldersText);
+
+    function refreshLocalTrees() {
       setLocalTree(getLocalWalletTree());
+      setResolvedEditorTree(
+        buildEditorNavTree(
+          shouldUseLocalStorageEditor()
+            ? listLocalEditorFiles(baseEditorFiles)
+            : baseEditorFiles,
+          baseEditorEmptyFolders,
+        ),
+      );
     }
 
-    refreshLocalTree();
-    window.addEventListener(localEditorStorageEvent, refreshLocalTree);
-    window.addEventListener("storage", refreshLocalTree);
+    refreshLocalTrees();
+    window.addEventListener(localEditorStorageEvent, refreshLocalTrees);
+    window.addEventListener("storage", refreshLocalTrees);
 
     return () => {
-      window.removeEventListener(localEditorStorageEvent, refreshLocalTree);
-      window.removeEventListener("storage", refreshLocalTree);
+      window.removeEventListener(localEditorStorageEvent, refreshLocalTrees);
+      window.removeEventListener("storage", refreshLocalTrees);
     };
-  }, []);
+  }, [editorEmptyFoldersText, editorFilesText]);
 
   return (
     <nav className="breadcrumbNav" aria-label="Breadcrumb">
@@ -690,6 +728,9 @@ function BreadcrumbInner({
       )}
       {topValue == "ref" && (
         <RouteCrumbs routeBase="/ref" tree={refTree} />
+      )}
+      {topValue == "editor" && (
+        <RouteCrumbs routeBase="/editor" tree={resolvedEditorTree} />
       )}
       {navigationLoading && (
         <span className="breadcrumbLoading" role="status" aria-live="polite">

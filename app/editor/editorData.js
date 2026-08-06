@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import coinM from "../../fn/coinM.js";
+import { normalizeEditorFilePath } from "../../components/editorNavigation";
 import {
   assertProjectFileWrites,
   projectFileWritesDisabled,
@@ -27,11 +28,8 @@ async function ensureEditorDataDir() {
 }
 
 function resolveEditorDataFile(file) {
-  if (!file || typeof file != "string") throw new Error("Missing file name");
-  if (file.includes("\0")) throw new Error("Invalid file name");
-  if (path.isAbsolute(file)) throw new Error("Use a relative file name");
-
-  const fullPath = path.resolve(editorDataDir, file);
+  const normalized = normalizeEditorFilePath(file);
+  const fullPath = path.resolve(editorDataDir, normalized);
   const relative = path.relative(editorDataDir, fullPath);
 
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -39,13 +37,10 @@ function resolveEditorDataFile(file) {
   }
 
   const ext = path.extname(relative).toLowerCase();
-  if (!allowedExts.has(ext)) {
-    throw new Error("Use .json, .txt, or .js files only");
-  }
 
   return {
     fullPath,
-    relative: relative.split(path.sep).join("/"),
+    relative: normalized,
     ext,
   };
 }
@@ -90,6 +85,37 @@ export async function readEditorDataFile(file) {
   const { fullPath, relative } = resolveEditorDataFile(file);
   const content = await fs.readFile(fullPath, "utf8");
   return { files, file: relative, content };
+}
+
+export async function deleteEditorDataFile(file) {
+  assertProjectFileWrites();
+
+  const { fullPath, relative } = resolveEditorDataFile(file);
+  const stat = await fs.lstat(fullPath).catch((error) => {
+    if (error.code != "ENOENT") throw error;
+    return null;
+  });
+  if (!stat?.isFile()) throw new Error("file not found");
+
+  const [realEditorDataDir, realParentDir] = await Promise.all([
+    fs.realpath(editorDataDir),
+    fs.realpath(path.dirname(fullPath)),
+  ]);
+  const realRelative = path.relative(realEditorDataDir, realParentDir);
+  if (
+    realRelative == ".." ||
+    realRelative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(realRelative)
+  ) {
+    throw new Error("File must stay inside data/editor");
+  }
+
+  await fs.unlink(fullPath);
+
+  return {
+    files: await listEditorDataFiles(),
+    file: relative,
+  };
 }
 
 export async function saveEditorDataFile(file, content) {

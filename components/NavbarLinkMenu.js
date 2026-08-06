@@ -3,13 +3,20 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { setCookie } from "cookies-next";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { deleteEmptyEditorFolder } from "@/app/editor/editorActions";
 import {
+  listLocalEditorFiles,
+  localEditorStorageEvent,
   readLocalNavFavs,
   saveLocalNavFavs,
+  shouldUseLocalStorageEditor,
 } from "@/app/_editorData/browserEditorStorage";
 import { TrashIcon } from "@/components/Shared";
 import HoverMenu from "./HoverMenu";
 import NavbarHoverCard from "./NavbarHoverCard";
+import { buildEditorNavTree } from "./editorNavigation";
 import {
   NavbarSortableRow,
   useNavbarTreeSorting,
@@ -36,10 +43,21 @@ function cleanFavs(favs = []) {
 function getLinkEntry(item) {
   if (item && typeof item == "object" && !Array.isArray(item)) {
     const href = item.href ? String(item.href) : "";
+    const deletable =
+      item.deletable?.kind == "folder" && item.deletable?.source
+        ? {
+            kind: "folder",
+            source: String(item.deletable.source),
+          }
+        : null;
 
     return {
       id: item.id ? String(item.id) : "",
       type: item.type || (!href && !item.children?.length ? "section" : ""),
+      editorFolder: item.editorFolder
+        ? String(item.editorFolder)
+        : "",
+      deletable,
       value: String(item.value || href || item.label || ""),
       href,
       label: String(item.label || href),
@@ -74,6 +92,32 @@ function flattenLinkEntries(entries = []) {
     entry,
     ...flattenLinkEntries(entry.children || []),
   ]);
+}
+
+function getEditorBaseFiles(items = []) {
+  return [
+    ...new Set(
+      items.flatMap((item) =>
+        Array.isArray(item?.editorFiles) ? item.editorFiles : [],
+      ),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+function getEditorBaseEmptyFolders(items = []) {
+  return [
+    ...new Set(
+      items.flatMap((item) =>
+        Array.isArray(item?.editorEmptyFolders)
+          ? item.editorEmptyFolders
+          : [],
+      ),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+function hasEditorEntry(items = []) {
+  return items.some((item) => Array.isArray(item?.editorFiles));
 }
 
 function normalizeFavs(favs = [], validHrefM = new Map()) {
@@ -145,6 +189,7 @@ function NavbarLinkNode({
   favoritesEnabled,
   onAddChild,
   onRemoveItem,
+  onDeleteEmptyFolder,
   visibility,
   visibilityScope,
 }) {
@@ -186,7 +231,11 @@ function NavbarLinkNode({
       {entry.label}
     </Link>
   ) : (
-    <span className={hasSubmenu ? "navigationMenuTrigger" : ""}>
+    <span
+      className={`navMenuLabel${
+        hasSubmenu ? " navigationMenuTrigger" : ""
+      }`}
+    >
       {entry.label}
     </span>
   );
@@ -200,22 +249,38 @@ function NavbarLinkNode({
       }}
     />
   ) : null;
-  const trashButton = entry.id && typeof onRemoveItem == "function" ? (
-    <button
-      type="button"
-      className="navTrashBtn"
-      title="remove link"
-      aria-label={`remove ${entry.label}`}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!window.confirm(`Remove "${entry.label}"?`)) return;
-        onRemoveItem(entry);
-      }}
-    >
-      <TrashIcon />
-    </button>
-  ) : null;
+  const trashButton =
+    entry.deletable?.kind == "folder" &&
+    typeof onDeleteEmptyFolder == "function" ? (
+      <button
+        type="button"
+        className="navTrashBtn"
+        title="delete empty folder"
+        aria-label={`delete empty folder ${entry.label}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onDeleteEmptyFolder(entry);
+        }}
+      >
+        <TrashIcon />
+      </button>
+    ) : entry.id && typeof onRemoveItem == "function" ? (
+      <button
+        type="button"
+        className="navTrashBtn"
+        title="remove link"
+        aria-label={`remove ${entry.label}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!window.confirm(`Remove "${entry.label}"?`)) return;
+          onRemoveItem(entry);
+        }}
+      >
+        <TrashIcon />
+      </button>
+    ) : null;
   const hideButton = visibility?.toggleHidden ? (
     <NavbarHideButton
       hidden={hidden}
@@ -273,6 +338,7 @@ function NavbarLinkNode({
               favoritesEnabled={favoritesEnabled}
               onAddChild={onAddChild}
               onRemoveItem={onRemoveItem}
+              onDeleteEmptyFolder={onDeleteEmptyFolder}
               visibility={visibility}
               visibilityScope={visibilityScope}
             />
@@ -300,8 +366,39 @@ function NavbarLinkMenu({
   onRemoveTitle,
   titleVisibilityKey = "",
 }) {
+  const router = useRouter();
   const visibility = useNavbarVisibilityContext();
-  const entries = useMemo(() => items.map(getLinkEntry), [items]);
+  const editorBaseFilesText = JSON.stringify(getEditorBaseFiles(items));
+  const editorBaseEmptyFoldersText = JSON.stringify(
+    getEditorBaseEmptyFolders(items),
+  );
+  const editorEmptyFolders = useMemo(
+    () => JSON.parse(editorBaseEmptyFoldersText),
+    [editorBaseEmptyFoldersText],
+  );
+  const editorEnabled = hasEditorEntry(items);
+  const [editorFiles, setEditorFiles] = useState(() =>
+    JSON.parse(editorBaseFilesText),
+  );
+  const resolvedItems = useMemo(
+    () =>
+      items.map((item) =>
+        Array.isArray(item?.editorFiles)
+          ? {
+              ...item,
+              children: buildEditorNavTree(
+                editorFiles,
+                editorEmptyFolders,
+              ),
+            }
+          : item,
+      ),
+    [editorEmptyFolders, editorFiles, items],
+  );
+  const entries = useMemo(
+    () => resolvedItems.map(getLinkEntry),
+    [resolvedItems],
+  );
   const favoritesEnabled = !!cookieName;
   const visibilityScope = `menu:${cookieName || orderScope || titleHref || title || "links"}`;
   const initialFavsText = JSON.stringify(cleanFavs(initialFavs));
@@ -328,6 +425,29 @@ function NavbarLinkMenu({
     ? normalizeFavs(favs, validHrefM)
     : [];
   const favHrefM = new Map(visibleFavs.map((fav) => [fav.href, fav]));
+
+  useEffect(() => {
+    if (!editorEnabled) return;
+
+    const baseFiles = JSON.parse(editorBaseFilesText);
+
+    function refreshEditorFiles() {
+      setEditorFiles(
+        shouldUseLocalStorageEditor()
+          ? listLocalEditorFiles(baseFiles)
+          : baseFiles,
+      );
+    }
+
+    refreshEditorFiles();
+    window.addEventListener(localEditorStorageEvent, refreshEditorFiles);
+    window.addEventListener("storage", refreshEditorFiles);
+
+    return () => {
+      window.removeEventListener(localEditorStorageEvent, refreshEditorFiles);
+      window.removeEventListener("storage", refreshEditorFiles);
+    };
+  }, [editorBaseFilesText, editorEnabled]);
 
   useEffect(() => {
     if (!favoritesEnabled) {
@@ -373,6 +493,30 @@ function NavbarLinkMenu({
       saveFavs(nextFavs);
     }
     onRemoveItem?.(entry.id);
+  }
+
+  async function deleteEditorFolder(entry) {
+    const target = entry.deletable;
+    if (target?.kind != "folder") return;
+
+    const label = `${target.source}/`;
+    if (!window.confirm(`Delete empty folder?\n\n${label}`)) return;
+
+    try {
+      if (shouldUseLocalStorageEditor()) {
+        throw new Error("localStorage has no empty folder record");
+      }
+
+      const res = await deleteEmptyEditorFolder({
+        folder: target.source,
+      });
+      if (!res.ok) throw new Error(res.msg || "delete failed");
+
+      toast.success(`deleted ${label}`);
+      router.refresh();
+    } catch (error) {
+      toast.error(error?.message || "delete failed");
+    }
   }
 
   function moveFav(dragHref, targetHref, placeAfter) {
@@ -514,6 +658,7 @@ function NavbarLinkMenu({
                 favoritesEnabled={favoritesEnabled}
                 onAddChild={onAddChild}
                 onRemoveItem={removeItem}
+                onDeleteEmptyFolder={deleteEditorFolder}
                 visibility={visibility}
                 visibilityScope={visibilityScope}
               />
@@ -567,6 +712,7 @@ function NavbarLinkMenu({
             favoritesEnabled={favoritesEnabled}
             onAddChild={onAddChild}
             onRemoveItem={removeItem}
+            onDeleteEmptyFolder={deleteEditorFolder}
             visibility={visibility}
             visibilityScope={visibilityScope}
           />

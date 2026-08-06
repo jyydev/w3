@@ -1,63 +1,56 @@
+import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import Logo from "@/components/Logo";
-import { HoverInfoCard } from "@/components/Shared";
-import EditorClient from "./EditorClient";
-import { listEditorDataFiles, readEditorDataFile } from "./editorData";
-import { editorFileCookie } from "./editorSettings";
-import "./editor.css";
+import { getEditorFileHref } from "@/components/editorNavigation";
+import EditorIndex from "./EditorIndex";
+import { listEditorDataFiles } from "./editorData";
+import {
+  editorHomeFavsCookie,
+  editorHomeOrderCookie,
+  editorHomeSortModeCookie,
+  editorHistoryCookie,
+  parseEditorFavs,
+  parseEditorHistory,
+  parseEditorOrder,
+  parseEditorSortMode,
+} from "./editorNavigationState";
 
 export const dynamic = "force-dynamic";
 
-function getCookieFile(value, files) {
-  if (!value) return "";
-
-  const values = [value];
-  try {
-    values.push(decodeURIComponent(value));
-  } catch {}
-
-  return values.find((file) => files.includes(file)) || "";
-}
-
 async function App({ searchParams }) {
-  console.log("render");
   const params = await searchParams;
-  const files = await listEditorDataFiles();
-  const requestedFile = Array.isArray(params?.file) ? params.file[0] : params?.file;
-  const cookieStore = await cookies();
-  const cookieFile = getCookieFile(cookieStore.get(editorFileCookie)?.value, files);
-  const selectedFile = requestedFile || cookieFile || files[0] || "";
-  let initial = { files, file: "", content: "" };
+  const requestedFile = Array.isArray(params?.file)
+    ? params.file[0]
+    : params?.file;
 
-  if (selectedFile) {
+  if (requestedFile) {
+    let requestedHref = "";
     try {
-      initial = await readEditorDataFile(selectedFile);
-    } catch {
-      initial = files[0] ? await readEditorDataFile(files[0]) : initial;
-    }
+      requestedHref = getEditorFileHref(requestedFile);
+    } catch {}
+    if (requestedHref) redirect(requestedHref);
   }
 
+  const [files, cookieStore] = await Promise.all([
+    listEditorDataFiles(),
+    cookies(),
+  ]);
+
   return (
-    <div>
-      {console.log("return")}
-      <div className="flex mb-1">
-        <Logo page={"editor"} />
-        <HoverInfoCard className="editorInfoIcon" tabIndex={0}>
-          <span className="infoIcon">i</span>
-          <span className="infoCard">
-            <span className="infoCardTitle">Editor</span>
-            <span>Cmd+S / Ctrl+S saves while editing.</span>
-            <span>Saved files are under data/editor.</span>
-            <span>Wallet files use JSON arrays with wallet, address, and ref.</span>
-          </span>
-        </HoverInfoCard>
-      </div>
-      <EditorClient
-        initialFiles={initial.files}
-        initialFile={initial.file}
-        initialContent={initial.content}
-      />
-    </div>
+    <EditorIndex
+      initialFiles={files}
+      initialHistory={parseEditorHistory(
+        cookieStore.get(editorHistoryCookie)?.value,
+      )}
+      initialFavoriteFiles={parseEditorFavs(
+        cookieStore.get(editorHomeFavsCookie)?.value,
+      )}
+      initialSortMode={parseEditorSortMode(
+        cookieStore.get(editorHomeSortModeCookie)?.value,
+      )}
+      initialOrder={parseEditorOrder(
+        cookieStore.get(editorHomeOrderCookie)?.value,
+      )}
+    />
   );
 }
 

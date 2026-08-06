@@ -30,6 +30,26 @@
   width: 34ch;
 }
 
+.editorDeleteButton.btn {
+  align-items: center;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 4px;
+  width: 28px;
+}
+
+.editorDeleteButton svg {
+  display: block;
+  height: 16px;
+  width: 16px;
+}
+
+.editorDeleteButton.btn:hover:not(:disabled) {
+  background-color: #4a2020;
+  color: #ff7b7b;
+}
+
 .editorText {
   background: #0b0b0b;
   border: 1px solid #444;

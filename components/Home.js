@@ -23,7 +23,11 @@ import {
 import { encodeSelectionOrder } from "@/fn/selectionOrder";
 import FavoriteButton from "./FavoriteButton";
 import Logo from "./Logo";
-import { HistoryRemoveButton, InteractiveInfoCard } from "./Shared";
+import {
+  HistoryRemoveButton,
+  HoverInfoCard,
+  InteractiveInfoCard,
+} from "./Shared";
 import {
   encodeHomeCollapsedKeys,
   encodeHomeSectionOrder,
@@ -575,13 +579,12 @@ function HomeWalletFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
                   setDropSpot(null);
                 }}
               >
-                <Link
-                  href={item.href}
-                  className="homeNavQuickFavLink"
-                  title={item.title || item.label}
-                >
-                  {item.label}
-                </Link>
+                <HoverInfoCard floating>
+                  <Link href={item.href} className="homeNavQuickFavLink">
+                    {item.label}
+                  </Link>
+                  <span className="infoCard">{item.title || item.label}</span>
+                </HoverInfoCard>
                 <button
                   type="button"
                   className="homeNavQuickUnfav"
@@ -1146,11 +1149,18 @@ function getWalletFavoriteItems(
       ]
         .filter(Boolean)
         .join(" / ");
+      const isFile = ["file", "mixed"].includes(node.type) && node.filePath;
+      const fileName = isFile
+        ? `${node.filePath.split("/").at(-1)}.json`
+        : node.label;
+      const fullPath = isFile
+        ? `data/editor/wallets/${node.walletType}/${node.filePath}.json`
+        : detail || node.label;
 
       return {
         favoriteKey,
-        label: node.label,
-        title: detail || node.label,
+        label: fileName,
+        title: fullPath,
         href: node.href || getWalletNavUrl(routeBase, node),
       };
     })

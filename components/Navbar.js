@@ -85,11 +85,25 @@ export default async function Navbar() {
     get: (target, key) =>
       typeof key == "string" ? target[`${ckPrefix ?? ""}${key}`] : target[key],
   });
-  const { walletNavTree, refNavTree, dataNavTree } = await getNavigationTrees();
+  const {
+    walletNavTree,
+    refNavTree,
+    dataNavTree,
+    editorFiles,
+    editorEmptyFolders,
+    editorNavTree,
+  } = await getNavigationTrees();
 
   let links = [["/", "⌂ Home"]]; //txt separator: links.push(['','tx'])
   let etc = [
-    ["/editor", "editor"],
+    {
+      href: "/editor",
+      label: "editor",
+      title: "/editor",
+      children: editorNavTree,
+      editorFiles,
+      editorEmptyFolders,
+    },
     ["/ck", "cookies"],
     ["/login", "login"],
     {
@@ -202,6 +216,9 @@ export default async function Navbar() {
         walletTree={walletNavTree}
         refTree={refNavTree}
         dataTree={dataNavTree}
+        editorFiles={editorFiles}
+        editorEmptyFolders={editorEmptyFolders}
+        editorTree={editorNavTree}
       />
     </>
   );

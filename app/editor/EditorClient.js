@@ -1,13 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { getCookie, setCookie } from "cookies-next";
-import toast from "react-hot-toast";
 import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { deleteCookie, getCookie, setCookie } from "cookies-next";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { TrashIcon } from "@/components/Shared";
+import { getEditorFileHref } from "@/components/editorNavigation";
+import {
+  deleteLocalEditorFile,
   hasLocalEditorFile,
   listLocalEditorFiles,
   localEditorStorageEvent,
   readLocalEditorFile,
+  rememberEditorHistory,
+  removeEditorHistory,
   saveLocalEditorFile,
   shouldUseLocalStorageEditor,
 } from "../_editorData/browserEditorStorage";
@@ -22,21 +34,55 @@ async function editorRequest(url, op) {
 
 function rememberEditorFile(file) {
   if (!file) return;
-  setCookie(editorFileCookie, file, { maxAge: editorCookieMaxAge });
+  setCookie(editorFileCookie, file, {
+    maxAge: editorCookieMaxAge,
+    path: "/",
+  });
 }
 
-function EditorClient({ initialFiles, initialFile, initialContent }) {
+function forgetEditorFile() {
+  deleteCookie(editorFileCookie);
+  deleteCookie(editorFileCookie, { path: "/" });
+}
+
+function getFileAfterDelete(previousFiles, nextFiles, deletedFile) {
+  if (!nextFiles.length) return "";
+
+  const previousIndex = previousFiles.indexOf(deletedFile);
+  const nextIndex = Math.min(
+    previousIndex < 0 ? 0 : previousIndex,
+    nextFiles.length - 1,
+  );
+
+  return nextFiles[nextIndex];
+}
+
+function EditorClient({
+  initialFiles,
+  initialFile,
+  initialContent,
+  requestedFile = "",
+}) {
+  const router = useRouter();
   const [files, setFiles] = useState(initialFiles);
   const [file, setFile] = useState(initialFile);
-  const [draftFile, setDraftFile] = useState(initialFile);
+  const [draftFile, setDraftFile] = useState(
+    requestedFile || initialFile,
+  );
   const [content, setContent] = useState(initialContent);
   const [savedContent, setSavedContent] = useState(initialContent);
+  const [resolvedFile, setResolvedFile] = useState("");
   const [useLocalEditorStore, setUseLocalEditorStore] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const deletingFileRef = useRef("");
   const [isPending, startTransition] = useTransition();
 
+  const busy = isPending || deleting;
   const dirty = content != savedContent || draftFile != file;
   const trimmedDraftFile = draftFile.trim();
   const isCoinFile = /^coins?\/[^/]+\.json$/i.test(trimmedDraftFile);
+  const fileDeleteBlocked =
+    useLocalEditorStore && initialFiles.includes(file);
   const fileOptions = useMemo(
     () => files.map((name) => ({ name, label: name })),
     [files],
@@ -48,20 +94,60 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
       : content;
   }
 
+  function updateEditorUrl(
+    nextFile,
+    { replace = false, refresh = false } = {},
+  ) {
+    if (!nextFile) return;
+
+    let href = "";
+    try {
+      href = getEditorFileHref(nextFile);
+    } catch {
+      return;
+    }
+
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentUrl != href) {
+      if (replace) router.replace(href, { scroll: false });
+      else router.push(href, { scroll: false });
+    }
+    if (refresh) router.refresh();
+  }
+
   useEffect(() => {
     rememberEditorFile(file);
   }, [file]);
 
   useEffect(() => {
+    if (resolvedFile) rememberEditorHistory(resolvedFile);
+  }, [resolvedFile]);
+
+  useEffect(() => {
     const useLocal = shouldUseLocalStorageEditor();
     setUseLocalEditorStore(useLocal);
-    if (!useLocal) return;
+    if (!useLocal) {
+      setResolvedFile(initialFile);
+      if (!requestedFile) updateEditorUrl(initialFile, { replace: true });
+      return;
+    }
 
     const nextFiles = listLocalEditorFiles(initialFiles);
-    const queryFile = new URLSearchParams(window.location.search).get("file") || "";
+    if (requestedFile && !nextFiles.includes(requestedFile)) {
+      setFiles(nextFiles);
+      setFile("");
+      setDraftFile(requestedFile);
+      setContent("");
+      setSavedContent("");
+      setResolvedFile("");
+      return;
+    }
+
     const cookieFile = String(getCookie(editorFileCookie) || "");
     const preferredFile =
-      [queryFile, cookieFile, file].find((name) => name && nextFiles.includes(name)) ||
+      [requestedFile, cookieFile, file].find(
+        (name) => name && nextFiles.includes(name),
+      ) ||
       nextFiles[0] ||
       "";
     const nextContent = preferredFile
@@ -75,14 +161,32 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
     setDraftFile(preferredFile);
     setContent(nextContent);
     setSavedContent(nextContent);
+    setResolvedFile(preferredFile);
     rememberEditorFile(preferredFile);
+    updateEditorUrl(preferredFile, { replace: true });
   }, []);
 
   useEffect(() => {
     if (!useLocalEditorStore) return;
 
     function refreshLocalFiles() {
-      setFiles(listLocalEditorFiles(initialFiles));
+      const nextFiles = listLocalEditorFiles(initialFiles);
+      setFiles(nextFiles);
+      if (deletingFileRef.current) return;
+      if (!file || nextFiles.includes(file)) return;
+
+      const fallbackFile = nextFiles[0] || "";
+      if (fallbackFile) {
+        loadFile(fallbackFile, { replace: true });
+        return;
+      }
+
+      setFile("");
+      setDraftFile("");
+      setContent("");
+      setSavedContent("");
+      setResolvedFile("");
+      router.replace("/editor", { scroll: false });
     }
 
     window.addEventListener(localEditorStorageEvent, refreshLocalFiles);
@@ -91,19 +195,21 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
       window.removeEventListener(localEditorStorageEvent, refreshLocalFiles);
       window.removeEventListener("storage", refreshLocalFiles);
     };
-  }, [useLocalEditorStore, initialFiles]);
+  }, [useLocalEditorStore, initialFiles, file]);
 
-  function loadFile(nextFile) {
+  function loadFile(nextFile, { replace = false } = {}) {
     setDraftFile(nextFile);
     if (useLocalEditorStore && hasLocalEditorFile(nextFile)) {
-      const nextFiles = listLocalEditorFiles(files);
+      const nextFiles = listLocalEditorFiles(initialFiles);
       const nextContent = readLocalEditorFile(nextFile, "");
       setFiles(nextFiles);
       setFile(nextFile);
       setDraftFile(nextFile);
       setContent(nextContent);
       setSavedContent(nextContent);
+      setResolvedFile(nextFile);
       rememberEditorFile(nextFile);
+      updateEditorUrl(nextFile, { replace });
       return;
     }
 
@@ -115,14 +221,16 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
           setDraftFile(res.file);
           setContent(res.content);
           setSavedContent(res.content);
+          setResolvedFile(res.file);
           rememberEditorFile(res.file);
+          updateEditorUrl(res.file, { replace });
         })
         .catch((e) => toast.error(e.message));
     });
   }
 
   function cycleFile(direction = "next") {
-    if (isPending || files.length < 2) return;
+    if (busy || files.length < 2) return;
 
     const index = files.indexOf(file);
     const currentIndex = index >= 0 ? index : 0;
@@ -134,7 +242,7 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
   }
 
   function saveFile() {
-    if (isPending || !trimmedDraftFile) return;
+    if (busy || !trimmedDraftFile) return;
 
     if (useLocalEditorStore) {
       try {
@@ -142,12 +250,14 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
         if (/\.json$/i.test(trimmedDraftFile)) JSON.parse(saveContent);
 
         const res = saveLocalEditorFile(trimmedDraftFile, saveContent);
-        setFiles(res.files);
+        setFiles(listLocalEditorFiles(initialFiles));
         setFile(res.file);
         setDraftFile(res.file);
         setContent(res.content);
         setSavedContent(res.content);
+        setResolvedFile(res.file);
         rememberEditorFile(res.file);
+        updateEditorUrl(res.file);
         toast.success(`saved local ${res.file}`);
       } catch (e) {
         toast.error(e.message);
@@ -167,15 +277,83 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
           setDraftFile(res.file);
           setContent(res.content);
           setSavedContent(res.content);
+          setResolvedFile(res.file);
           rememberEditorFile(res.file);
+          updateEditorUrl(res.file, { refresh: true });
           toast.success(`saved ${res.file}`);
         })
         .catch((e) => toast.error(e.message));
     });
   }
 
+  async function deleteFile() {
+    const deletedFile = file;
+    if (busy || !deletedFile) return;
+
+    if (
+      useLocalEditorStore &&
+      initialFiles.includes(deletedFile)
+    ) {
+      toast.error("bundled files cannot be deleted in localStorage mode");
+      return;
+    }
+
+    const dirtyWarning = dirty
+      ? "\n\nUnsaved changes will be discarded."
+      : "";
+    if (!window.confirm(`Delete file?\n\n${deletedFile}${dirtyWarning}`)) {
+      return;
+    }
+
+    setDeleting(true);
+    deletingFileRef.current = deletedFile;
+
+    try {
+      let nextFiles = [];
+      if (useLocalEditorStore) {
+        const res = deleteLocalEditorFile(deletedFile);
+        if (!res.ok) throw new Error(res.msg || "delete failed");
+        nextFiles = listLocalEditorFiles(initialFiles);
+      } else {
+        const res = await editorRequest(
+          `/editor/api?file=${encodeURIComponent(deletedFile)}`,
+          { method: "DELETE" },
+        );
+        nextFiles = res.files;
+      }
+
+      const nextFile = getFileAfterDelete(
+        files,
+        nextFiles,
+        deletedFile,
+      );
+      removeEditorHistory(deletedFile);
+      forgetEditorFile();
+      setFiles(nextFiles);
+      setFile("");
+      setDraftFile("");
+      setContent("");
+      setSavedContent("");
+      setResolvedFile("");
+      toast.success(`deleted ${deletedFile}`);
+
+      if (nextFile) {
+        rememberEditorFile(nextFile);
+        updateEditorUrl(nextFile, { replace: true, refresh: true });
+      } else {
+        router.replace("/editor", { scroll: false });
+        router.refresh();
+      }
+    } catch (error) {
+      toast.error(error?.message || "delete failed");
+    } finally {
+      deletingFileRef.current = "";
+      setDeleting(false);
+    }
+  }
+
   function storeGlobalCoins() {
-    if (isPending || !isCoinFile) return;
+    if (busy || !isCoinFile) return;
     const ok = window.confirm(
       "Save this editor coin file and append new coins into data/coins? You still need to git push after saving.",
     );
@@ -187,12 +365,14 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
         if (/\.json$/i.test(trimmedDraftFile)) JSON.parse(saveContent);
 
         const res = saveLocalEditorFile(trimmedDraftFile, saveContent);
-        setFiles(res.files);
+        setFiles(listLocalEditorFiles(initialFiles));
         setFile(res.file);
         setDraftFile(res.file);
         setContent(res.content);
         setSavedContent(res.content);
+        setResolvedFile(res.file);
         rememberEditorFile(res.file);
+        updateEditorUrl(res.file);
         toast.success(`saved local ${res.file}; global store is local-dev only`);
       } catch (e) {
         toast.error(e.message);
@@ -216,7 +396,9 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
           setDraftFile(res.file);
           setContent(res.content);
           setSavedContent(res.content);
+          setResolvedFile(res.file);
           rememberEditorFile(res.file);
+          updateEditorUrl(res.file, { refresh: true });
 
           const added = res.added || [];
           const skipped = res.skipped || [];
@@ -236,7 +418,7 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
         <button
           className="btn small bgGray"
           onClick={() => cycleFile("prev")}
-          disabled={isPending || files.length < 2}
+          disabled={busy || files.length < 2}
           title="previous file"
         >
           {"<"}
@@ -244,9 +426,17 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
         <select
           value={file}
           onChange={(e) => loadFile(e.target.value)}
-          disabled={isPending || !files.length}
+          disabled={busy || !files.length}
         >
-          {!files.length && <option value="">no files</option>}
+          {!file && (
+            <option value="" disabled>
+              {trimmedDraftFile
+                ? `new: ${trimmedDraftFile}`
+                : files.length
+                  ? "select file"
+                  : "no files"}
+            </option>
+          )}
           {fileOptions.map((option) => (
             <option key={option.name} value={option.name}>
               {option.label}
@@ -256,7 +446,7 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
         <button
           className="btn small bgGray"
           onClick={() => cycleFile("next")}
-          disabled={isPending || files.length < 2}
+          disabled={busy || files.length < 2}
           title="next file"
         >
           {">"}
@@ -268,26 +458,43 @@ function EditorClient({ initialFiles, initialFile, initialContent }) {
           onChange={(e) => setDraftFile(e.target.value)}
           placeholder="file.json"
           className="editorFileInput"
-          disabled={isPending}
+          disabled={busy}
         />
 
         <button
           className="btn small"
           onClick={saveFile}
-          disabled={isPending || !draftFile.trim()}
+          disabled={busy || !draftFile.trim()}
         >
           save
         </button>
 
+        {!!file && (
+          <button
+            type="button"
+            className="btn small bgGray editorDeleteButton"
+            title={
+              fileDeleteBlocked
+                ? "bundled files cannot be deleted in localStorage mode"
+                : `delete ${file}`
+            }
+            aria-label={`delete ${file}`}
+            onClick={deleteFile}
+            disabled={busy || fileDeleteBlocked}
+          >
+            <TrashIcon />
+          </button>
+        )}
+
         <span className={dirty ? "yellow" : "gray"}>
-          {isPending ? "working" : dirty ? "unsaved" : "saved"}
+          {busy ? "working" : dirty ? "unsaved" : "saved"}
         </span>
 
         {isCoinFile && (
           <button
             className="btn small bgGray"
             onClick={storeGlobalCoins}
-            disabled={isPending || !trimmedDraftFile}
+            disabled={busy || !trimmedDraftFile}
           >
             store globally
           </button>

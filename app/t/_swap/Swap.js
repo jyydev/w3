@@ -476,6 +476,8 @@ export default function SwapPanel({
     [chainNames, walletType],
   );
   const initialDefi = getInitialSwapDex(initialCookieM, walletType);
+  const initialDefiE =
+    dexOptions.find((entry) => entry.value == initialDefi) || noDex;
   const initialSellChainValues = getSwapLocalChainOptions(
     initialDefi,
     sellChainNames,
@@ -537,9 +539,11 @@ export default function SwapPanel({
   const initialSelectedFromChain = initialSellChainNames.includes(initialFromChain)
     ? initialFromChain
     : initialSellChainNames[0] || "";
-  const initialSelectedToChain = initialBuyChainNames.includes(initialToChain)
-    ? initialToChain
-    : initialBuyChainNames[0] || "";
+  const initialSelectedToChain = initialDefiE.bridge
+    ? initialBuyChainNames.includes(initialToChain)
+      ? initialToChain
+      : initialBuyChainNames[0] || ""
+    : initialSelectedFromChain;
   const initialFromChainE =
     chainList.find((chainE) => chainE.chain == initialSelectedFromChain) ||
     chainList[0];
@@ -1165,12 +1169,17 @@ export default function SwapPanel({
     const savedFromChain = getCookie(
       getSwapRouteCookie(tradeSwapFromChainCookie, walletType, defi),
     );
+    let nextFromChain = "";
     if (orderedSellChainNames.length) {
-      setFromChain(
-        orderedSellChainNames.includes(savedFromChain)
-          ? savedFromChain
-          : orderedSellChainNames[0],
-      );
+      nextFromChain = orderedSellChainNames.includes(savedFromChain)
+        ? savedFromChain
+        : orderedSellChainNames[0];
+      setFromChain(nextFromChain);
+    }
+
+    if (!defiE.bridge) {
+      if (nextFromChain) setToChain(nextFromChain);
+      return;
     }
 
     const savedToChain = getCookie(
@@ -1183,20 +1192,27 @@ export default function SwapPanel({
           : orderedChainNames[0],
       );
     }
-  }, [defi, orderedChainNames, orderedSellChainNames, walletType]);
+  }, [defi, defiE.bridge, orderedChainNames, orderedSellChainNames, walletType]);
 
   useEffect(() => {
     if (!selectableChainNames.length) return;
+    let nextFromChain = fromChain;
     if (
       selectableSellChainNames.length &&
       !selectableSellChainNames.includes(fromChain)
     ) {
-      setFromChain(orderedSellChainNames[0] || selectableSellChainNames[0]);
+      nextFromChain = orderedSellChainNames[0] || selectableSellChainNames[0];
+      setFromChain(nextFromChain);
+    }
+    if (!defiE.bridge) {
+      if (nextFromChain && toChain != nextFromChain) setToChain(nextFromChain);
+      return;
     }
     if (!selectableChainNames.includes(toChain)) {
       setToChain(orderedChainNames[0] || selectableChainNames[0]);
     }
   }, [
+    defiE.bridge,
     fromChain,
     orderedChainNames,
     orderedSellChainNames,
@@ -1243,12 +1259,6 @@ export default function SwapPanel({
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, []);
-
-  useEffect(() => {
-    if (!defiE.bridge && fromChain && toChain != fromChain) {
-      setToChain(fromChain);
-    }
-  }, [defiE.bridge, fromChain, toChain]);
 
   function updateAutoApproval(checked) {
     setAutoApproval(checked);
@@ -2942,6 +2952,13 @@ export default function SwapPanel({
   function selectFromChain(chain, options = {}) {
     setFromChain(chain);
     saveSwapChainCookie(tradeSwapFromChainCookie, chain, options);
+    if (!defiE.bridge) {
+      setToChain(chain);
+      saveSwapChainCookie(tradeSwapToChainCookie, chain, {
+        ...options,
+        rememberOrder: false,
+      });
+    }
     emitTradeChainSelect(chain);
   }
 

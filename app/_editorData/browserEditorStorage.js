@@ -1,11 +1,21 @@
 "use client";
 
+import { deleteCookie, getCookie, setCookie } from "cookies-next";
 import { ckPrefix } from "@/sets";
+import { normalizeEditorFilePath } from "@/components/editorNavigation";
+import {
+  editorHistoryCookie,
+  editorHistoryEvent,
+  editorStateMaxAge,
+  encodeEditorHistory,
+  parseEditorHistory,
+} from "@/app/editor/editorNavigationState";
 
 const storageKey = `${ckPrefix ?? ""}editorFiles`;
+const editorHistoryStorageKey = `${ckPrefix ?? ""}editorHistory`;
 const navFavStoragePrefix = `${ckPrefix ?? ""}navFavs:`;
 export const localEditorStorageEvent = `${ckPrefix ?? ""}editorStorageChange`;
-const allowedEditorExts = new Set([".json", ".txt", ".js"]);
+export { editorHistoryEvent };
 const walletTypes = new Set(["evm", "solana", "tron"]);
 
 function cleanWalletType(walletType = "evm") {
@@ -52,22 +62,90 @@ function notifyLocalEditorStorageChange() {
   window.dispatchEvent(new CustomEvent(localEditorStorageEvent));
 }
 
+function notifyEditorHistoryChange() {
+  if (typeof window == "undefined") return;
+  window.dispatchEvent(new CustomEvent(editorHistoryEvent));
+}
+
 function cleanLocalEditorFile(file = "") {
-  const cleanFile = String(file || "").trim().replace(/^\/+/, "");
-  if (
-    !cleanFile ||
-    cleanFile.includes("\0") ||
-    cleanFile.split("/").some((part) => !part || part == "." || part == "..")
-  ) {
-    throw new Error("invalid local file");
+  return normalizeEditorFilePath(String(file || ""));
+}
+
+function readEditorHistoryStorage() {
+  if (!canUseLocalStorage()) return [];
+
+  try {
+    return parseEditorHistory(
+      window.localStorage.getItem(editorHistoryStorageKey) || "",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveEditorHistory(history = []) {
+  const cleanHistory = parseEditorHistory(history);
+  const encoded = encodeEditorHistory(cleanHistory);
+
+  if (cleanHistory.length) {
+    setCookie(editorHistoryCookie, encoded, {
+      maxAge: editorStateMaxAge,
+      path: "/",
+    });
+  } else {
+    deleteCookie(editorHistoryCookie, { path: "/" });
   }
 
-  const ext = cleanFile.match(/\.[^./]+$/)?.[0]?.toLowerCase() || "";
-  if (!allowedEditorExts.has(ext)) {
-    throw new Error("Use .json, .txt, or .js files only");
+  if (canUseLocalStorage()) {
+    try {
+      if (cleanHistory.length) {
+        window.localStorage.setItem(editorHistoryStorageKey, encoded);
+      } else {
+        window.localStorage.removeItem(editorHistoryStorageKey);
+      }
+    } catch {}
   }
 
-  return cleanFile;
+  notifyEditorHistoryChange();
+  return cleanHistory;
+}
+
+export function getEditorHistory(initial = []) {
+  if (typeof window == "undefined") return parseEditorHistory(initial);
+
+  const cookieHistory = parseEditorHistory(getCookie(editorHistoryCookie));
+
+  return parseEditorHistory([
+    ...cookieHistory,
+    ...readEditorHistoryStorage(),
+  ]);
+}
+
+export function rememberEditorHistory(file, initial = []) {
+  let cleanFile = "";
+  try {
+    cleanFile = cleanLocalEditorFile(file);
+  } catch {
+    return getEditorHistory(initial);
+  }
+
+  return saveEditorHistory([
+    cleanFile,
+    ...getEditorHistory(initial).filter((entry) => entry != cleanFile),
+  ]);
+}
+
+export function removeEditorHistory(file, initial = []) {
+  let cleanFile = "";
+  try {
+    cleanFile = cleanLocalEditorFile(file);
+  } catch {
+    return getEditorHistory(initial);
+  }
+
+  return saveEditorHistory(
+    getEditorHistory(initial).filter((entry) => entry != cleanFile),
+  );
 }
 
 export function readLocalEditorFiles() {

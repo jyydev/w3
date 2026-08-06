@@ -528,10 +528,8 @@
 }
 
 .homeNavQuickFavLink {
-  max-width: 140px;
-  overflow: hidden;
   color: #bbb;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .homeNavQuickFavLink:hover {

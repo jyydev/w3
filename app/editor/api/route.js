@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  deleteEditorDataFile,
   readEditorDataFile,
   saveEditorDataFile,
   storeEditorCoinsGlobally,
@@ -27,6 +28,15 @@ export async function POST(request) {
       return NextResponse.json(await storeEditorCoinsGlobally(file, content));
     }
     return NextResponse.json(await saveEditorDataFile(file, content));
+  } catch (e) {
+    return errorResponse(e);
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const file = request.nextUrl.searchParams.get("file") || "";
+    return NextResponse.json(await deleteEditorDataFile(file));
   } catch (e) {
     return errorResponse(e);
   }

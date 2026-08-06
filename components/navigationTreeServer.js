@@ -1,6 +1,7 @@
 import { cache } from "react";
 import fs from "fs/promises";
 import path from "path";
+import { buildEditorNavTree } from "./editorNavigation";
 
 const walletTypeLabels = {
   evm: "EVM",
@@ -8,6 +9,7 @@ const walletTypeLabels = {
   tron: "Tron",
 };
 const routePageFilePattern = /^page\.(?:js|jsx|ts|tsx)$/i;
+const allowedEditorExts = new Set([".json", ".txt", ".js"]);
 
 function getWalletType(folder = "") {
   const type = folder.toLowerCase();
@@ -231,15 +233,67 @@ async function buildRouteNavTree(routeFolder) {
   );
 }
 
+async function readEditorNavigation(dir, relPath = "") {
+  const entries = await fs
+    .readdir(dir, { withFileTypes: true })
+    .catch((error) =>
+      error.code == "ENOENT" ? [] : Promise.reject(error),
+    );
+  const sortedEntries = entries.sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  const files = [];
+  const emptyFolders = relPath && !sortedEntries.length ? [relPath] : [];
+
+  for (const entry of sortedEntries) {
+    const filePath = [relPath, entry.name].filter(Boolean).join("/");
+    if (entry.isDirectory()) {
+      const nested = await readEditorNavigation(
+        path.join(dir, entry.name),
+        filePath,
+      );
+      files.push(...nested.files);
+      emptyFolders.push(...nested.emptyFolders);
+    } else if (
+      entry.isFile() &&
+      allowedEditorExts.has(path.extname(entry.name).toLowerCase())
+    ) {
+      files.push(filePath);
+    }
+  }
+
+  return { files, emptyFolders };
+}
+
+async function buildEditorNavigation() {
+  const { files: editorFiles, emptyFolders: editorEmptyFolders } =
+    await readEditorNavigation(
+      path.join(process.cwd(), "data", "editor"),
+    );
+
+  return {
+    editorFiles,
+    editorEmptyFolders,
+    editorNavTree: buildEditorNavTree(editorFiles, editorEmptyFolders),
+  };
+}
+
 export const getWalletNavTree = cache(buildWalletNavTree);
 export const getRouteNavTree = cache(buildRouteNavTree);
 
 export const getNavigationTrees = cache(async () => {
-  const [walletNavTree, refNavTree, dataNavTree] = await Promise.all([
-    getWalletNavTree(),
-    getRouteNavTree("ref"),
-    getRouteNavTree("d"),
-  ]);
+  const [walletNavTree, refNavTree, dataNavTree, editorNavigation] =
+    await Promise.all([
+      getWalletNavTree(),
+      getRouteNavTree("ref"),
+      getRouteNavTree("d"),
+      buildEditorNavigation(),
+    ]);
 
-  return { walletNavTree, refNavTree, dataNavTree };
+  return {
+    walletNavTree,
+    refNavTree,
+    dataNavTree,
+    ...editorNavigation,
+  };
 });

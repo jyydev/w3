@@ -223,7 +223,8 @@
 }
 
 /* Links inside the dropdown */
-.dropdown-content a {
+.dropdown-content a,
+.dropdown-content .navMenuLabel {
   float: none;
   color: white;
   padding: 12px 16px;
@@ -241,7 +242,8 @@
   overflow: visible;
 }
 
-.navMenuTree a {
+.navMenuTree a,
+.navMenuTree .navMenuLabel {
   white-space: nowrap;
 }
 
@@ -297,7 +299,8 @@
   bottom: -1px;
 }
 
-.navMenuRow a {
+.navMenuRow a,
+.navMenuRow > .navMenuLabel {
   flex: 1 1 auto;
   min-width: 0;
   padding-right: 8px;
