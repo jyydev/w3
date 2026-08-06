@@ -94,6 +94,25 @@ function flattenLinkEntries(entries = []) {
   ]);
 }
 
+function getFavoriteEntry(entry) {
+  const navigationHref = entry.href && !entry.disabled ? entry.href : "";
+  const favoriteHref =
+    navigationHref ||
+    (entry.type == "folder" && entry.editorFolder
+      ? `editor-folder:${encodeURIComponent(entry.editorFolder)}`
+      : "");
+
+  if (!favoriteHref) return null;
+
+  return {
+    ...entry,
+    href: favoriteHref,
+    navigationHref,
+    favoriteOnly: !navigationHref,
+    title: entry.title || navigationHref || favoriteHref,
+  };
+}
+
 function getEditorBaseFiles(items = []) {
   return [
     ...new Set(
@@ -214,13 +233,7 @@ function NavbarLinkNode({
   const canAddChildren = !!entry.id && typeof onAddChild == "function";
   const hasSubmenu = hasChildren || canAddChildren;
   const canNavigate = !!entry.href && !entry.disabled;
-  const fav = canNavigate
-    ? {
-        href: entry.href,
-        label: entry.label,
-        title: entry.title || entry.href,
-      }
-    : null;
+  const fav = getFavoriteEntry(entry);
   const content = canNavigate ? (
     <Link
       href={entry.href}
@@ -409,9 +422,9 @@ function NavbarLinkMenu({
   });
   const validFavs = useMemo(
     () =>
-      flattenLinkEntries(orderedEntries).filter(
-        (entry) => entry.href && !entry.disabled,
-      ),
+      flattenLinkEntries(orderedEntries)
+        .map(getFavoriteEntry)
+        .filter(Boolean),
     [orderedEntries],
   );
   const validHrefM = useMemo(
@@ -481,9 +494,12 @@ function NavbarLinkMenu({
     saveFavs(next);
   }
 
-  function removeItem(entry) {
+  function removeEntryFavs(entry) {
     const removedHrefs = new Set(
-      flattenLinkEntries([entry]).map((item) => item.href).filter(Boolean),
+      flattenLinkEntries([entry])
+        .map(getFavoriteEntry)
+        .filter(Boolean)
+        .map((item) => item.href),
     );
     const clean = normalizeFavs(favs, validHrefM);
     const nextFavs = clean.filter((fav) => !removedHrefs.has(fav.href));
@@ -492,6 +508,10 @@ function NavbarLinkMenu({
       setFavs(nextFavs);
       saveFavs(nextFavs);
     }
+  }
+
+  function removeItem(entry) {
+    removeEntryFavs(entry);
     onRemoveItem?.(entry.id);
   }
 
@@ -512,6 +532,7 @@ function NavbarLinkMenu({
       });
       if (!res.ok) throw new Error(res.msg || "delete failed");
 
+      removeEntryFavs(entry);
       toast.success(`deleted ${label}`);
       router.refresh();
     } catch (error) {
@@ -561,6 +582,9 @@ function NavbarLinkMenu({
     const canAddChildren = !!fav.id && typeof onAddChild == "function";
     const hasChildren = !!fav.children?.length || canAddChildren;
     const isDropSpot = dropSpot?.href == fav.href;
+    const quickFavLinkClassName = `navQuickFavLink${
+      hasChildren ? " navigationMenuTrigger" : ""
+    }`;
     const dropClass = isDropSpot
       ? dropSpot.placeAfter
         ? " dropAfter"
@@ -611,16 +635,23 @@ function NavbarLinkMenu({
             setDropSpot(null);
           }}
         >
-          <Link
-            href={fav.href}
-            title={fav.title}
-            className={`navQuickFavLink${
-              hasChildren ? " navigationMenuTrigger" : ""
-            }`}
-            {...getExternalLinkProps(fav.href, !!fav.id)}
-          >
-            {fav.label}
-          </Link>
+          {fav.favoriteOnly ? (
+            <span title={fav.title} className={quickFavLinkClassName}>
+              {fav.label}
+            </span>
+          ) : (
+            <Link
+              href={fav.navigationHref || fav.href}
+              title={fav.title}
+              className={quickFavLinkClassName}
+              {...getExternalLinkProps(
+                fav.navigationHref || fav.href,
+                !!fav.id,
+              )}
+            >
+              {fav.label}
+            </Link>
+          )}
           {hasChildren && (
             <button
               type="button"
@@ -641,7 +672,10 @@ function NavbarLinkMenu({
                 toggleFav(fav);
               }}
             >
-              ★ unfav <span className="gray">{fav.href}</span>
+              ★ unfav{" "}
+              <span className="gray">
+                {fav.favoriteOnly ? fav.title : fav.href}
+              </span>
             </button>
           </span>
         </NavbarHoverCard>

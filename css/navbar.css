@@ -27,13 +27,14 @@
   float: left;
   display: flex;
   align-items: center;
-  cursor: grab;
+  cursor: default;
   transition:
     opacity 120ms ease,
     transform 120ms ease;
 }
 
-.navSortableTop:active {
+.navSortableTop:active,
+.navSortableTop.dragging {
   cursor: grabbing;
 }
 
@@ -41,17 +42,24 @@
   float: none;
 }
 
-.navSortableTop > a,
-.navSortableTop > .tx,
-.navSortableTop > .navbarHomeLink > a,
 .navSortableTop > .walletNavGroup .dropdown > .dropbtn {
-  cursor: grab;
+  cursor: default;
+}
+
+.navSortableTop > a,
+.navSortableTop > .navbarHomeLink > a,
+.navSortableTop > .walletNavGroup .dropdown > a.dropbtn {
+  cursor: pointer;
 }
 
 .navSortableTop:active > a,
 .navSortableTop:active > .tx,
 .navSortableTop:active > .navbarHomeLink > a,
-.navSortableTop:active > .walletNavGroup .dropdown > .dropbtn {
+.navSortableTop:active > .walletNavGroup .dropdown > .dropbtn,
+.navSortableTop.dragging > a,
+.navSortableTop.dragging > .tx,
+.navSortableTop.dragging > .navbarHomeLink > a,
+.navSortableTop.dragging > .walletNavGroup .dropdown > .dropbtn {
   cursor: grabbing;
 }
 
@@ -263,15 +271,22 @@
 
 .navSortableRow.sortable,
 .navSortableRow.sortable .navMenuRow,
-.navSortableRow.sortable .section,
+.navSortableRow.sortable .section {
+  cursor: default;
+}
+
 .navSortableRow.sortable .navMenuRow > a {
-  cursor: grab;
+  cursor: pointer;
 }
 
 .navSortableRow.sortable:active,
 .navSortableRow.sortable:active .navMenuRow,
 .navSortableRow.sortable:active .section,
-.navSortableRow.sortable:active .navMenuRow > a {
+.navSortableRow.sortable:active .navMenuRow > a,
+.navSortableRow.dragging,
+.navSortableRow.dragging .navMenuRow,
+.navSortableRow.dragging .section,
+.navSortableRow.dragging .navMenuRow > a {
   cursor: grabbing;
 }
 
@@ -456,7 +471,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  cursor: grab;
+  cursor: default;
   transition:
     opacity 120ms ease,
     transform 120ms ease;
@@ -471,7 +486,8 @@
   transform: translateY(-1px);
 }
 
-.navQuickFav:active {
+.navQuickFav:active,
+.navQuickFav.dragging {
   cursor: grabbing;
 }
 
@@ -505,7 +521,7 @@
   right: -2px;
 }
 
-.navbar .navQuickFavTrigger > a.navQuickFavLink {
+.navbar .navQuickFavTrigger > .navQuickFavLink {
   float: none;
   display: inline-flex;
   align-items: center;
@@ -516,18 +532,23 @@
   color: #bbb;
   font-size: 13px;
   line-height: 16px;
-  cursor: grab;
+  cursor: default;
 }
 
-.navQuickFav.hasChildren .navQuickFavTrigger > a.navQuickFavLink {
+.navbar .navQuickFavTrigger > a.navQuickFavLink {
+  cursor: pointer;
+}
+
+.navQuickFav.hasChildren .navQuickFavTrigger > .navQuickFavLink {
   padding-right: 1px;
 }
 
-.navQuickFavTrigger:active > a.navQuickFavLink {
+.navQuickFavTrigger:active > .navQuickFavLink,
+.navQuickFav.dragging .navQuickFavTrigger > .navQuickFavLink {
   cursor: grabbing;
 }
 
-.navbar .navQuickFavTrigger > a.navQuickFavLink:hover {
+.navbar .navQuickFavTrigger > .navQuickFavLink:hover {
   color: var(--orange);
   background: transparent;
 }

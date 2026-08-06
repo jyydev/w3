@@ -56,10 +56,11 @@
   width: 8px;
   height: 12px;
   color: #666;
-  cursor: grab;
+  cursor: default;
 }
 
-.homeNavSectionDragHandle:active {
+.homeNavSectionDragHandle:active,
+.homeNavSection.sectionDragging .homeNavSectionDragHandle {
   cursor: grabbing;
 }
 
@@ -311,10 +312,11 @@
 
 .homeNavCell.sortable {
   position: relative;
-  cursor: grab;
+  cursor: default;
 }
 
-.homeNavCell.sortable:active {
+.homeNavCell.sortable:active,
+.homeNavCell.sortable.dragging {
   cursor: grabbing;
 }
 
@@ -343,11 +345,16 @@
   bottom: -1px;
 }
 
-.homeNavCell.sortable .homeNavNodeLink {
-  cursor: grab;
+.homeNavCell.sortable a.homeNavNodeLink {
+  cursor: pointer;
 }
 
-.homeNavCell.sortable:active .homeNavNodeLink {
+.homeNavCell.sortable .homeNavNodeLink.disabled {
+  cursor: default;
+}
+
+.homeNavCell.sortable:active .homeNavNodeLink,
+.homeNavCell.sortable.dragging .homeNavNodeLink {
   cursor: grabbing;
 }
 
@@ -492,13 +499,14 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  cursor: grab;
+  cursor: default;
   transition:
     opacity 120ms ease,
     transform 120ms ease;
 }
 
-.homeNavQuickFav:active {
+.homeNavQuickFav:active,
+.homeNavQuickFav.dragging {
   cursor: grabbing;
 }
 
@@ -530,6 +538,12 @@
 .homeNavQuickFavLink {
   color: #bbb;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.homeNavQuickFav:active .homeNavQuickFavLink,
+.homeNavQuickFav.dragging .homeNavQuickFavLink {
+  cursor: grabbing;
 }
 
 .homeNavQuickFavLink:hover {
