@@ -24,6 +24,17 @@ import {
   getEditorFileHref,
 } from "@/components/editorNavigation";
 import {
+  buildHomeFavoritesMatrixGroup,
+  buildHomeNavigationMatrix,
+  getHomeMatrixMove,
+  getHomeMatrixNodeKey,
+  getHomeSourceNodeKey,
+  HomeFavoritesColumn,
+  HomeNavigationMatrix,
+  HomeSectionSortToggle,
+  sortHomeMatrixChildren,
+} from "@/components/HomeNavigationMatrix";
+import {
   editorHomeFavsCookie,
   editorHomeOrderCookie,
   editorHomeSortModeCookie,
@@ -32,7 +43,6 @@ import {
   encodeEditorOrder,
   parseEditorFavs,
   parseEditorOrder,
-  parseEditorSortMode,
 } from "./editorNavigationState";
 
 const editorRootKey = "editor:root";
@@ -43,107 +53,17 @@ function getCurrentEditorCookie(cookieName, initialValue, emptyValue) {
   return getCookie(cookieName) ?? emptyValue;
 }
 
-function orderEditorChildren(children = [], order = []) {
-  const pinned = children.filter((node) => node.homePinned);
-  const sortable = children.filter((node) => !node.homePinned);
-  const orderIndex = new Map(order.map((key, index) => [key, index]));
-
-  const ordered = sortable
-    .map((node, index) => ({
-      index,
-      node,
-      order: orderIndex.get(node.homeKey) ?? Infinity,
-    }))
-    .sort((a, b) => a.order - b.order || a.index - b.index)
-    .map((entry) => entry.node);
-
-  return [...pinned, ...ordered];
+function getEditorNodeKey(node = {}) {
+  return String(node.homeKey || "");
 }
 
-function buildTreeMatrix(
-  nodes = [],
-  collapsedKeys = new Set(),
-  sortMode = "default",
-  customOrder = {},
-) {
-  let columnCount = 0;
-  let collapsedCount = 0;
-
-  function measureNode(node, depth, parentKey) {
-    const nodeKey = node.homeKey;
-    const children = orderEditorChildren(
-      node.children || [],
-      sortMode == "custom" ? customOrder[nodeKey] || [] : [],
-    );
-    const collapsed = !!children.length && collapsedKeys.has(nodeKey);
-    if (collapsed) collapsedCount += 1;
-    const visibleChildren = collapsed ? [] : children;
-    const measuredChildren = visibleChildren.map((child) =>
-      measureNode(child, depth + 1, nodeKey),
-    );
-    const rowSpan =
-      measuredChildren.reduce((sum, child) => sum + child.rowSpan, 0) || 1;
-    columnCount = Math.max(columnCount, depth + 1);
-
-    return {
-      children: measuredChildren,
-      node: {
-        ...node,
-        homeCollapsed: collapsed,
-        homeHasChildren: !!children.length,
-        homeNodeKey: nodeKey,
-        homeParentKey: parentKey,
-      },
-      rowSpan,
-    };
+function buildEditorFavoriteCatalog(nodes = [], catalog = new Map()) {
+  for (const node of nodes) {
+    if (node.editorFile) catalog.set(node.editorFile, node);
+    buildEditorFavoriteCatalog(node.children || [], catalog);
   }
 
-  const roots = orderEditorChildren(
-    nodes,
-    sortMode == "custom" ? customOrder[editorRootKey] || [] : [],
-  ).map((node) => measureNode(node, 0, editorRootKey));
-  const cells = [];
-
-  function placeNode(entry, depth, rowStart) {
-    const columnSpan = entry.node.homeSpanRemaining
-      ? Math.max(1, columnCount - depth)
-      : 1;
-    cells.push({
-      column: depth + 1,
-      columnSpan,
-      node: entry.node,
-      rowSpan: entry.rowSpan,
-      rowStart,
-    });
-
-    if (entry.node.homeSpanRemaining) return;
-
-    if (!entry.children.length) {
-      for (let column = depth + 2; column <= columnCount; column++) {
-        cells.push({ column, empty: true, rowSpan: 1, rowStart });
-      }
-      return;
-    }
-
-    let childRow = rowStart;
-    for (const child of entry.children) {
-      placeNode(child, depth + 1, childRow);
-      childRow += child.rowSpan;
-    }
-  }
-
-  let rowStart = 1;
-  for (const root of roots) {
-    placeNode(root, 0, rowStart);
-    rowStart += root.rowSpan;
-  }
-
-  return {
-    cells,
-    collapsedCount,
-    columnCount,
-    rowCount: Math.max(0, rowStart - 1),
-  };
+  return catalog;
 }
 
 function EditorHistoryNode({ node, onRemoveHistory }) {
@@ -239,13 +159,6 @@ function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
 
   return (
     <div className="homeNavFavorites" aria-label="editor home favorites">
-      <span
-        className="homeNavFavoritesLabel"
-        title="editor home favorites"
-        aria-hidden="true"
-      >
-        ★<span className="homeNavFavoritesSeparator">:</span>
-      </span>
       <span className="homeNavFavoritesLinks">
         {node.items.length ? (
           node.items.map((item) => {
@@ -355,6 +268,9 @@ function EditorNavigationNode({
     );
   }
   if (node.type == "homeFavorites") {
+    return <HomeFavoritesColumn label="editor home favorites" />;
+  }
+  if (node.type == "homeFavoriteLinks") {
     return (
       <EditorFavoritesNode
         node={node}
@@ -436,166 +352,11 @@ function EditorNavigationNode({
   );
 }
 
-function EditorMatrix({
-  favoriteFileSet,
-  matrix,
-  onMoveFavorite,
-  onMoveNode,
-  onRemoveHistory,
-  onToggleFavorite,
-  onToggleNode,
-  sortable,
-}) {
-  const [dragNode, setDragNode] = useState(null);
-  const [dropSpot, setDropSpot] = useState(null);
-
-  return (
-    <div
-      className={`homeNavMatrix ${sortable ? "customSort" : ""}`}
-      style={{
-        "--home-nav-column-count": matrix.columnCount,
-        "--home-nav-row-count": matrix.rowCount,
-      }}
-    >
-      {matrix.cells.map((cell) => {
-        const node = cell.node;
-        const canDrag = sortable && !cell.empty && !node.homePinned;
-        const dragging = canDrag && dragNode?.homeNodeKey == node.homeNodeKey;
-        const isDropSpot = canDrag && dropSpot?.nodeKey == node.homeNodeKey;
-        const dropClass = isDropSpot
-          ? dropSpot.placeAfter
-            ? "dropAfter"
-            : "dropBefore"
-          : "";
-
-        return (
-          <div
-            className={[
-              "homeNavCell",
-              cell.empty ? "empty" : "",
-              node?.type == "history" ? "history" : "",
-              node?.type == "homeFavorites" ? "favorites" : "",
-              canDrag ? "sortable" : "",
-              dragging ? "dragging" : "",
-              dropClass,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            draggable={canDrag || undefined}
-            key={
-              cell.empty
-                ? `empty:${cell.column}:${cell.rowStart}`
-                : `${node.homeNodeKey}:${cell.column}:${cell.rowStart}`
-            }
-            style={{
-              gridColumn:
-                cell.columnSpan > 1
-                  ? `${cell.column} / span ${cell.columnSpan}`
-                  : cell.column,
-              gridRow: `${cell.rowStart} / span ${cell.rowSpan}`,
-            }}
-            aria-hidden={cell.empty || undefined}
-            onDragStart={
-              canDrag
-                ? (event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData(
-                      "text/plain",
-                      node.homeNodeKey,
-                    );
-                    setDragNode(node);
-                  }
-                : undefined
-            }
-            onDragOver={
-              canDrag
-                ? (event) => {
-                    if (
-                      !dragNode ||
-                      dragNode.homeNodeKey == node.homeNodeKey ||
-                      dragNode.homeParentKey != node.homeParentKey
-                    ) {
-                      return;
-                    }
-
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const placeAfter =
-                      event.clientY > rect.top + rect.height / 2;
-                    setDropSpot((current) =>
-                      current?.nodeKey == node.homeNodeKey &&
-                      current?.placeAfter == placeAfter
-                        ? current
-                        : { nodeKey: node.homeNodeKey, placeAfter },
-                    );
-                  }
-                : undefined
-            }
-            onDragLeave={
-              canDrag
-                ? (event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget)) {
-                      setDropSpot((current) =>
-                        current?.nodeKey == node.homeNodeKey ? null : current,
-                      );
-                    }
-                  }
-                : undefined
-            }
-            onDrop={
-              canDrag
-                ? (event) => {
-                    event.preventDefault();
-                    if (
-                      dragNode &&
-                      dragNode.homeNodeKey != node.homeNodeKey &&
-                      dragNode.homeParentKey == node.homeParentKey
-                    ) {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      onMoveNode(
-                        dragNode,
-                        node,
-                        event.clientY > rect.top + rect.height / 2,
-                      );
-                    }
-                    setDragNode(null);
-                    setDropSpot(null);
-                  }
-                : undefined
-            }
-            onDragEnd={
-              canDrag
-                ? () => {
-                    setDragNode(null);
-                    setDropSpot(null);
-                  }
-                : undefined
-            }
-          >
-            {!cell.empty && (
-              <EditorNavigationNode
-                favoriteFileSet={favoriteFileSet}
-                node={node}
-                onMoveFavorite={onMoveFavorite}
-                onRemoveHistory={onRemoveHistory}
-                onToggleFavorite={onToggleFavorite}
-                onToggleNode={onToggleNode}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function EditorIndex({
   initialFavoriteFiles = [],
   initialFiles = [],
   initialHistory = [],
   initialOrder = {},
-  initialSortMode = "default",
 }) {
   const initialFilesText = JSON.stringify(initialFiles);
   const initialHistoryText = JSON.stringify(initialHistory);
@@ -612,15 +373,6 @@ function EditorIndex({
       ),
     ),
   );
-  const [sortMode, setSortMode] = useState(() =>
-    parseEditorSortMode(
-      getCurrentEditorCookie(
-        editorHomeSortModeCookie,
-        initialSortMode,
-        "default",
-      ),
-    ),
-  );
   const [customOrder, setCustomOrder] = useState(() =>
     parseEditorOrder(
       getCurrentEditorCookie(editorHomeOrderCookie, initialOrder, {}),
@@ -628,9 +380,12 @@ function EditorIndex({
   );
   const [filesReady, setFilesReady] = useState(false);
   const [collapsedKeys, setCollapsedKeys] = useState(() => new Set());
-  const [sortCardOpen, setSortCardOpen] = useState(false);
   const tree = useMemo(() => buildEditorNavTree(files), [files]);
   const validFileSet = useMemo(() => new Set(files), [files]);
+  const favoriteCatalog = useMemo(
+    () => buildEditorFavoriteCatalog(tree),
+    [tree],
+  );
   const favoriteFileSet = useMemo(
     () => new Set(favoriteFiles),
     [favoriteFiles],
@@ -653,34 +408,49 @@ function EditorIndex({
             href: getEditorFileHref(file),
           })),
       },
-      {
-        type: "homeFavorites",
-        homeKey: "editor:homeFavorites",
-        homePinned: true,
-        homeSpanRemaining: true,
-        children: [],
-        items: favoriteFiles
-          .filter((file) => validFileSet.has(file))
-          .map((file) => ({
-            favoriteKey: file,
-            label: file.split("/").at(-1),
-            title: file,
-            href: getEditorFileHref(file),
-          })),
-      },
+      buildHomeFavoritesMatrixGroup({
+        favoriteKeys: favoriteFiles,
+        getFavoriteNode: (file) => favoriteCatalog.get(file),
+        getFavoriteItem: (node, file) =>
+          validFileSet.has(file)
+            ? {
+                favoriteKey: file,
+                label: file.split("/").at(-1),
+                title: file,
+                href: getEditorFileHref(file),
+              }
+            : null,
+        getNodeKey: getEditorNodeKey,
+        rootKey: "editor:homeFavorites",
+      }),
       ...tree,
     ],
-    [favoriteFiles, historyFiles, tree, validFileSet],
+    [favoriteCatalog, favoriteFiles, historyFiles, tree, validFileSet],
   );
   const matrix = useMemo(
     () =>
-      buildTreeMatrix(
-        matrixNodes,
-        collapsedKeys,
-        sortMode,
-        customOrder,
-      ),
-    [collapsedKeys, customOrder, matrixNodes, sortMode],
+      buildHomeNavigationMatrix({
+        nodes: matrixNodes,
+        getNodeKey: (node) =>
+          getHomeMatrixNodeKey(node, getEditorNodeKey),
+        isCollapsed: (node) =>
+          node.type != "homeFavorites" &&
+          collapsedKeys.has(getHomeSourceNodeKey(node, getEditorNodeKey)),
+        orderChildren: (children, parentKey, parentNode) => {
+          if (parentNode?.type == "homeFavorites") return children;
+
+          const sourceParentKey = parentNode
+            ? getHomeSourceNodeKey(parentNode, getEditorNodeKey)
+            : parentKey;
+          return sortHomeMatrixChildren(
+            children,
+            customOrder[sourceParentKey] || [],
+            (node) => getHomeSourceNodeKey(node, getEditorNodeKey),
+          );
+        },
+        rootParentKey: editorRootKey,
+      }),
+    [collapsedKeys, customOrder, matrixNodes],
   );
   const sectionCollapsed = collapsedKeys.has(editorSectionKey);
 
@@ -737,15 +507,8 @@ function EditorIndex({
   }, [files, filesReady]);
 
   useEffect(() => {
-    if (sortMode == "custom") {
-      setCookie(editorHomeSortModeCookie, sortMode, {
-        maxAge: editorStateMaxAge,
-        path: "/",
-      });
-    } else {
-      deleteCookie(editorHomeSortModeCookie, { path: "/" });
-    }
-  }, [sortMode]);
+    deleteCookie(editorHomeSortModeCookie, { path: "/" });
+  }, []);
 
   useEffect(() => {
     if (!Object.keys(customOrder).length) {
@@ -772,7 +535,10 @@ function EditorIndex({
   }, [favoriteFiles]);
 
   function toggleNode(node) {
-    const key = node.homeKey || node.homeNodeKey;
+    const key = getHomeSourceNodeKey(
+      node,
+      (entry) => entry.homeKey || entry.homeNodeKey,
+    );
     if (!key) return;
 
     setCollapsedKeys((current) => {
@@ -820,50 +586,30 @@ function EditorIndex({
 
   function moveNode(dragNode, targetNode, placeAfter) {
     if (
-      sortMode != "custom" ||
-      !dragNode?.homeNodeKey ||
-      !targetNode?.homeNodeKey ||
-      dragNode.homeParentKey != targetNode.homeParentKey
+      dragNode.homeFavoriteProjectionRoot &&
+      targetNode.homeFavoriteProjectionRoot
     ) {
+      moveFavorite(
+        dragNode.homeFavoriteKey,
+        targetNode.homeFavoriteKey,
+        placeAfter,
+      );
       return;
     }
 
-    const siblingKeys = matrix.cells
-      .filter(
-        (cell) =>
-          cell.node &&
-          !cell.node.homePinned &&
-          cell.node.homeParentKey == dragNode.homeParentKey,
-      )
-      .sort((a, b) => a.rowStart - b.rowStart)
-      .map((cell) => cell.node.homeNodeKey);
-    const draggedKey = dragNode.homeNodeKey;
-    const targetKey = targetNode.homeNodeKey;
-    if (!siblingKeys.includes(draggedKey) || !siblingKeys.includes(targetKey)) {
-      return;
-    }
-
-    const withoutDragged = siblingKeys.filter((key) => key != draggedKey);
-    const targetIndex = withoutDragged.indexOf(targetKey);
-    if (targetIndex < 0) return;
-    const insertIndex = targetIndex + (placeAfter ? 1 : 0);
-    const nextOrder = [
-      ...withoutDragged.slice(0, insertIndex),
-      draggedKey,
-      ...withoutDragged.slice(insertIndex),
-    ];
-    if (nextOrder.every((key, index) => key == siblingKeys[index])) return;
-
-    setCustomOrder((current) => ({
-      ...current,
-      [dragNode.homeParentKey]: nextOrder,
-    }));
+    setCustomOrder((current) =>
+      getHomeMatrixMove(
+        current,
+        matrix,
+        dragNode,
+        targetNode,
+        placeAfter,
+      ),
+    );
   }
 
-  function resetSort() {
+  function resetSorting() {
     setCustomOrder({});
-    setSortMode("default");
-    setSortCardOpen(false);
   }
 
   return (
@@ -880,61 +626,12 @@ function EditorIndex({
               <h2>
                 <Link href="/editor">editor</Link>
               </h2>
-              <button
-                type="button"
-                className="homeNavBranchToggle homeNavSectionToggle"
-                aria-label={`${
-                  sectionCollapsed ? "show" : "hide"
-                } editor table`}
-                aria-expanded={!sectionCollapsed}
-                title={`${sectionCollapsed ? "show" : "hide"} editor table`}
-                onClick={() => toggleNode({ homeKey: editorSectionKey })}
-              >
-                <span
-                  className={`homeNavBranchCaret ${
-                    sectionCollapsed ? "collapsed" : ""
-                  }`}
-                  aria-hidden="true"
-                ></span>
-              </button>
-            </div>
-            <div className="homeNavSort">
-              <span className="homeNavSortLabel">sort:</span>
-              <div className="homeNavSortMode" aria-label="editor file sorting">
-                <InteractiveInfoCard
-                  open={sortMode == "custom" && sortCardOpen}
-                  onOpenChange={setSortCardOpen}
-                  className="homeNavSortCustomInfo"
-                >
-                  <button
-                    type="button"
-                    className={sortMode == "custom" ? "active" : ""}
-                    aria-pressed={sortMode == "custom"}
-                    onClick={() => setSortMode("custom")}
-                  >
-                    custom
-                  </button>
-                  {sortMode == "custom" && (
-                    <span className="infoCard homeNavSortResetCard">
-                      <button
-                        type="button"
-                        className="homeNavResetSort"
-                        onClick={resetSort}
-                      >
-                        reset to default
-                      </button>
-                    </span>
-                  )}
-                </InteractiveInfoCard>
-                <button
-                  type="button"
-                  className={sortMode == "default" ? "active" : ""}
-                  aria-pressed={sortMode == "default"}
-                  onClick={() => setSortMode("default")}
-                >
-                  default
-                </button>
-              </div>
+              <HomeSectionSortToggle
+                collapsed={sectionCollapsed}
+                label="editor"
+                onResetSorting={resetSorting}
+                onToggle={() => toggleNode({ homeKey: editorSectionKey })}
+              />
             </div>
             {(sectionCollapsed || !!matrix.collapsedCount) && (
               <button
@@ -947,17 +644,22 @@ function EditorIndex({
             )}
           </header>
           {!sectionCollapsed && (
-            <EditorMatrix
-              favoriteFileSet={favoriteFileSet}
+            <HomeNavigationMatrix
               matrix={matrix}
-              onMoveFavorite={moveFavorite}
               onMoveNode={moveNode}
-              onRemoveHistory={(file) =>
-                setHistoryFiles(removeEditorHistory(file))
-              }
-              onToggleFavorite={toggleFavorite}
-              onToggleNode={toggleNode}
-              sortable={sortMode == "custom"}
+              renderNode={(node) => (
+                <EditorNavigationNode
+                  favoriteFileSet={favoriteFileSet}
+                  node={node}
+                  onMoveFavorite={moveFavorite}
+                  onRemoveHistory={(file) =>
+                    setHistoryFiles(removeEditorHistory(file))
+                  }
+                  onToggleFavorite={toggleFavorite}
+                  onToggleNode={toggleNode}
+                />
+              )}
+              sortable
             />
           )}
         </section>

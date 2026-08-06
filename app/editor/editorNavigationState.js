@@ -39,10 +39,6 @@ function normalizeEditorPaths(values = [], cap = 100) {
   return result;
 }
 
-export function parseEditorSortMode(value = "") {
-  return value == "custom" ? "custom" : "default";
-}
-
 export function parseEditorOrder(value = "") {
   const parsed = parseJson(value, {});
   if (!parsed || Array.isArray(parsed) || typeof parsed != "object") return {};

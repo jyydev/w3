@@ -18,14 +18,18 @@ import {
   mergeTrees,
 } from "./NavbarWalletMenu";
 
+const etcOptions = [
+  { value: "editor", label: "editor", href: "/editor" },
+  { value: "cookie", label: "cookies", href: "/ck" },
+  { value: "login", label: "login", href: "/login" },
+  { value: "ref", label: "ref", href: "/ref" },
+];
+const etcValues = new Set(etcOptions.map((option) => option.value));
 const topOptions = [
   { value: "wallet", label: "wallet", href: "/w" },
   { value: "trade", label: "trade", href: "/t" },
   { value: "data", label: "data", href: "/d" },
-  { value: "ref", label: "ref", href: "/ref" },
-  { value: "editor", label: "editor", href: "/editor" },
-  { value: "cookie", label: "cookie", href: "/ck" },
-  { value: "login", label: "login", href: "/login" },
+  { value: "etc", label: "etc", children: etcOptions },
 ];
 
 const breadcrumbHistoryStorageKey = "w3_breadcrumb_history";
@@ -115,7 +119,7 @@ function getHistoryAvailability(historyE) {
   };
 }
 
-function getTopValue(pathname = "/") {
+function getRouteValue(pathname = "/") {
   const first = pathname.split("/").filter(Boolean)[0] || "";
   if (first == "w") return "wallet";
   if (first == "t") return "trade";
@@ -124,6 +128,11 @@ function getTopValue(pathname = "/") {
   if (["ref", "editor", "login"].includes(first)) return first;
 
   return "";
+}
+
+function getTopValue(pathname = "/") {
+  const routeValue = getRouteValue(pathname);
+  return etcValues.has(routeValue) ? "etc" : routeValue;
 }
 
 function getPathParts(pathname = "", routeBase = "") {
@@ -230,9 +239,20 @@ function getTopMenuOptions(
       return { ...option, children: getWalletTypeOptions("/t", tree) };
     }
     if (option.value == "data") return { ...option, children: dataTree };
-    if (option.value == "ref") return { ...option, children: refTree };
-    if (option.value == "editor") {
-      return { ...option, children: editorTree };
+    if (option.value == "etc") {
+      return {
+        ...option,
+        children: etcOptions.map((etcOption) => {
+          if (etcOption.value == "ref") {
+            return { ...etcOption, children: refTree };
+          }
+          if (etcOption.value == "editor") {
+            return { ...etcOption, children: editorTree };
+          }
+
+          return etcOption;
+        }),
+      };
     }
 
     return option;
@@ -666,6 +686,7 @@ function BreadcrumbInner({
   editorTree = [],
 }) {
   const pathname = usePathname() || "/";
+  const routeValue = getRouteValue(pathname);
   const topValue = getTopValue(pathname);
   const topCurrent = topOptions.find((option) => option.value == topValue);
   const { navigationLoading } = useCgb();
@@ -680,6 +701,11 @@ function BreadcrumbInner({
   const topMenuOptions = useMemo(
     () => getTopMenuOptions(tree, refTree, dataTree, resolvedEditorTree),
     [tree, refTree, dataTree, resolvedEditorTree],
+  );
+  const resolvedEtcOptions =
+    topMenuOptions.find((option) => option.value == "etc")?.children || [];
+  const etcCurrent = resolvedEtcOptions.find(
+    (option) => option.value == routeValue,
   );
 
   useEffect(() => {
@@ -721,15 +747,23 @@ function BreadcrumbInner({
         fallbackLabel="select"
         options={topMenuOptions}
       />
-      {topValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}
-      {topValue == "trade" && <WalletCrumbs routeBase="/t" tree={tree} />}
-      {topValue == "data" && (
+      {topValue == "etc" && (
+        <SelectCrumb
+          value={routeValue}
+          ariaLabel="etc section"
+          href={etcCurrent?.href || ""}
+          options={resolvedEtcOptions}
+        />
+      )}
+      {routeValue == "wallet" && <WalletCrumbs routeBase="/w" tree={tree} />}
+      {routeValue == "trade" && <WalletCrumbs routeBase="/t" tree={tree} />}
+      {routeValue == "data" && (
         <RouteCrumbs routeBase="/d" tree={dataTree} />
       )}
-      {topValue == "ref" && (
+      {routeValue == "ref" && (
         <RouteCrumbs routeBase="/ref" tree={refTree} />
       )}
-      {topValue == "editor" && (
+      {routeValue == "editor" && (
         <RouteCrumbs routeBase="/editor" tree={resolvedEditorTree} />
       )}
       {navigationLoading && (

@@ -6,12 +6,10 @@ import { listEditorDataFiles } from "./editorData";
 import {
   editorHomeFavsCookie,
   editorHomeOrderCookie,
-  editorHomeSortModeCookie,
   editorHistoryCookie,
   parseEditorFavs,
   parseEditorHistory,
   parseEditorOrder,
-  parseEditorSortMode,
 } from "./editorNavigationState";
 
 export const dynamic = "force-dynamic";
@@ -43,9 +41,6 @@ async function App({ searchParams }) {
       )}
       initialFavoriteFiles={parseEditorFavs(
         cookieStore.get(editorHomeFavsCookie)?.value,
-      )}
-      initialSortMode={parseEditorSortMode(
-        cookieStore.get(editorHomeSortModeCookie)?.value,
       )}
       initialOrder={parseEditorOrder(
         cookieStore.get(editorHomeOrderCookie)?.value,

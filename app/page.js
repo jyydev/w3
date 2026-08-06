@@ -5,13 +5,11 @@ import {
   homeWalletModeCookie,
   homeWalletFavsCookie,
   homeWalletOrderCookie,
-  homeWalletSortModeCookie,
   parseHomeCollapsedKeys,
   parseHomeSectionOrder,
   parseHomeWalletFavKeys,
   parseHomeWalletMode,
   parseHomeWalletOrder,
-  parseHomeWalletSortMode,
 } from "@/components/homeNavigationState";
 import { getNavigationTrees } from "@/components/navigationTreeServer";
 import { favAddrCookie, parseFavAddrs } from "@/app/w/favAddrs";
@@ -44,9 +42,6 @@ export default async function App() {
       ),
     ]),
   );
-  const initialWalletSortMode = parseHomeWalletSortMode(
-    cookieStore.get(homeWalletSortModeCookie)?.value,
-  );
   const initialWalletMode = parseHomeWalletMode(
     cookieStore.get(homeWalletModeCookie)?.value,
   );
@@ -68,7 +63,6 @@ export default async function App() {
         favAddrs={favAddrs}
         walletHistoryM={walletHistoryM}
         initialWalletMode={initialWalletMode}
-        initialWalletSortMode={initialWalletSortMode}
         initialWalletOrderM={initialWalletOrderM}
         initialWalletFavKeys={initialWalletFavKeys}
       />
