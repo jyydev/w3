@@ -44,14 +44,14 @@
 .navSortableTop > a,
 .navSortableTop > .tx,
 .navSortableTop > .navbarHomeLink > a,
-.navSortableTop > .walletNavGroup > .dropdown > .dropbtn {
+.navSortableTop > .walletNavGroup .dropdown > .dropbtn {
   cursor: grab;
 }
 
 .navSortableTop:active > a,
 .navSortableTop:active > .tx,
 .navSortableTop:active > .navbarHomeLink > a,
-.navSortableTop:active > .walletNavGroup > .dropdown > .dropbtn {
+.navSortableTop:active > .walletNavGroup .dropdown > .dropbtn {
   cursor: grabbing;
 }
 
@@ -107,7 +107,6 @@
 .navbarAddButton:hover,
 .navbarAddButton:focus-visible {
   color: var(--orange);
-  background: #222;
   outline: none;
 }
 
@@ -139,10 +138,8 @@
 }
 
 .navHiddenToggleButton:hover,
-.navHiddenToggleButton:focus-visible,
-.navHiddenToggleButton.active {
+.navHiddenToggleButton:focus-visible {
   color: var(--orange);
-  background: #222;
   outline: none;
 }
 
@@ -382,10 +379,7 @@
 
 .navMenuRow.navItemHidden,
 .navQuickFav.navItemHidden > .navQuickFavTrigger,
-.navSortableTop.navItemHidden
-  > .walletNavGroup
-  > .dropdown
-  > .dropbtn,
+.navSortableTop.navItemHidden > .walletNavGroup .dropdown > .dropbtn,
 .navSortableTop.navItemHidden
   > .walletNavGroup
   > .navQuickFavs
@@ -593,35 +587,16 @@
   z-index: 90;
 }
 
-.navQuickFavTrigger:hover .navQuickFavCard {
+.navQuickFavTrigger.navHoverCardOpen > .navQuickFavCard {
   display: block;
 }
 
 .navHiddenResetCard {
   left: 0;
-  max-width: none;
 }
 
-.navHiddenToggle:hover > .navHiddenResetCard,
-.navHiddenToggle:focus-within > .navHiddenResetCard,
-.navHiddenResetCard:hover {
+.navHiddenToggle.navHiddenResetOpen > .navHiddenResetCard {
   display: block;
-}
-
-.navHiddenResetButton {
-  display: block;
-  width: max-content;
-  border: 0;
-  background: transparent;
-  color: var(--orange);
-  padding: 0;
-  font-size: 9px;
-  line-height: 1.1;
-  cursor: pointer;
-}
-
-.navHiddenResetButton:hover {
-  color: white;
 }
 
 .navHiddenResetButton:disabled {
@@ -632,22 +607,28 @@
 .navTopHideCard {
   right: auto;
   left: 0;
-  padding: 1px;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
 }
 
-.navSortableTop:hover > .navTopHideCard,
-.navSortableTop:focus-within > .navTopHideCard,
-.navTopHideCard:hover {
-  display: block;
+.navSortableTop.navHoverCardOpen > .navTopHideCard {
+  display: inline-flex;
 }
 
-.navTopHideButton {
-  width: 18px;
-  height: 18px;
-  padding: 2px;
+.navTopHideButton,
+.navCustomTitleHideButton {
+  width: 14px;
+  height: 14px;
+  padding: 0;
 }
 
-.navTopHideButton svg {
+.navTopHideButton svg,
+.navCustomTitleHideButton svg {
   width: 14px;
   height: 14px;
 }
@@ -656,25 +637,34 @@
   position: relative;
 }
 
-.navCustomTitleCard {
+.navCustomTitleHover {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  left: var(--navleftSpace);
-  max-width: 200px;
 }
 
-.navCustomTitleMenu:hover + .navCustomTitleCard,
-.navCustomTitleMenu:focus-within + .navCustomTitleCard,
-.navCustomTitleCard:hover,
-.navCustomTitleCard:focus-within {
-  display: flex;
+.navCustomTitleCard {
+  align-items: center;
+  gap: 1px;
+  left: var(--navleftSpace);
+  width: max-content;
+  height: 14px;
+  box-sizing: border-box;
+  max-width: 200px;
+  padding: 0;
+  line-height: 0;
+}
+
+.navCustomTitleHover.navCustomTitleCardOpen > .navCustomTitleCard {
+  display: inline-flex;
 }
 
 .navCustomTitleRemove {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   width: fit-content;
+  height: 14px;
   max-width: 192px;
   border: 0;
   background: transparent;
@@ -700,17 +690,6 @@
 
 .navCustomTitleRemove:hover {
   color: white;
-}
-
-.navCustomTitleHideButton {
-  width: 18px;
-  height: 18px;
-  padding: 2px;
-}
-
-.navCustomTitleHideButton svg {
-  width: 14px;
-  height: 14px;
 }
 
 .navQuickFavTitle {

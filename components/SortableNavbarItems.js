@@ -14,6 +14,7 @@ import {
   saveLocalNavbarOrder,
 } from "./navbarSorting";
 import { NavbarHideButton } from "./navbarVisibility";
+import NavbarHoverCard from "./NavbarHoverCard";
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 const emptyHiddenKeys = new Set();
@@ -108,7 +109,8 @@ export default function SortableNavbarItems({
       : "";
 
     return (
-      <div
+      <NavbarHoverCard
+        as="div"
         key={key}
         className={`navSortableTop${dragKey == key ? " dragging" : ""}${
           hidden ? " navItemHidden" : ""
@@ -180,7 +182,7 @@ export default function SortableNavbarItems({
             />
           </span>
         )}
-      </div>
+      </NavbarHoverCard>
     );
   });
 }

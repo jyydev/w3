@@ -7,6 +7,7 @@ import {
   navbarOrderStoragePrefix,
   navbarSortResetEvent,
 } from "./navbarSorting";
+import NavbarHoverCard from "./NavbarHoverCard";
 
 function getCookieName(rawCookie = "") {
   const separator = rawCookie.indexOf("=");
@@ -39,7 +40,7 @@ function resetNavbarSorting() {
 
 export default function NavbarHomeLink() {
   return (
-    <span className="navbarHomeLink navQuickFavTrigger">
+    <NavbarHoverCard className="navbarHomeLink navQuickFavTrigger">
       <Link href="/">⌂ Home</Link>
       <span className="navQuickFavCard">
         <button
@@ -54,6 +55,6 @@ export default function NavbarHomeLink() {
           reset sorting
         </button>
       </span>
-    </span>
+    </NavbarHoverCard>
   );
 }

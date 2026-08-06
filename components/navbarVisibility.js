@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { ckPrefix } from "@/sets";
+import useOverlayInteraction from "./useOverlayInteraction";
 
 const storagePrefix = `${ckPrefix ?? ""}navHidden:`;
 const emptyHiddenKeys = new Set();
@@ -155,20 +156,35 @@ function NavbarHideButton({ hidden = false, label, onClick, className = "" }) {
 }
 
 function NavbarVisibilityToggle({ visibility }) {
+  const [resetCardOpen, setResetCardOpen] = useState(false);
   const {
     hiddenCount,
     showHidden,
     setShowHidden,
     resetHidden,
   } = visibility;
+  const { overlayOpen, rootRef, interactionProps } = useOverlayInteraction({
+    activation: "hover",
+    open: resetCardOpen,
+    onOpenChange: setResetCardOpen,
+    panelClassName: "navHiddenResetCard",
+    triggerClassName: "navHiddenToggleButton",
+  });
 
   return (
-    <span className="navHiddenToggle">
+    <span
+      {...interactionProps}
+      ref={rootRef}
+      className={`navHiddenToggle${
+        overlayOpen ? " navHiddenResetOpen" : ""
+      }`}
+    >
       <button
         type="button"
         className={`navHiddenToggleButton${showHidden ? " active" : ""}`}
         title={showHidden ? "hide hidden links" : "show hidden links"}
         aria-label={showHidden ? "hide hidden links" : "show hidden links"}
+        aria-expanded={overlayOpen}
         aria-pressed={showHidden}
         onClick={() => setShowHidden((current) => !current)}
       >
@@ -177,9 +193,12 @@ function NavbarVisibilityToggle({ visibility }) {
       <span className="navQuickFavCard navHiddenResetCard">
         <button
           type="button"
-          className="navHiddenResetButton"
+          className="navQuickUnfav navHiddenResetButton"
           disabled={!hiddenCount}
-          onClick={resetHidden}
+          onClick={() => {
+            resetHidden();
+            setResetCardOpen(false);
+          }}
         >
           reset hiding
         </button>

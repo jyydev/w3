@@ -9,6 +9,7 @@ import { TrashIcon } from "@/components/Shared";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
 import FavoriteButton from "./FavoriteButton";
 import HoverMenu from "./HoverMenu";
+import NavbarHoverCard from "./NavbarHoverCard";
 import {
   NavbarSortableRow,
   useNavbarTreeSorting,
@@ -549,7 +550,7 @@ function NavbarWalletMenu({
         disabled={!hasChildren}
         key={fav.href}
       >
-        <span
+        <NavbarHoverCard
           className="navQuickFavTrigger"
           draggable
           onDragStart={(e) => {
@@ -615,7 +616,7 @@ function NavbarWalletMenu({
               ★ unfav <span className="gray">{fav.href}</span>
             </button>
           </span>
-        </span>
+        </NavbarHoverCard>
         {hasChildren && (
           <div className="navigationMenuPanel dropdown-content navMenuTree navQuickFavMenu">
             {visibleChildren.map((child) => (

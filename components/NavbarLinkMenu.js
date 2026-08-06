@@ -9,6 +9,7 @@ import {
 } from "@/app/_editorData/browserEditorStorage";
 import { TrashIcon } from "@/components/Shared";
 import HoverMenu from "./HoverMenu";
+import NavbarHoverCard from "./NavbarHoverCard";
 import {
   NavbarSortableRow,
   useNavbarTreeSorting,
@@ -432,7 +433,7 @@ function NavbarLinkMenu({
         disabled={!hasChildren}
         key={fav.href}
       >
-        <span
+        <NavbarHoverCard
           className="navQuickFavTrigger"
           draggable
           onDragStart={(e) => {
@@ -499,7 +500,7 @@ function NavbarLinkMenu({
               ★ unfav <span className="gray">{fav.href}</span>
             </button>
           </span>
-        </span>
+        </NavbarHoverCard>
         {hasChildren && (
           <div className="navigationMenuPanel dropdown-content navMenuTree navQuickFavMenu">
             {fav.children.map((child) => (
@@ -533,82 +534,93 @@ function NavbarLinkMenu({
     !!visibility?.toggleHidden &&
     visibility.hiddenKeys.has(titleVisibilityKey);
 
+  const titleMenu = (
+    <HoverMenu
+      className={`${title ? "dropdown title" : "dropdown"}${
+        titleRemovable ? " navCustomTitleMenu" : ""
+      }`}
+    >
+      {titleHref ? (
+        <Link
+          className="navigationMenuTrigger dropbtn navTitleLink"
+          href={titleHref}
+          {...getExternalLinkProps(titleHref, titleRemovable)}
+        >
+          {title}
+          <i className="custom-caret"></i>
+        </Link>
+      ) : (
+        <button className="navigationMenuTrigger dropbtn">
+          {title}
+          <i className="custom-caret"></i>
+        </button>
+      )}
+      <div className="navigationMenuPanel dropdown-content navMenuTree">
+        {orderedEntries.map((entry) => (
+          <NavbarLinkNode
+            key={entry.navbarSortKey}
+            entry={entry}
+            siblings={orderedEntries}
+            sorting={sorting}
+            favHrefM={favHrefM}
+            onToggleFav={toggleFav}
+            favoritesEnabled={favoritesEnabled}
+            onAddChild={onAddChild}
+            onRemoveItem={removeItem}
+            visibility={visibility}
+            visibilityScope={visibilityScope}
+          />
+        ))}
+        {!!addChildParentId && typeof onAddChild == "function" && (
+          <AddLinkButton onClick={() => onAddChild(addChildParentId)} />
+        )}
+      </div>
+    </HoverMenu>
+  );
+
   return (
     <div
       className={`walletNavGroup${titleRemovable ? " navCustomTitleGroup" : ""}`}
     >
-      <HoverMenu
-        className={`${title ? "dropdown title" : "dropdown"}${
-          titleRemovable ? " navCustomTitleMenu" : ""
-        }`}
-      >
-        {titleHref ? (
-          <Link
-            className="navigationMenuTrigger dropbtn navTitleLink"
-            href={titleHref}
-            {...getExternalLinkProps(titleHref, titleRemovable)}
-          >
-            {title}
-            <i className="custom-caret"></i>
-          </Link>
-        ) : (
-          <button className="navigationMenuTrigger dropbtn">
-            {title}
-            <i className="custom-caret"></i>
-          </button>
-        )}
-        <div className="navigationMenuPanel dropdown-content navMenuTree">
-          {orderedEntries.map((entry) => (
-            <NavbarLinkNode
-              key={entry.navbarSortKey}
-              entry={entry}
-              siblings={orderedEntries}
-              sorting={sorting}
-              favHrefM={favHrefM}
-              onToggleFav={toggleFav}
-              favoritesEnabled={favoritesEnabled}
-              onAddChild={onAddChild}
-              onRemoveItem={removeItem}
-              visibility={visibility}
-              visibilityScope={visibilityScope}
-            />
-          ))}
-          {!!addChildParentId && typeof onAddChild == "function" && (
-            <AddLinkButton onClick={() => onAddChild(addChildParentId)} />
-          )}
-        </div>
-      </HoverMenu>
       {titleRemovable && (
-        <span className="navQuickFavCard navCustomTitleCard">
-          <button
-            type="button"
-            className="navCustomTitleRemove"
-            title="remove custom link"
-            aria-label={`remove ${title}`}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (!window.confirm(`Remove "${title}"?`)) return;
-              onRemoveTitle();
-            }}
-          >
-            <TrashIcon />
-            <span className="gray">{titleHref}</span>
-          </button>
-          {!!titleVisibilityKey && visibility?.toggleHidden && (
-            <NavbarHideButton
-              hidden={titleHidden}
-              label={title}
-              className="navCustomTitleHideButton"
+        <NavbarHoverCard
+          className="navCustomTitleHover"
+          openClassName="navCustomTitleCardOpen"
+          panelClassName="navCustomTitleCard"
+        >
+          {titleMenu}
+          <span className="navQuickFavCard navCustomTitleCard">
+            <button
+              type="button"
+              className="navCustomTitleRemove"
+              title="remove custom link"
+              aria-label={`remove ${title}`}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                visibility.toggleHidden(titleVisibilityKey);
+                if (!window.confirm(`Remove "${title}"?`)) return;
+                onRemoveTitle();
               }}
-            />
-          )}
-        </span>
+            >
+              <TrashIcon />
+              <span className="gray">{titleHref}</span>
+            </button>
+            {!!titleVisibilityKey && visibility?.toggleHidden && (
+              <NavbarHideButton
+                hidden={titleHidden}
+                label={title}
+                className="navCustomTitleHideButton"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  visibility.toggleHidden(titleVisibilityKey);
+                }}
+              />
+            )}
+          </span>
+        </NavbarHoverCard>
       )}
+      {!titleRemovable && titleMenu}
       {!!quickFavs.length && (
         <div className="navQuickFavs">{quickFavs}</div>
       )}
