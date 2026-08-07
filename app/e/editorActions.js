@@ -56,7 +56,7 @@ export async function deleteEmptyEditorFolder({ folder = "" } = {}) {
   }
 
   await fs.rmdir(folderPath);
-  revalidatePath("/editor");
+  revalidatePath("/e");
 
   return { ok: true, folder: source };
 }

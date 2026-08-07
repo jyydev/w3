@@ -633,7 +633,7 @@ function EditorIndex({
               }
               onToggleHistoryFavorite={toggleFavorite}
               searchOptions={{
-                homeHref: "/editor",
+                homeHref: "/e",
                 homeTitle: "Editor home",
               }}
               renderNode={(node) => (

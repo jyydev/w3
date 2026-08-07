@@ -165,7 +165,7 @@ export default function WalletIndex({
           return node.children || [];
         }
 
-        return depth == 0
+        return depth == 0 && walletRootKeySet.has(getNodeSortKey(node))
           ? getWalletNavigationChildren(node, routeBase, favAddrs)
           : node.children || [];
       },

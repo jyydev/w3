@@ -186,7 +186,7 @@ function EditorClient({
       setContent("");
       setSavedContent("");
       setResolvedFile("");
-      router.replace("/editor", { scroll: false });
+      router.replace("/e", { scroll: false });
     }
 
     window.addEventListener(localEditorStorageEvent, refreshLocalFiles);
@@ -214,7 +214,7 @@ function EditorClient({
     }
 
     startTransition(() => {
-      editorRequest(`/editor/api?file=${encodeURIComponent(nextFile)}`)
+      editorRequest(`/e/api?file=${encodeURIComponent(nextFile)}`)
         .then((res) => {
           setFiles(res.files);
           setFile(res.file);
@@ -266,7 +266,7 @@ function EditorClient({
     }
 
     startTransition(() => {
-      editorRequest("/editor/api", {
+      editorRequest("/e/api", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file: trimmedDraftFile, content }),
@@ -316,7 +316,7 @@ function EditorClient({
         nextFiles = listLocalEditorFiles(initialFiles);
       } else {
         const res = await editorRequest(
-          `/editor/api?file=${encodeURIComponent(deletedFile)}`,
+          `/e/api?file=${encodeURIComponent(deletedFile)}`,
           { method: "DELETE" },
         );
         nextFiles = res.files;
@@ -341,7 +341,7 @@ function EditorClient({
         rememberEditorFile(nextFile);
         updateEditorUrl(nextFile, { replace: true, refresh: true });
       } else {
-        router.replace("/editor", { scroll: false });
+        router.replace("/e", { scroll: false });
         router.refresh();
       }
     } catch (error) {
@@ -381,7 +381,7 @@ function EditorClient({
     }
 
     startTransition(() => {
-      editorRequest("/editor/api", {
+      editorRequest("/e/api", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

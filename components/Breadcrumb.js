@@ -19,7 +19,7 @@ import {
 } from "./NavbarWalletMenu";
 
 const etcOptions = [
-  { value: "editor", label: "editor", href: "/editor" },
+  { value: "editor", label: "editor", href: "/e" },
   { value: "cookie", label: "cookies", href: "/ck" },
   { value: "login", label: "login", href: "/login" },
   { value: "ref", label: "ref", href: "/ref" },
@@ -125,7 +125,8 @@ function getRouteValue(pathname = "/") {
   if (first == "t") return "trade";
   if (first == "d") return "data";
   if (first == "ck") return "cookie";
-  if (["ref", "editor", "login"].includes(first)) return first;
+  if (first == "e") return "editor";
+  if (["ref", "login"].includes(first)) return first;
 
   return "";
 }
@@ -818,7 +819,7 @@ function BreadcrumbInner({
         <RouteCrumbs routeBase="/ref" tree={refTree} />
       )}
       {routeValue == "editor" && (
-        <RouteCrumbs routeBase="/editor" tree={resolvedEditorTree} />
+        <RouteCrumbs routeBase="/e" tree={resolvedEditorTree} />
       )}
       {navigationLoading && (
         <span className="breadcrumbLoading" role="status" aria-live="polite">

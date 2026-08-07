@@ -67,7 +67,7 @@ export async function clearEditorData({ target = "ALL" } = {}) {
   const removed = await clearEditorDataFolder(cleanTarget);
   revalidatePath("/w");
   revalidatePath("/t");
-  revalidatePath("/editor");
+  revalidatePath("/e");
 
   return { ok: true, target: cleanTarget, removed };
 }

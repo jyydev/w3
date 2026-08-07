@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { deleteEmptyEditorFolder } from "@/app/editor/editorActions";
+import { deleteEmptyEditorFolder } from "@/app/e/editorActions";
 import {
   listLocalEditorFiles,
   localEditorStorageEvent,

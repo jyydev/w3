@@ -16,7 +16,7 @@ import {
 const storagePrefix = `${ckPrefix ?? ""}navCustomLinks:`;
 const favoriteCookiePrefix = `${ckPrefix ?? ""}navCustomFav_`;
 const customLinksChangeEvent = `${ckPrefix ?? ""}navbarCustomLinksChange`;
-const serverCustomLinksApi = "/editor/custom-nav/api";
+const serverCustomLinksApi = "/e/custom-nav/api";
 
 function createLinkId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();

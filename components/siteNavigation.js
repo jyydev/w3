@@ -8,9 +8,9 @@ function buildSiteNavigationMenus({
 } = {}) {
   const etcItems = [
     {
-      href: "/editor",
+      href: "/e",
       label: "editor",
-      title: "/editor",
+      title: "/e",
       children: editorTree,
       editorFiles,
       editorEmptyFolders,

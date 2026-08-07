@@ -60,10 +60,24 @@ export function normalizeEditorFolderPath(folder) {
 
 export function getEditorFileHref(file) {
   const normalized = normalizeEditorFilePath(file);
-  return `/editor/${normalized
+  return `/e/${normalized
     .split("/")
     .map((part) => encodeURIComponent(part))
     .join("/")}`;
+}
+
+export function getExtensionlessEditorFileHref(file) {
+  if (typeof file != "string") return "";
+
+  const normalized = file.trim();
+  const fileName = normalized.split("/").at(-1) || "";
+  if (!normalized || fileName.lastIndexOf(".") > 0) return "";
+
+  try {
+    return getEditorFileHref(`${normalized}.txt`);
+  } catch {
+    return "";
+  }
 }
 
 function sortEditorNodes(a, b) {

@@ -9,7 +9,7 @@ import {
   editorStateMaxAge,
   encodeEditorHistory,
   parseEditorHistory,
-} from "@/app/editor/editorNavigationState";
+} from "@/app/e/editorNavigationState";
 
 const storageKey = `${ckPrefix ?? ""}editorFiles`;
 const editorHistoryStorageKey = `${ckPrefix ?? ""}editorHistory`;

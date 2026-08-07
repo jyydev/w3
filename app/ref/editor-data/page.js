@@ -78,7 +78,7 @@ const notes = [
   "These files are not generic helpers, so they live under app/_editorData rather than fn.",
   "Clear data in the settings card deletes data/editor locally or the equivalent localStorage editor files remotely.",
   "Cookies and localStorage are separate. Clearing browser cookies does not clear editor data.",
-  "The /editor page is one UI for these files, but wallet, trade, navbar, and settings also use the same storage layer.",
+  "The /e page is one UI for these files, but wallet, trade, navbar, and settings also use the same storage layer.",
 ];
 
 function EditorDataRefPage() {

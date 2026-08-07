@@ -26,7 +26,7 @@ W3 is a personal wallet dashboard and trading workspace built with Next.js. It c
 - `/w?addr=ADDRESS` - view one custom address.
 - `/t` - wallet viewer plus trade panel.
 - `/t/all` - trade panel with all wallets.
-- `/editor` - data editor.
+- `/e` - data editor.
 - `/ref` - reference/help page.
 
 ## Data Formats
