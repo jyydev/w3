@@ -7,6 +7,7 @@ import NavbarHomeLink from "./NavbarHomeLink";
 import NavbarCustomLinks from "./NavbarCustomLinks";
 import Breadcrumb from "./Breadcrumb";
 import { getNavigationTrees } from "./navigationTreeServer";
+import { buildSiteNavigationMenus } from "./siteNavigation";
 import {
   getNavbarOrderCookie,
   parseNavbarOrder,
@@ -94,41 +95,32 @@ export default async function Navbar() {
     editorNavTree,
   } = await getNavigationTrees();
 
-  let links = [["/", "⌂ Home"]]; //txt separator: links.push(['','tx'])
-  let etc = [
-    {
-      href: "/editor",
-      label: "editor",
-      title: "/editor",
-      children: editorNavTree,
-      editorFiles,
-      editorEmptyFolders,
-    },
-    ["/ck", "cookies"],
-    ["/login", "login"],
-    {
-      href: "/ref",
-      label: "ref",
-      title: "/ref",
-      children: refNavTree,
-    },
+  const menus = buildSiteNavigationMenus({
+    walletTree: walletNavTree,
+    dataTree: dataNavTree,
+    refTree: refNavTree,
+    editorTree: editorNavTree,
+    editorFiles,
+    editorEmptyFolders,
+  });
+  const links = [
+    ["/", "⌂ Home"],
+    ...menus.map((menu) => [
+      menu.type == "walletTree"
+        ? {
+            type: "walletTree",
+            routeBase: menu.routeBase,
+            items: menu.items,
+          }
+        : {
+            type: "linkMenu",
+            titleHref: menu.href,
+            items: menu.items,
+            favCookieKey: menu.favCookieKey,
+          },
+      menu.label,
+    ]),
   ];
-
-  links.push([
-    {
-      type: "linkMenu",
-      titleHref: "/d",
-      items: dataNavTree,
-      favCookieKey: "navDataFavs",
-    },
-    "data",
-  ]);
-  links.push([{ type: "walletTree", routeBase: "/w" }, "wallet"]);
-  links.push([{ type: "walletTree", routeBase: "/t" }, "trade"]);
-  links.push([
-    { type: "linkMenu", items: etc, favCookieKey: "navEtcFavs" },
-    "etc",
-  ]);
 
   const topOrderScope = getFullCookieName("navbarTop");
   const keyedLinks = getKeyedNavbarLinks(links);
@@ -151,7 +143,7 @@ export default async function Navbar() {
                 <NavbarWalletMenu
                   title={e[1]}
                   routeBase={e[0].routeBase}
-                  tree={walletNavTree}
+                  tree={e[0].items}
                   cookieName={cookieName}
                   initialFavs={parseWalletFavs(
                     ck[getWalletFavCookieKey(e[0].routeBase)],

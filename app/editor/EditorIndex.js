@@ -16,7 +16,6 @@ import FavoriteButton from "@/components/FavoriteButton";
 import Logo from "@/components/Logo";
 import {
   HistoryRemoveButton,
-  HoverInfoCard,
   InteractiveInfoCard,
 } from "@/components/Shared";
 import {
@@ -31,6 +30,7 @@ import {
   getHomeSourceNodeKey,
   HomeFavoritesColumn,
   HomeNavigationMatrix,
+  HomeNavigationPathHover,
   HomeSectionSortToggle,
   sortHomeMatrixChildren,
 } from "@/components/HomeNavigationMatrix";
@@ -223,12 +223,14 @@ function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
                   setDropSpot(null);
                 }}
               >
-                <HoverInfoCard floating>
+                <HomeNavigationPathHover
+                  context={item.homePathContext}
+                  detail={item.homePathDetail}
+                >
                   <Link href={item.href} className="homeNavQuickFavLink">
                     {item.label}
                   </Link>
-                  <span className="infoCard">{item.title}</span>
-                </HoverInfoCard>
+                </HomeNavigationPathHover>
                 <button
                   type="button"
                   className="homeNavQuickUnfav"
@@ -268,7 +270,13 @@ function EditorNavigationNode({
     );
   }
   if (node.type == "homeFavorites") {
-    return <HomeFavoritesColumn label="editor home favorites" />;
+    return (
+      <HomeFavoritesColumn
+        label="editor home favorites"
+        node={node}
+        onToggleNode={onToggleNode}
+      />
+    );
   }
   if (node.type == "homeFavoriteLinks") {
     return (
@@ -298,22 +306,18 @@ function EditorNavigationNode({
         .filter(Boolean)
         .join(" ")}
     >
-      {node.href && !node.disabled ? (
-        <Link
-          href={node.href}
-          className="homeNavNodeLink"
-          title={node.title || node.label}
-        >
-          {node.label}
-        </Link>
-      ) : (
-        <span
-          className="homeNavNodeLink disabled"
-          title={node.title || node.label}
-        >
-          {node.label}
-        </span>
-      )}
+      <HomeNavigationPathHover
+        context={node.homePathContext}
+        detail={node.homePathDetail}
+      >
+        {node.href && !node.disabled ? (
+          <Link href={node.href} className="homeNavNodeLink">
+            {node.label}
+          </Link>
+        ) : (
+          <span className="homeNavNodeLink disabled">{node.label}</span>
+        )}
+      </HomeNavigationPathHover>
       {(showFavoriteButton || hasChildren) && (
         <span className="homeNavNodeActions">
           {showFavoriteButton && (
@@ -434,7 +438,6 @@ function EditorIndex({
         getNodeKey: (node) =>
           getHomeMatrixNodeKey(node, getEditorNodeKey),
         isCollapsed: (node) =>
-          node.type != "homeFavorites" &&
           collapsedKeys.has(getHomeSourceNodeKey(node, getEditorNodeKey)),
         orderChildren: (children, parentKey, parentNode) => {
           if (parentNode?.type == "homeFavorites") return children;

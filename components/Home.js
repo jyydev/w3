@@ -4,30 +4,19 @@ import { deleteCookie, getCookie, setCookie } from "cookies-next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
 import {
-  readStoredWallet,
-  walletConnectEvent,
-} from "@/app/w/browserWalletStorage";
+  listLocalEditorFiles,
+  localEditorStorageEvent,
+  shouldUseLocalStorageEditor,
+} from "@/app/_editorData/browserEditorStorage";
+import { ckPrefix } from "@/sets";
 import {
   getDefaultWalletName,
   isAddressOnlyWalletName,
 } from "@/app/w/favAddrs";
-import {
-  getWalletHistoryCookie,
-  parseWalletHistoryCookie,
-  parseWalletHistoryValue,
-  readWalletHistoryStorage,
-  writeWalletHistoryStorage,
-} from "@/app/w/walletHistory";
-import { encodeSelectionOrder } from "@/fn/selectionOrder";
 import FavoriteButton from "./FavoriteButton";
 import Logo from "./Logo";
-import {
-  HistoryRemoveButton,
-  HoverInfoCard,
-  InteractiveInfoCard,
-} from "./Shared";
+import { InteractiveInfoCard } from "./Shared";
 import {
   encodeHomeCollapsedKeys,
   encodeHomeSectionOrder,
@@ -35,13 +24,18 @@ import {
   encodeHomeWalletOrder,
   defaultHomeSectionOrder,
   homeCollapsedCookieM,
+  homeNavigationCollapsedCookie,
   homeNavigationCookieMaxAge,
+  homeNavigationFavsCookie,
+  homeNavigationHistoryEvent,
+  homeNavigationOrderCookie,
   homeSectionOrderCookie,
   homeWalletFavsCookie,
   homeWalletModeCookie,
   homeWalletOrderCookie,
   homeWalletSortModeCookie,
   parseHomeCollapsedKeys,
+  parseHomeNavigationHistory,
   parseHomeSectionOrder,
   parseHomeWalletFavKeys,
   parseHomeWalletMode,
@@ -55,41 +49,34 @@ import {
 import {
   buildHomeFavoritesMatrixGroup,
   buildHomeNavigationMatrix,
+  buildHomeVisitHistoryMatrixNode,
   getHomeMatrixMove,
   getHomeMatrixNodeKey,
   getHomeSourceNodeKey,
   HomeFavoritesColumn,
   HomeNavigationMatrix,
+  HomeNavigationPathHover,
   HomeSectionSortToggle,
   sortHomeMatrixChildren,
 } from "./HomeNavigationMatrix";
+import {
+  getHomeNavigationHistory,
+  rememberHomeNavigationHistory,
+  removeHomeNavigationHistory,
+} from "./homeNavigationHistoryClient";
+import { buildEditorNavTree } from "./editorNavigation";
+import { useNavbarCustomLinks } from "./NavbarCustomLinks";
+import { buildSiteNavigationMenus } from "./siteNavigation";
 
 function getCurrentHomeCookie(cookieName, initialValue, emptyValue = "") {
   if (typeof window == "undefined") return initialValue;
   return getCookie(cookieName) ?? emptyValue;
 }
 
-function getCurrentWalletHistoryM(initialHistoryM = {}) {
-  if (typeof window == "undefined") return initialHistoryM;
-
-  return Object.fromEntries(
-    ["evm", "solana", "tron"].map((walletType) => [
-      walletType,
-      parseWalletHistoryCookie(
-        [
-          getCookie(getWalletHistoryCookie(walletType)),
-          readWalletHistoryStorage(walletType),
-        ]
-          .filter(Boolean)
-          .join("|"),
-      ),
-    ]),
-  );
-}
-
 function getNodeIdentity(node) {
+  if (node.homeKey) return String(node.homeKey);
+
   return [
-    node.homeKey,
     node.href,
     node.walletType,
     node.filePath,
@@ -289,113 +276,17 @@ function useWalletFavorites(initialFavoriteKeys = []) {
   };
 }
 
-function WalletHistoryNode({ node, onRemoveHistory }) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflowing, setOverflowing] = useState(false);
-  const linksRef = useRef(null);
-  const toggleLabel = `${expanded ? "collapse" : "expand"} ${
-    node.walletType || ""
-  } wallet history`;
-
-  useEffect(() => {
-    const links = linksRef.current;
-    if (!links) return;
-
-    function syncOverflow() {
-      const next = links.scrollWidth > links.clientWidth + 1;
-      setOverflowing((current) => (current == next ? current : next));
-    }
-
-    syncOverflow();
-    const resizeObserver = new ResizeObserver(syncOverflow);
-    resizeObserver.observe(links);
-
-    return () => resizeObserver.disconnect();
-  }, [expanded, node.items]);
-
-  return (
-    <div
-      className={`homeNavHistory ${expanded ? "expanded" : ""}`}
-      aria-label={`${node.walletType || ""} wallet history`}
-    >
-      <button
-        type="button"
-        className="homeNavHistoryLabel"
-        aria-expanded={expanded}
-        aria-label={toggleLabel}
-        title={toggleLabel}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        history:
-      </button>
-      <span ref={linksRef} className="homeNavHistoryLinks">
-        {node.items?.length ? (
-          node.items.map((item) => (
-            <InteractiveInfoCard
-              activation="hover"
-              floating
-              className="homeNavHistoryItem"
-              key={item.homeKey}
-            >
-              {item.href ? (
-                <Link
-                  href={item.href}
-                  className="homeNavHistoryLink"
-                  title={item.title || item.label}
-                >
-                  {item.label}
-                </Link>
-              ) : (
-                <span
-                  className="homeNavHistoryLink disabled"
-                  title={item.title || item.label}
-                >
-                  {item.label}
-                </span>
-              )}
-              <span className="infoCard homeNavHistoryInfoCard">
-                <span className="homeNavHistoryInfoRow">
-                  <HistoryRemoveButton
-                    label={item.label}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onRemoveHistory?.(node.walletType, item.historyValue);
-                    }}
-                  />
-                  <span>remove from history</span>
-                </span>
-              </span>
-            </InteractiveInfoCard>
-          ))
-        ) : (
-          <span className="homeNavHistoryEmpty">empty</span>
-        )}
-      </span>
-      {!expanded && overflowing && (
-        <button
-          type="button"
-          className="homeNavHistoryMore"
-          aria-label={`expand ${node.walletType || ""} wallet history`}
-          title="expand history"
-          onClick={() => setExpanded(true)}
-        >
-          ..
-        </button>
-      )}
-    </div>
-  );
-}
-
-function HomeWalletFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
+function HomeWalletFavoritesNode({
+  ariaLabel = "home favorites",
+  node,
+  onMoveFavorite,
+  onToggleFavorite,
+}) {
   const [dragKey, setDragKey] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
 
   return (
-    <div
-      className="homeNavFavorites"
-      aria-label="home wallet favorites"
-    >
+    <div className="homeNavFavorites" aria-label={ariaLabel}>
       <span className="homeNavFavoritesLinks">
         {node.items?.length ? (
           node.items.map((item) => {
@@ -459,17 +350,23 @@ function HomeWalletFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
                   setDropSpot(null);
                 }}
               >
-                <HoverInfoCard floating>
-                  <Link href={item.href} className="homeNavQuickFavLink">
+                <HomeNavigationPathHover
+                  context={item.homePathContext}
+                  detail={item.homePathDetail}
+                >
+                  <Link
+                    href={item.href}
+                    className="homeNavQuickFavLink"
+                    {...getExternalLinkProps(item.href)}
+                  >
                     {item.label}
                   </Link>
-                  <span className="infoCard">{item.title || item.label}</span>
-                </HoverInfoCard>
+                </HomeNavigationPathHover>
                 <button
                   type="button"
                   className="homeNavQuickUnfav"
-                  title={`remove ${item.label} from home favorites`}
-                  aria-label={`remove ${item.label} from home favorites`}
+                  title={`remove ${item.label} from ${ariaLabel}`}
+                  aria-label={`remove ${item.label} from ${ariaLabel}`}
                   draggable="false"
                   onClick={(event) => {
                     event.preventDefault();
@@ -495,19 +392,22 @@ function NavigationNode({
   favoriteKeySet,
   getHref,
   onMoveFavorite,
-  onRemoveHistory,
   onToggleFavorite,
   onToggleNode,
 }) {
-  if (node.type == "history") {
-    return <WalletHistoryNode node={node} onRemoveHistory={onRemoveHistory} />;
-  }
   if (node.type == "homeFavorites") {
-    return <HomeFavoritesColumn label="home wallet favorites" />;
+    return (
+      <HomeFavoritesColumn
+        label="home favorites"
+        node={node}
+        onToggleNode={onToggleNode}
+      />
+    );
   }
   if (node.type == "homeFavoriteLinks") {
     return (
       <HomeWalletFavoritesNode
+        ariaLabel="home favorites"
         node={node}
         onMoveFavorite={onMoveFavorite}
         onToggleFavorite={onToggleFavorite}
@@ -519,7 +419,7 @@ function NavigationNode({
   const hasChildren = !!node.children?.length || !!node.homeHasChildren;
   const favoriteKey = getHomeSourceNodeKey(node, getNodeSortKey);
   const showFavoriteButton =
-    !!onToggleFavorite && !!node.walletType && !node.homePinned;
+    !!onToggleFavorite && !!href && !node.disabled && !node.homePinned;
   const favoriteActive = showFavoriteButton && favoriteKeySet?.has(favoriteKey);
   const className = [
     "homeNavNode",
@@ -529,14 +429,24 @@ function NavigationNode({
   ]
     .filter(Boolean)
     .join(" ");
-  const label =
-    href && !node.disabled ? (
-      <Link href={href} className="homeNavNodeLink">
-        {node.label}
-      </Link>
-    ) : (
-      <span className="homeNavNodeLink disabled">{node.label}</span>
-    );
+  const label = (
+    <HomeNavigationPathHover
+      context={node.homePathContext}
+      detail={node.homePathDetail}
+    >
+      {href && !node.disabled ? (
+        <Link
+          href={href}
+          className="homeNavNodeLink"
+          {...getExternalLinkProps(href)}
+        >
+          {node.label}
+        </Link>
+      ) : (
+        <span className="homeNavNodeLink disabled">{node.label}</span>
+      )}
+    </HomeNavigationPathHover>
+  );
   const toggleLabel = `${
     node.homeCollapsed ? "show" : "hide"
   } ${node.label} children`;
@@ -702,119 +612,6 @@ function getFavoriteWalletChildren(
     .filter((node) => node.walletAddress || node.walletName);
 }
 
-function getWalletHistoryItems(
-  historyValues = [],
-  walletType = "evm",
-  routeBase = "/w",
-  connectedWalletM = {},
-) {
-  return historyValues
-    .map((historyValue, index) => {
-      const entry = parseWalletHistoryValue(historyValue);
-      const base = {
-        homeKey: `${walletType}:history:${historyValue}:${index}`,
-        historyValue,
-      };
-
-      if (entry.type == "favs") {
-        return {
-          ...base,
-          label: "favs",
-          href: getWalletNavUrl(routeBase, { walletType }),
-        };
-      }
-      if (entry.type == "all") {
-        return {
-          ...base,
-          label: "all",
-          href: getWalletNavUrl(routeBase, {
-            walletType,
-            filePath: "all",
-          }),
-        };
-      }
-      if (entry.type == "walletName" && entry.value) {
-        return {
-          ...base,
-          label: `w: ${entry.value}`,
-          href: getWalletNavUrl(routeBase, {
-            walletType,
-            walletName: entry.value,
-          }),
-        };
-      }
-      if (
-        entry.type == "walletPathName" &&
-        entry.filePath &&
-        entry.walletName
-      ) {
-        return {
-          ...base,
-          label: `${entry.filePath}:${entry.walletName}`,
-          href: getWalletNavUrl(routeBase, {
-            walletType,
-            filePath: entry.filePath,
-            walletName: entry.walletName,
-          }),
-        };
-      }
-      if (entry.type == "address" && entry.value) {
-        return {
-          ...base,
-          label: `addr: ..${entry.value.slice(-3)}`,
-          title: entry.value,
-          href: getWalletNavUrl(routeBase, {
-            walletType,
-            walletAddress: entry.value,
-          }),
-        };
-      }
-      if (entry.type == "notFound") {
-        return {
-          ...base,
-          label: `not found${entry.value ? `: ${entry.value}` : ""}`,
-          href: entry.value
-            ? getWalletNavUrl(routeBase, {
-                walletType,
-                filePath: entry.value,
-              })
-            : "",
-        };
-      }
-      if (entry.type == "connected") {
-        const connectedWallet = connectedWalletM?.[walletType];
-        return {
-          ...base,
-          label: "connected",
-          title: connectedWallet?.address
-            ? `connected: ${connectedWallet.label || "wallet"} ${
-                connectedWallet.address
-              }`
-            : "Connected wallet address is not available.",
-          href: connectedWallet?.address
-            ? getWalletNavUrl(routeBase, {
-                walletType,
-                walletAddress: connectedWallet.address,
-              })
-            : "",
-        };
-      }
-      if (entry.type == "file" && entry.value) {
-        return {
-          ...base,
-          label: entry.value,
-          href: getWalletNavUrl(routeBase, {
-            walletType,
-            filePath: entry.value,
-          }),
-        };
-      }
-
-      return null;
-    })
-    .filter(Boolean);
-}
-
 function getWalletNavigationChildren(node, routeBase, favAddrs) {
   const walletType = node.walletType || "evm";
 
@@ -892,33 +689,6 @@ function getWalletFavoriteItem(node, favoriteKey, routeBase) {
   };
 }
 
-function getWalletRootChildren(
-  node,
-  routeBase,
-  favAddrs,
-  walletHistoryM,
-  connectedWalletM,
-) {
-  const walletType = node.walletType || "evm";
-  return [
-    {
-      type: "history",
-      label: "history",
-      walletType,
-      homeKey: `${walletType}:history`,
-      homePinned: true,
-      homeSpanRemaining: true,
-      items: getWalletHistoryItems(
-        walletHistoryM?.[walletType],
-        walletType,
-        routeBase,
-        connectedWalletM,
-      ),
-    },
-    ...getWalletNavigationChildren(node, routeBase, favAddrs),
-  ];
-}
-
 function getWalletTypeSearchLabel(walletType = "evm") {
   if (walletType == "solana") return "Solana";
   if (walletType == "tron") return "Tron";
@@ -943,9 +713,12 @@ function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
           key,
           walletName,
           address,
-          context: [getWalletTypeSearchLabel(walletType), filePath]
+          context: [
+            getWalletTypeSearchLabel(walletType),
+            ...filePath.split("/").filter(Boolean),
+          ]
             .filter(Boolean)
-            .join(" / "),
+            .join(" > "),
           href: getWalletNavUrl(routeBase, node),
         });
       }
@@ -980,6 +753,82 @@ function getWalletSearchMatches(entries = [], query = "") {
     .sort((a, b) => a.rank - b.rank || a.index - b.index);
 }
 
+function getNavbarSearchEntries(navigationTree = []) {
+  const entries = [
+    {
+      key: "navbar:home",
+      walletName: "⌂ Home",
+      context: "navbar",
+      address: "/",
+      href: "/",
+      title: "Home",
+      searchFields: ["home", "⌂ Home", "/"],
+    },
+  ];
+
+  function addNode(node, parents = [], depth = 0) {
+    if (!node || depth > 48) return;
+
+    const label = String(node.label || node.title || node.href || "").trim();
+    const title = String(node.title || label || node.href || "").trim();
+    const href = String(node.href || "").trim();
+    const walletAddress = String(
+      node.address || node.walletAddress || "",
+    ).trim();
+    const context = parents.filter(Boolean).join(" > ") || "navbar";
+
+    if (href && !node.disabled) {
+      entries.push({
+        key: `navbar:${node.homeKey || href}:${entries.length}`,
+        walletName: label || href,
+        context,
+        address: href,
+        href,
+        title: title || href,
+        searchFields: [label, title, href, context, walletAddress],
+      });
+    }
+
+    const nextParents = label ? [...parents, label] : parents;
+    for (const child of node.children || []) {
+      addNode(child, nextParents, depth + 1);
+    }
+  }
+
+  for (const node of navigationTree || []) addNode(node);
+  return entries;
+}
+
+function getNavbarSearchMatches(entries = [], query = "") {
+  const term = String(query || "").trim().toLowerCase();
+  if (!term) return [];
+
+  return entries
+    .map((entry, index) => {
+      const fields = (entry.searchFields || [
+        entry.walletName,
+        entry.title,
+        entry.address,
+        entry.context,
+      ]).map((value) => String(value || "").toLowerCase());
+      const exactIndex = fields.findIndex((value) => value == term);
+      const prefixIndex = fields.findIndex((value) => value.startsWith(term));
+      const includeIndex = fields.findIndex((value) => value.includes(term));
+      const rank =
+        exactIndex >= 0
+          ? exactIndex
+          : prefixIndex >= 0
+            ? 10 + prefixIndex
+            : includeIndex >= 0
+              ? 20 + includeIndex
+              : Infinity;
+
+      return { ...entry, index, rank };
+    })
+    .filter((entry) => Number.isFinite(entry.rank))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index);
+}
+
 function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
   const address = String(query || "").trim();
   let walletType = "";
@@ -1000,28 +849,66 @@ function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
   };
 }
 
-function WalletSearch({ walletTree = [], routeBase = "/w" }) {
+function WalletSearch({
+  walletTree = [],
+  routeBase = "/w",
+  navigationTree = [],
+  searchMode = "wallet",
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [resultsOpen, setResultsOpen] = useState(false);
-  const entries = useMemo(
+  const walletEntries = useMemo(
     () => getWalletSearchEntries(walletTree, routeBase),
     [routeBase, walletTree],
   );
+  const navbarEntries = useMemo(
+    () => getNavbarSearchEntries(navigationTree),
+    [navigationTree],
+  );
+  const allMode = searchMode == "all";
+  const entries = allMode ? navbarEntries : walletEntries;
   const matches = useMemo(
-    () => getWalletSearchMatches(entries, query),
-    [entries, query],
+    () =>
+      allMode
+        ? getNavbarSearchMatches(entries, query)
+        : getWalletSearchMatches(entries, query),
+    [allMode, entries, query],
   );
   const directEntry = useMemo(
-    () => getDirectWalletSearchEntry(query, routeBase),
-    [query, routeBase],
+    () => (allMode ? null : getDirectWalletSearchEntry(query, routeBase)),
+    [allMode, query, routeBase],
   );
   const results = matches.length ? matches : directEntry ? [directEntry] : [];
   const showResults = resultsOpen && !!query.trim();
+  const searchLabel = allMode
+    ? "search all navbar links and titles"
+    : "search added wallets by name or address";
+  const submitLabel = allMode ? "search navbar" : "search wallets";
 
   function submitSearch(event) {
     event.preventDefault();
-    if (results[0]?.href) router.push(results[0].href);
+    const result = results[0];
+    const href = result?.href;
+    if (!href) return;
+
+    rememberHomeNavigationHistory({
+      href,
+      label: result.walletName || result.label || href,
+      title: result.title || result.walletName || result.label || href,
+      context: result.context,
+    });
+
+    if (allMode && /^https?:\/\//i.test(href)) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (allMode && /^(?:mailto:|tel:)/i.test(href)) {
+      window.location.href = href;
+      return;
+    }
+
+    router.push(href);
   }
 
   return (
@@ -1043,12 +930,12 @@ function WalletSearch({ walletTree = [], routeBase = "/w" }) {
         <input
           type="search"
           value={query}
-          aria-label="search added wallets by name or address"
+          aria-label={searchLabel}
           aria-expanded={showResults}
           aria-controls="home-wallet-search-results"
           autoComplete="off"
           spellCheck={false}
-          placeholder="wallet name or address"
+          placeholder={allMode ? "navbar link or title" : "wallet name or address"}
           onChange={(event) => {
             setQuery(event.target.value);
             setResultsOpen(true);
@@ -1060,8 +947,8 @@ function WalletSearch({ walletTree = [], routeBase = "/w" }) {
         <button
           type="submit"
           className="homeWalletSearchButton"
-          aria-label="search wallets"
-          title="search wallets"
+          aria-label={submitLabel}
+          title={submitLabel}
           disabled={!results.length}
         >
           <span className="homeWalletSearchIcon" aria-hidden="true"></span>
@@ -1078,9 +965,13 @@ function WalletSearch({ walletTree = [], routeBase = "/w" }) {
                 key={entry.key}
                 href={entry.href}
                 className="homeWalletSearchResult"
-                title={[entry.walletName, entry.context, entry.address]
+                data-history-label={entry.walletName}
+                data-history-title={entry.title || entry.walletName}
+                data-history-context={entry.context}
+                title={[entry.title, entry.context, entry.address]
                   .filter(Boolean)
                   .join(" | ")}
+                {...getExternalLinkProps(entry.href)}
               >
                 <span className="homeWalletSearchName">
                   {entry.walletName}
@@ -1094,7 +985,9 @@ function WalletSearch({ walletTree = [], routeBase = "/w" }) {
               </Link>
             ))
           ) : (
-            <span className="homeWalletSearchEmpty">no added wallet matches</span>
+            <span className="homeWalletSearchEmpty">
+              {allMode ? "no navbar link matches" : "no added wallet matches"}
+            </span>
           )}
         </span>
       )}
@@ -1105,7 +998,6 @@ function WalletSearch({ walletTree = [], routeBase = "/w" }) {
 function WalletSection({
   walletTree = [],
   favAddrs = [],
-  walletHistoryM = {},
   initialCollapsedKeys = [],
   initialMode = "trade",
   initialOrderM = {},
@@ -1116,10 +1008,6 @@ function WalletSection({
     parseHomeWalletMode(
       getCurrentHomeCookie(homeWalletModeCookie, initialMode),
     ),
-  );
-  const [connectedWalletM, setConnectedWalletM] = useState({});
-  const [walletHistoryOrderM, setWalletHistoryOrderM] = useState(
-    () => getCurrentWalletHistoryM(walletHistoryM),
   );
   const { collapsedKeys, expandAll, toggleNode } = useBranchToggle(
     homeCollapsedCookieM.wallet,
@@ -1140,27 +1028,6 @@ function WalletSection({
       path: "/",
     });
   }, [mode]);
-
-  useEffect(() => {
-    function loadConnectedWallets() {
-      setConnectedWalletM(
-        Object.fromEntries(
-          ["evm", "solana", "tron"]
-            .map((walletType) => [walletType, readStoredWallet(walletType)])
-            .filter(([, wallet]) => wallet?.address),
-        ),
-      );
-    }
-
-    loadConnectedWallets();
-    window.addEventListener(walletConnectEvent, loadConnectedWallets);
-    window.addEventListener("storage", loadConnectedWallets);
-
-    return () => {
-      window.removeEventListener(walletConnectEvent, loadConnectedWallets);
-      window.removeEventListener("storage", loadConnectedWallets);
-    };
-  }, []);
 
   const routeBase = mode == "trade" ? "/t" : "/w";
   const favoriteCatalog = useMemo(
@@ -1193,19 +1060,11 @@ function WalletSection({
           }
 
           return depth == 0
-            ? getWalletRootChildren(
-                node,
-                routeBase,
-                favAddrs,
-                walletHistoryOrderM,
-                connectedWalletM,
-              )
+            ? getWalletNavigationChildren(node, routeBase, favAddrs)
             : node.children || [];
         },
         getNodeKey: (node) => getHomeMatrixNodeKey(node, getNodeSortKey),
-        isCollapsed: (node) =>
-          node.type != "homeFavorites" &&
-          collapsedKeys.has(getNodeIdentity(node)),
+        isCollapsed: (node) => collapsedKeys.has(getNodeIdentity(node)),
         orderChildren: (children, parentKey, parentNode) => {
           if (parentNode?.type == "homeFavorites") return children;
 
@@ -1222,38 +1081,14 @@ function WalletSection({
     },
     [
       collapsedKeys,
-      connectedWalletM,
       customOrderM,
       favAddrs,
       favoriteCatalog,
       favoriteKeys,
       routeBase,
-      walletHistoryOrderM,
       walletTree,
     ],
   );
-
-  function removeWalletHistory(walletType, historyValue) {
-    if (!walletType || !historyValue) return;
-
-    setWalletHistoryOrderM((current) => {
-      const previous = current?.[walletType] || [];
-      const next = previous.filter((entry) => entry != historyValue);
-      if (next.length == previous.length) return current;
-
-      const encoded = encodeSelectionOrder(next);
-      setCookie(getWalletHistoryCookie(walletType), encoded, {
-        maxAge: homeNavigationCookieMaxAge,
-        path: "/",
-      });
-      writeWalletHistoryStorage(walletType, encoded);
-
-      return {
-        ...current,
-        [walletType]: next,
-      };
-    });
-  }
 
   function moveNode(dragNode, targetNode, placeAfter) {
     if (
@@ -1346,7 +1181,6 @@ function WalletSection({
                   entry.href || getWalletNavUrl(routeBase, entry)
                 }
                 onMoveFavorite={moveFavorite}
-                onRemoveHistory={removeWalletHistory}
                 onToggleNode={toggleNode}
                 onToggleFavorite={toggleFavorite}
               />
@@ -1358,14 +1192,13 @@ function WalletSection({
   );
 }
 
-export default function Home({
+function LegacyHome({
   walletTree = [],
   dataTree = [],
   refTree = [],
   initialCollapsedM = {},
   initialSectionOrder = defaultHomeSectionOrder,
   favAddrs = [],
-  walletHistoryM = {},
   initialWalletMode = "trade",
   initialWalletOrderM = {},
   initialWalletFavKeys = [],
@@ -1523,7 +1356,6 @@ export default function Home({
           key={section}
           walletTree={mergedWalletTree}
           favAddrs={favAddrs}
-          walletHistoryM={walletHistoryM}
           initialCollapsedKeys={initialCollapsedM.wallet}
           initialMode={initialWalletMode}
           initialOrderM={initialWalletOrderM}
@@ -1570,6 +1402,581 @@ export default function Home({
       />
       <nav className="homeNav" aria-label="Site navigation">
         {sectionOrder.map(renderSection)}
+      </nav>
+    </>
+  );
+}
+
+const homeNavigationRootKey = "home:navigation:root";
+const homeNavigationSectionKey = "home:navigation:section";
+const homeNavigationFavoritesKey = "home:navigation:favorites";
+const homeNavigationHistoryKey = "home:navigation:history";
+const navbarTopCustomScope = `${ckPrefix ?? ""}navbarTop`;
+
+function normalizeHomeLinkEntry(item) {
+  if (item && typeof item == "object" && !Array.isArray(item)) {
+    const children = (Array.isArray(item.children) ? item.children : []).map(
+      normalizeHomeLinkEntry,
+    );
+    const href = item.href ? String(item.href) : "";
+
+    return {
+      ...item,
+      id: item.id ? String(item.id) : "",
+      key: item.key ? String(item.key) : "",
+      value: String(item.value || href || item.label || ""),
+      href,
+      label: String(item.label || item.title || href),
+      title: String(item.title || href || item.label || ""),
+      type: item.type || (!href && !children.length ? "section" : ""),
+      disabled: !!item.disabled,
+      children,
+    };
+  }
+
+  const pair = Array.isArray(item);
+  const rawHref = pair ? item[0] : item;
+  const rawLabel = pair ? item[1] : item;
+  const href =
+    rawHref && !String(rawHref).startsWith("[") ? String(rawHref) : "";
+
+  return {
+    id: "",
+    key: "",
+    value: href || String(rawLabel || ""),
+    href,
+    label: String(rawLabel || href),
+    title: href,
+    type: href ? "" : "section",
+    disabled: false,
+    children: [],
+  };
+}
+
+function getHomeNodeToken(entry, index) {
+  if (entry.id) return `id:${entry.id}`;
+  if (entry.key) return `key:${entry.key}`;
+  if (entry.value) return `value:${entry.value}`;
+  if (entry.href) return `href:${entry.href}`;
+  return `${entry.type || "item"}:${entry.label || index}`;
+}
+
+function decorateHomeNodes(items = [], parentKey, customBranch = false) {
+  const duplicateM = new Map();
+
+  return items.map((item, index) => {
+    const entry = normalizeHomeLinkEntry(item);
+    const baseToken = getHomeNodeToken(entry, index);
+    const duplicateIndex = duplicateM.get(baseToken) ?? 0;
+    duplicateM.set(baseToken, duplicateIndex + 1);
+    const token = duplicateIndex
+      ? `${baseToken}#${duplicateIndex + 1}`
+      : baseToken;
+    const homeKey = `${parentKey}/${encodeURIComponent(token)}`;
+    const homeCustomLink = customBranch || entry.type == "custom";
+
+    return {
+      ...entry,
+      homeKey,
+      homeCustomLink,
+      children: decorateHomeNodes(
+        entry.children,
+        homeKey,
+        homeCustomLink,
+      ),
+    };
+  });
+}
+
+function addWalletHomeHrefs(nodes = [], routeBase = "/w") {
+  return nodes.map((node) => {
+    const href = node.href || getWalletNavUrl(routeBase, node);
+
+    return {
+      ...node,
+      href,
+      title:
+        node.title ||
+        [node.walletType, node.filePath, node.walletName]
+          .filter(Boolean)
+          .join(" / ") ||
+        href,
+      disabled: false,
+      children: addWalletHomeHrefs(node.children || [], routeBase),
+    };
+  });
+}
+
+function getSiteMenuHomeEntry(menu) {
+  const children =
+    menu.type == "walletTree"
+      ? addWalletHomeHrefs(menu.items, menu.routeBase)
+      : menu.items;
+
+  return {
+    key: menu.key,
+    value: menu.key,
+    label: menu.label,
+    title: menu.href || menu.label,
+    href: menu.href,
+    type: menu.type,
+    children,
+  };
+}
+
+function getExternalLinkProps(href) {
+  return /^https?:\/\//i.test(String(href || ""))
+    ? { target: "_blank", rel: "noopener noreferrer" }
+    : {};
+}
+
+function buildHomeFavoriteCatalog(nodes = [], catalog = new Map()) {
+  for (const node of nodes) {
+    if (node.href && !node.disabled) catalog.set(node.homeKey, node);
+    buildHomeFavoriteCatalog(node.children || [], catalog);
+  }
+
+  return catalog;
+}
+
+export default function Home({
+  walletTree = [],
+  dataTree = [],
+  refTree = [],
+  editorFiles = [],
+  editorEmptyFolders = [],
+  initialCollapsedKeys = [],
+  initialOrderM = {},
+  initialFavoriteKeys = [],
+  initialHistory = [],
+  initialWalletMode = "trade",
+}) {
+  const initialHistoryText = JSON.stringify(
+    parseHomeNavigationHistory(initialHistory),
+  );
+  const { links: customLinks, ready: customLinksReady } =
+    useNavbarCustomLinks(navbarTopCustomScope);
+  const [historyEntries, setHistoryEntries] = useState(() =>
+    JSON.parse(initialHistoryText),
+  );
+  const [localWalletTree, setLocalWalletTree] = useState([]);
+  const [resolvedEditorFiles, setResolvedEditorFiles] = useState(editorFiles);
+  const [dynamicTreesReady, setDynamicTreesReady] = useState(false);
+  const [searchMode, setSearchMode] = useState(() =>
+    parseHomeWalletMode(
+      getCurrentHomeCookie(homeWalletModeCookie, initialWalletMode),
+    ),
+  );
+  const [collapsedKeys, setCollapsedKeys] = useState(
+    () =>
+      new Set(
+        parseHomeCollapsedKeys(
+          getCurrentHomeCookie(
+            homeNavigationCollapsedCookie,
+            initialCollapsedKeys,
+            [],
+          ),
+        ),
+      ),
+  );
+  const [customOrderM, setCustomOrderM] = useState(() =>
+    parseHomeWalletOrder(
+      getCurrentHomeCookie(
+        homeNavigationOrderCookie,
+        initialOrderM,
+        {},
+      ),
+    ),
+  );
+  const [favoriteKeys, setFavoriteKeys] = useState(() =>
+    parseHomeWalletFavKeys(
+      getCurrentHomeCookie(
+        homeNavigationFavsCookie,
+        initialFavoriteKeys,
+        [],
+      ),
+    ),
+  );
+
+  useEffect(() => {
+    function refreshLocalTrees() {
+      setLocalWalletTree(getLocalWalletTree());
+      setResolvedEditorFiles(
+        shouldUseLocalStorageEditor()
+          ? listLocalEditorFiles(editorFiles)
+          : editorFiles,
+      );
+      setDynamicTreesReady(true);
+    }
+
+    refreshLocalTrees();
+    window.addEventListener(localEditorStorageEvent, refreshLocalTrees);
+    window.addEventListener("storage", refreshLocalTrees);
+
+    return () => {
+      window.removeEventListener(localEditorStorageEvent, refreshLocalTrees);
+      window.removeEventListener("storage", refreshLocalTrees);
+    };
+  }, [editorFiles]);
+
+  useEffect(() => {
+    setCookie(homeWalletModeCookie, searchMode, {
+      maxAge: homeNavigationCookieMaxAge,
+      path: "/",
+    });
+  }, [searchMode]);
+
+  useEffect(() => {
+    if (!collapsedKeys.size) {
+      deleteCookie(homeNavigationCollapsedCookie, { path: "/" });
+      return;
+    }
+
+    setCookie(
+      homeNavigationCollapsedCookie,
+      encodeHomeCollapsedKeys(collapsedKeys),
+      { maxAge: homeNavigationCookieMaxAge, path: "/" },
+    );
+  }, [collapsedKeys]);
+
+  useEffect(() => {
+    if (!Object.keys(customOrderM).length) {
+      deleteCookie(homeNavigationOrderCookie, { path: "/" });
+      return;
+    }
+
+    setCookie(
+      homeNavigationOrderCookie,
+      encodeHomeWalletOrder(customOrderM),
+      { maxAge: homeNavigationCookieMaxAge, path: "/" },
+    );
+  }, [customOrderM]);
+
+  useEffect(() => {
+    if (!favoriteKeys.length) {
+      deleteCookie(homeNavigationFavsCookie, { path: "/" });
+      return;
+    }
+
+    setCookie(
+      homeNavigationFavsCookie,
+      encodeHomeWalletFavKeys(favoriteKeys),
+      { maxAge: homeNavigationCookieMaxAge, path: "/" },
+    );
+  }, [favoriteKeys]);
+
+  const mergedWalletTree = useMemo(
+    () => mergeTrees(walletTree, localWalletTree),
+    [localWalletTree, walletTree],
+  );
+  const editorTree = useMemo(
+    () => buildEditorNavTree(resolvedEditorFiles, editorEmptyFolders),
+    [editorEmptyFolders, resolvedEditorFiles],
+  );
+  const menus = useMemo(
+    () =>
+      buildSiteNavigationMenus({
+        walletTree: mergedWalletTree,
+        dataTree,
+        refTree,
+        editorTree,
+        editorFiles: resolvedEditorFiles,
+        editorEmptyFolders,
+      }),
+    [
+      dataTree,
+      editorEmptyFolders,
+      editorTree,
+      mergedWalletTree,
+      refTree,
+      resolvedEditorFiles,
+    ],
+  );
+  const tree = useMemo(
+    () =>
+      decorateHomeNodes(
+        [
+          ...menus.map(getSiteMenuHomeEntry),
+          ...customLinks.map((link) => ({ ...link, type: "custom" })),
+        ],
+        homeNavigationRootKey,
+      ),
+    [customLinks, menus],
+  );
+  const favoriteCatalog = useMemo(
+    () => buildHomeFavoriteCatalog(tree),
+    [tree],
+  );
+  const historySearchEntryByHref = useMemo(() => {
+    const result = new Map();
+
+    for (const entry of getNavbarSearchEntries(tree)) {
+      if (entry.href && !result.has(entry.href)) {
+        result.set(entry.href, entry);
+      }
+    }
+
+    return result;
+  }, [tree]);
+  const favoriteKeySet = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
+  const matrixNodes = useMemo(
+    () => [
+      buildHomeVisitHistoryMatrixNode({
+        rootKey: homeNavigationHistoryKey,
+        items: historyEntries.map((entry, index) => {
+          const searchEntry =
+            historySearchEntryByHref.get(entry.href) ||
+            historySearchEntryByHref.get(entry.href.split(/[?#]/, 1)[0]);
+
+          return {
+            ...entry,
+            historyContext:
+              searchEntry?.context || entry.context || "navbar",
+            homeKey: `${homeNavigationHistoryKey}:${entry.href}:${index}`,
+          };
+        }),
+      }),
+      buildHomeFavoritesMatrixGroup({
+        favoriteKeys,
+        getFavoriteNode: (favoriteKey) => favoriteCatalog.get(favoriteKey),
+        getFavoriteItem: (node, favoriteKey) => ({
+          favoriteKey,
+          href: node.href,
+          label: node.label,
+          title: node.title || node.href,
+        }),
+        getNodeKey: getNodeSortKey,
+        rootKey: homeNavigationFavoritesKey,
+      }),
+      ...tree,
+    ],
+    [
+      favoriteCatalog,
+      favoriteKeys,
+      historyEntries,
+      historySearchEntryByHref,
+      tree,
+    ],
+  );
+  const matrix = useMemo(
+    () =>
+      buildHomeNavigationMatrix({
+        nodes: matrixNodes,
+        getNodeKey: (node) => getHomeMatrixNodeKey(node, getNodeSortKey),
+        isCollapsed: (node) =>
+          collapsedKeys.has(getHomeSourceNodeKey(node, getNodeSortKey)),
+        orderChildren: (children, parentKey, parentNode) => {
+          if (parentNode?.type == "homeFavorites") return children;
+
+          const sourceParentKey = parentNode
+            ? getHomeSourceNodeKey(parentNode, getNodeSortKey)
+            : parentKey;
+          return sortHomeMatrixChildren(
+            children,
+            customOrderM[sourceParentKey] || [],
+            (node) => getHomeSourceNodeKey(node, getNodeSortKey),
+          );
+        },
+        rootParentKey: homeNavigationRootKey,
+      }),
+    [collapsedKeys, customOrderM, matrixNodes],
+  );
+  const sectionCollapsed = collapsedKeys.has(homeNavigationSectionKey);
+  const searchRouteBase = searchMode == "trade" ? "/t" : "/w";
+
+  useEffect(() => {
+    const serverHistory = JSON.parse(initialHistoryText);
+
+    function refreshHistory(event) {
+      const eventHistory = event?.detail?.history;
+      setHistoryEntries(
+        parseHomeNavigationHistory(
+          Array.isArray(eventHistory)
+            ? eventHistory
+            : getHomeNavigationHistory(serverHistory),
+        ),
+      );
+    }
+
+    refreshHistory();
+    window.addEventListener(homeNavigationHistoryEvent, refreshHistory);
+    return () =>
+      window.removeEventListener(homeNavigationHistoryEvent, refreshHistory);
+  }, [initialHistoryText]);
+
+  useEffect(() => {
+    if (!customLinksReady || !dynamicTreesReady) return;
+
+    setFavoriteKeys((current) => {
+      const clean = parseHomeWalletFavKeys(current);
+      const next = clean.filter((favoriteKey) =>
+        favoriteCatalog.has(favoriteKey),
+      );
+      return next.length == clean.length &&
+        next.every((favoriteKey, index) => favoriteKey == clean[index])
+        ? current
+        : next;
+    });
+  }, [customLinksReady, dynamicTreesReady, favoriteCatalog]);
+
+  function toggleNode(node) {
+    const key = getHomeSourceNodeKey(node, getNodeSortKey);
+    if (!key) return;
+
+    setCollapsedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleFavorite(nodeOrKey) {
+    const favoriteKey =
+      typeof nodeOrKey == "string"
+        ? nodeOrKey
+        : getHomeSourceNodeKey(nodeOrKey, getNodeSortKey);
+    if (!favoriteKey) return;
+
+    setFavoriteKeys((current) => {
+      const clean = parseHomeWalletFavKeys(current);
+      return clean.includes(favoriteKey)
+        ? clean.filter((key) => key != favoriteKey)
+        : parseHomeWalletFavKeys([...clean, favoriteKey]);
+    });
+  }
+
+  function moveFavorite(dragKey, targetKey, placeAfter) {
+    if (!dragKey || !targetKey || dragKey == targetKey) return;
+
+    setFavoriteKeys((current) => {
+      const clean = parseHomeWalletFavKeys(current);
+      if (!clean.includes(dragKey) || !clean.includes(targetKey)) {
+        return current;
+      }
+
+      const withoutDragged = clean.filter((key) => key != dragKey);
+      const targetIndex = withoutDragged.indexOf(targetKey);
+      if (targetIndex < 0) return current;
+      const insertIndex = targetIndex + (placeAfter ? 1 : 0);
+
+      return [
+        ...withoutDragged.slice(0, insertIndex),
+        dragKey,
+        ...withoutDragged.slice(insertIndex),
+      ];
+    });
+  }
+
+  function moveNode(dragNode, targetNode, placeAfter) {
+    if (
+      dragNode.homeFavoriteProjectionRoot &&
+      targetNode.homeFavoriteProjectionRoot
+    ) {
+      moveFavorite(
+        dragNode.homeFavoriteKey,
+        targetNode.homeFavoriteKey,
+        placeAfter,
+      );
+      return;
+    }
+
+    setCustomOrderM((current) =>
+      getHomeMatrixMove(
+        current,
+        matrix,
+        dragNode,
+        targetNode,
+        placeAfter,
+      ),
+    );
+  }
+
+  return (
+    <>
+      <div className="flex mb-1">
+        <span className="orange">W3</span>
+        <span className="homeNavSectionTitle">
+          <span>home</span>
+          <HomeSectionSortToggle
+            collapsed={sectionCollapsed}
+            label="navigation"
+            onResetSorting={() => setCustomOrderM({})}
+            onToggle={() => toggleNode({ homeKey: homeNavigationSectionKey })}
+          />
+        </span>
+        {(sectionCollapsed || !!matrix.collapsedCount) && (
+          <button
+            type="button"
+            className="homeNavExpandAll"
+            onClick={() => setCollapsedKeys(new Set())}
+          >
+            expand all
+          </button>
+        )}
+      </div>
+      <nav className="homeNav" aria-label="Site navigation links">
+        <section
+          className={`homeNavSection ${sectionCollapsed ? "collapsed" : ""}`}
+        >
+          {!sectionCollapsed && (
+            <>
+              <div className="homeWalletSearchRow">
+                <WalletSearch
+                  walletTree={mergedWalletTree}
+                  routeBase={searchRouteBase}
+                  navigationTree={tree}
+                  searchMode={searchMode}
+                />
+                <div
+                  className="homeNavMode"
+                  aria-label="all, wallet, or trade search"
+                >
+                  <button
+                    type="button"
+                    className={searchMode == "all" ? "active" : ""}
+                    aria-pressed={searchMode == "all"}
+                    onClick={() => setSearchMode("all")}
+                  >
+                    all
+                  </button>
+                  <button
+                    type="button"
+                    className={searchMode == "wallet" ? "active" : ""}
+                    aria-pressed={searchMode == "wallet"}
+                    onClick={() => setSearchMode("wallet")}
+                  >
+                    wallet
+                  </button>
+                  <button
+                    type="button"
+                    className={searchMode == "trade" ? "active" : ""}
+                    aria-pressed={searchMode == "trade"}
+                    onClick={() => setSearchMode("trade")}
+                  >
+                    trade
+                  </button>
+                </div>
+              </div>
+              <HomeNavigationMatrix
+                matrix={matrix}
+                sortable
+                onMoveNode={moveNode}
+                onRemoveHistory={removeHomeNavigationHistory}
+                renderNode={(node) => (
+                  <NavigationNode
+                    node={node}
+                    favoriteKeySet={favoriteKeySet}
+                    getHref={(entry) => entry.href || ""}
+                    onMoveFavorite={moveFavorite}
+                    onToggleFavorite={toggleFavorite}
+                    onToggleNode={toggleNode}
+                  />
+                )}
+              />
+            </>
+          )}
+        </section>
       </nav>
     </>
   );

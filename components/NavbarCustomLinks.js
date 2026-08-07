@@ -12,6 +12,7 @@ import {
 
 const storagePrefix = `${ckPrefix ?? ""}navCustomLinks:`;
 const favoriteCookiePrefix = `${ckPrefix ?? ""}navCustomFav_`;
+const customLinksChangeEvent = `${ckPrefix ?? ""}navbarCustomLinksChange`;
 
 function createLinkId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -68,6 +69,14 @@ function readLinks(storageKey) {
 function saveLinks(storageKey, links) {
   try {
     window.localStorage.setItem(storageKey, JSON.stringify(links));
+    const notify = () =>
+      window.dispatchEvent(
+        new CustomEvent(customLinksChangeEvent, {
+          detail: { storageKey },
+        }),
+      );
+    if (typeof queueMicrotask == "function") queueMicrotask(notify);
+    else window.setTimeout(notify, 0);
   } catch {}
 }
 
@@ -134,16 +143,29 @@ function promptForLink() {
 function useNavbarCustomLinks(scope) {
   const storageKey = `${storagePrefix}${scope}`;
   const [links, setLinks] = useState([]);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    setReady(false);
     setLinks(readLinks(storageKey));
+    setReady(true);
 
     function syncLinks(event) {
       if (event.key == storageKey) setLinks(readLinks(storageKey));
     }
 
+    function syncCurrentTabLinks(event) {
+      if (event.detail?.storageKey == storageKey) {
+        setLinks(readLinks(storageKey));
+      }
+    }
+
     window.addEventListener("storage", syncLinks);
-    return () => window.removeEventListener("storage", syncLinks);
+    window.addEventListener(customLinksChangeEvent, syncCurrentTabLinks);
+    return () => {
+      window.removeEventListener("storage", syncLinks);
+      window.removeEventListener(customLinksChangeEvent, syncCurrentTabLinks);
+    };
   }, [storageKey]);
 
   function addLink(parentId = "") {
@@ -169,8 +191,10 @@ function useNavbarCustomLinks(scope) {
     });
   }
 
-  return { links, addLink, removeLink };
+  return { links, ready, addLink, removeLink };
 }
+
+export { useNavbarCustomLinks };
 
 function NavbarAddButton({ onClick }) {
   return (
