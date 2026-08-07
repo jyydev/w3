@@ -33,6 +33,10 @@
     transform 120ms ease;
 }
 
+.navSortableTop[draggable="true"] {
+  cursor: grab;
+}
+
 .navSortableTop:active,
 .navSortableTop.dragging {
   cursor: grabbing;
@@ -44,6 +48,13 @@
 
 .navSortableTop > .walletNavGroup .dropdown > .dropbtn {
   cursor: default;
+}
+
+.navSortableTop[draggable="true"]
+  > .walletNavGroup
+  .dropdown
+  > button.dropbtn {
+  cursor: grab;
 }
 
 .navSortableTop > a,
@@ -118,6 +129,52 @@
   outline: none;
 }
 
+.navbarAddControl {
+  position: relative;
+  float: left;
+  display: inline-flex;
+  align-items: center;
+}
+
+.navbarAddControl > .navbarAddButton {
+  float: none;
+}
+
+.navQuickFavCard.navbarAddServerCard {
+  bottom: calc(100% - 6px);
+  left: 4px;
+  width: max-content;
+  max-width: none;
+  padding: 1px 2px;
+}
+
+.navbarAddControl.navbarAddCardOpen > .navbarAddServerCard {
+  display: inline-flex;
+}
+
+.navbarAddServerButton {
+  display: block;
+  border: 0;
+  background: transparent;
+  color: #aaa;
+  padding: 0 1px;
+  font: inherit;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.navbarAddServerButton:hover,
+.navbarAddServerButton:focus-visible {
+  color: var(--orange);
+  outline: none;
+}
+
+.navbarAddServerButton:disabled {
+  color: #666;
+  cursor: default;
+}
+
 .navHiddenToggle {
   position: relative;
   float: left;
@@ -129,12 +186,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
+  width: 21px;
   height: 30px;
   border: 0;
   background: transparent;
   color: #888;
-  padding: 5px;
+  padding: 5px 1px 5px 2px;
   cursor: pointer;
 }
 
@@ -142,7 +199,7 @@
   display: block;
   width: 16px;
   height: 16px;
-  transform: translateY(3px);
+  transform: translate(2px, 3px);
 }
 
 .navHiddenToggleButton:hover,
@@ -272,7 +329,7 @@
 .navSortableRow.sortable,
 .navSortableRow.sortable .navMenuRow,
 .navSortableRow.sortable .section {
-  cursor: default;
+  cursor: grab;
 }
 
 .navSortableRow.sortable .navMenuRow > a {
@@ -471,7 +528,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  cursor: default;
+  cursor: grab;
   transition:
     opacity 120ms ease,
     transform 120ms ease;
@@ -532,7 +589,7 @@
   color: #bbb;
   font-size: 13px;
   line-height: 16px;
-  cursor: default;
+  cursor: grab;
 }
 
 .navbar .navQuickFavTrigger > a.navQuickFavLink {
@@ -617,15 +674,18 @@
 
 .navHiddenResetCard {
   left: 0;
+  align-items: center;
+  gap: 3px;
+  width: max-content;
+  max-width: none;
 }
 
 .navHiddenToggle.navHiddenResetOpen > .navHiddenResetCard {
-  display: block;
+  display: inline-flex;
 }
 
-.navHiddenResetButton:disabled {
-  color: #666;
-  cursor: default;
+.navHiddenResetLabel {
+  color: #aaa;
 }
 
 .navTopHideCard {
@@ -712,6 +772,19 @@
   text-overflow: ellipsis;
 }
 
+.navCustomTitleRemove > .navCustomSourceBadge {
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: #333;
+  color: #aaa;
+  padding: 0 2px;
+  overflow: visible;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 11px;
+  text-overflow: clip;
+}
+
 .navCustomTitleRemove:hover {
   color: white;
 }
@@ -740,6 +813,45 @@
 
 .navQuickUnfav:hover {
   color: white;
+}
+
+.navQuickUnfav.navResetSortingButton,
+.navQuickUnfav.navHiddenResetButton:not(:disabled) {
+  color: #888;
+}
+
+.navQuickUnfav.navResetSortingButton:hover,
+.navQuickUnfav.navResetSortingButton:focus-visible,
+.navQuickUnfav.navHiddenResetButton:not(:disabled):hover,
+.navQuickUnfav.navHiddenResetButton:not(:disabled):focus-visible {
+  color: #bbb;
+  outline: none;
+}
+
+.navResetConfirmation {
+  display: inline-block;
+  width: 7px;
+  margin-left: 2px;
+  color: #5fcf72;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.navResetConfirmation.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navResetConfirmation {
+    transition: none;
+  }
 }
 
 /* title section for links below inside the dropdown */

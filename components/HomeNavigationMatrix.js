@@ -1,8 +1,139 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import HomeNavigationSearch, {
+  buildSearchEntries,
+} from "./HomeNavigationSearch";
+import {
+  getHomeNavigationHistory,
+  removeHomeNavigationHistory,
+  saveHomeNavigationHistory,
+} from "./homeNavigationHistoryClient";
+import {
+  homeNavigationHistoryCap,
+  homeNavigationHistoryEvent,
+  parseHomeNavigationHistory,
+} from "./homeNavigationState";
 import NavbarHoverCard from "./NavbarHoverCard";
+import {
+  NavbarHideButton,
+  NavbarVisibilityToggle,
+} from "./navbarVisibility";
+import useResetConfirmation from "./useResetConfirmation";
+
+const emptyHomeMatrixHiddenKeys = new Set();
+
+function readHomeMatrixHiddenKeys(storageKey) {
+  if (!storageKey || typeof window == "undefined") return new Set();
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+    return new Set(
+      (Array.isArray(parsed) ? parsed : []).map(String).filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHomeMatrixHiddenKeys(storageKey, hiddenKeys) {
+  if (!storageKey || typeof window == "undefined") return;
+
+  try {
+    if (hiddenKeys.size) {
+      window.localStorage.setItem(storageKey, JSON.stringify([...hiddenKeys]));
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  } catch {}
+}
+
+export function useHomeMatrixVisibility(storageKey) {
+  const [hiddenKeys, setHiddenKeys] = useState(emptyHomeMatrixHiddenKeys);
+  const [showHidden, setShowHidden] = useState(false);
+
+  useEffect(() => {
+    setHiddenKeys(readHomeMatrixHiddenKeys(storageKey));
+    setShowHidden(false);
+
+    function syncHiddenKeys(event) {
+      if (event.key == storageKey || event.key === null) {
+        setHiddenKeys(readHomeMatrixHiddenKeys(storageKey));
+      }
+    }
+
+    window.addEventListener("storage", syncHiddenKeys);
+    return () => window.removeEventListener("storage", syncHiddenKeys);
+  }, [storageKey]);
+
+  function toggleHidden(key) {
+    const visibilityKey = String(key || "");
+    if (!visibilityKey) return;
+
+    setHiddenKeys((current) => {
+      const next = new Set(current);
+      if (next.has(visibilityKey)) next.delete(visibilityKey);
+      else next.add(visibilityKey);
+      saveHomeMatrixHiddenKeys(storageKey, next);
+      return next;
+    });
+  }
+
+  function resetHidden() {
+    const next = new Set();
+    setHiddenKeys(next);
+    setShowHidden(false);
+    saveHomeMatrixHiddenKeys(storageKey, next);
+  }
+
+  const pruneHiddenKeys = useCallback(
+    (validKeys = []) => {
+      const validKeySet = new Set(
+        Array.from(validKeys || []).map(String).filter(Boolean),
+      );
+
+      setHiddenKeys((current) => {
+        const next = new Set(
+          [...current].filter((key) => validKeySet.has(key)),
+        );
+        if (
+          next.size == current.size &&
+          [...next].every((key) => current.has(key))
+        ) {
+          return current;
+        }
+
+        saveHomeMatrixHiddenKeys(storageKey, next);
+        return next;
+      });
+    },
+    [storageKey],
+  );
+
+  return {
+    hiddenKeys,
+    hiddenCount: hiddenKeys.size,
+    showHidden,
+    pruneHiddenKeys,
+    setShowHidden,
+    toggleHidden,
+    resetHidden,
+  };
+}
+
+export function HomeMatrixVisibilityToggle({
+  label = "table links",
+  visibility,
+}) {
+  return <NavbarVisibilityToggle label={label} visibility={visibility} />;
+}
 
 function defaultGetChildren(node) {
   return node?.children ?? [];
@@ -26,6 +157,50 @@ export function getHomeSourceNodeKey(
   getNodeKey = defaultGetNodeKey,
 ) {
   return String(node?.homeSourceKey || getNodeKey(node) || "");
+}
+
+function getHomeHorizontalPlaceAfter(
+  items = [],
+  dragKey = "",
+  targetKey = "",
+  getKey = (item) => item,
+) {
+  const sourceKey = String(dragKey || "");
+  const destinationKey = String(targetKey || "");
+  const dragIndex = items.findIndex(
+    (item, index) => String(getKey(item, index) || "") == sourceKey,
+  );
+  const targetIndex = items.findIndex(
+    (item, index) => String(getKey(item, index) || "") == destinationKey,
+  );
+
+  if (dragIndex < 0 || targetIndex < 0 || dragIndex == targetIndex) {
+    return null;
+  }
+
+  return dragIndex < targetIndex;
+}
+
+export function getHomeQuickFavoritePlaceAfter(
+  items = [],
+  dragKey = "",
+  targetKey = "",
+) {
+  return getHomeHorizontalPlaceAfter(
+    items,
+    dragKey,
+    targetKey,
+    (item) => item?.favoriteKey,
+  );
+}
+
+function getHomeVisitHistoryItemKey(item, index = 0) {
+  return String(
+    item?.historyValue ||
+      item?.href ||
+      item?.homeKey ||
+      `history-item:${index}`,
+  );
 }
 
 export function buildHomeFavoritesMatrixGroup({
@@ -134,13 +309,15 @@ export function buildHomeFavoritesMatrixGroup({
     label: "home favorites",
     homeKey: rootKey,
     homeMatrixKey: rootKey,
-    homePinned: true,
-    homeDraggable: false,
+    homeDefaultOrderAnchor: true,
+    homePinned: false,
+    homeDraggable: true,
     children,
   };
 }
 
 export function buildHomeVisitHistoryMatrixNode({
+  auto = false,
   items = [],
   rootKey = "home:visit-history",
 } = {}) {
@@ -149,8 +326,10 @@ export function buildHomeVisitHistoryMatrixNode({
     label: "history",
     homeKey: rootKey,
     homeMatrixKey: rootKey,
-    homePinned: true,
-    homeDraggable: false,
+    homeDefaultOrderAnchor: true,
+    homePinned: false,
+    homeDraggable: true,
+    homeAutoHistory: !!auto,
     homeSpanRemaining: true,
     children: [],
     items: Array.from(items || []),
@@ -164,8 +343,21 @@ export function sortHomeMatrixChildren(
 ) {
   const pinned = children.filter((node) => node.homePinned);
   const sortable = children.filter((node) => !node.homePinned);
+  const savedOrder = Array.from(order || []).map(String);
+  const savedOrderSet = new Set(savedOrder);
+  const defaultOrderAnchors = sortable
+    .filter((node) => node.homeDefaultOrderAnchor)
+    .map((node) => String(getKey(node) || ""))
+    .filter(Boolean);
+  const missingDefaultOrderAnchors = defaultOrderAnchors.filter(
+    (key) => !savedOrderSet.has(key),
+  );
+  const effectiveOrder =
+    savedOrder.length && missingDefaultOrderAnchors.length
+      ? [...missingDefaultOrderAnchors, ...savedOrder]
+      : savedOrder;
   const orderIndexM = new Map(
-    order.map((nodeKey, index) => [nodeKey, index]),
+    effectiveOrder.map((nodeKey, index) => [nodeKey, index]),
   );
 
   const ordered = sortable
@@ -237,9 +429,17 @@ function getHomePathDetail(node, pathLabels) {
   );
 }
 
-function buildHomePathInfoMaps(nodes, getChildren, getNodeKey) {
+function buildHomePathInfoMaps(
+  nodes,
+  getChildren,
+  getNodeKey,
+  pathPrefix = [],
+) {
   const byHref = new Map();
   const bySourceKey = new Map();
+  const rootPathLabels = Array.from(pathPrefix || [])
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
 
   function addNode(node, parentLabels = [], depth = 0, ancestors = new Set()) {
     if (
@@ -274,21 +474,86 @@ function buildHomePathInfoMaps(nodes, getChildren, getNodeKey) {
     }
   }
 
-  for (const node of Array.from(nodes || [])) addNode(node);
+  for (const node of Array.from(nodes || [])) {
+    addNode(node, rootPathLabels);
+  }
   return { byHref, bySourceKey };
 }
 
 export function buildHomeNavigationMatrix({
+  history = true,
+  historyRootKey,
   nodes = [],
   getChildren = defaultGetChildren,
   getNodeKey = defaultGetNodeKey,
   isCollapsed = () => false,
   orderChildren = (children) => children,
+  pathPrefix = [],
   rootParentKey = "home:root",
+  visibility,
 } = {}) {
+  const sourceNodes = Array.from(nodes || []);
+  const hasExplicitHistory = sourceNodes.some(
+    (node) => node?.type == "history" || node?.type == "homeVisitHistory",
+  );
+  const matrixNodes =
+    history !== false && !hasExplicitHistory
+      ? [
+          buildHomeVisitHistoryMatrixNode({
+            auto: true,
+            rootKey: String(
+              historyRootKey || `${rootParentKey}:history`,
+            ),
+          }),
+          ...sourceNodes,
+        ]
+      : sourceNodes;
   let columnCount = 0;
   let collapsedCount = 0;
-  const pathInfoMaps = buildHomePathInfoMaps(nodes, getChildren, getNodeKey);
+  const fullSiblingOrderM = {};
+  const searchEntries = buildSearchEntries({
+    getChildren,
+    getNodeKey,
+    includeHome: false,
+    pathPrefix,
+    skipNode: isHomeSyntheticNode,
+    tree: matrixNodes,
+  });
+  const hiddenKeys = visibility?.hiddenKeys ?? emptyHomeMatrixHiddenKeys;
+  const showHidden = !!visibility?.showHidden;
+  const pathInfoMaps = buildHomePathInfoMaps(
+    matrixNodes,
+    getChildren,
+    getNodeKey,
+    pathPrefix,
+  );
+  const visibilityKeySet = new Set();
+
+  function collectVisibilityKeys(
+    entries,
+    depth = 0,
+    ancestors = new Set(),
+  ) {
+    if (depth > 48) return;
+
+    for (const node of Array.from(entries || [])) {
+      if (!node || ancestors.has(node)) continue;
+      if (!homeSyntheticNodeTypes.has(node.type)) {
+        const key = getHomeSourceNodeKey(node, getNodeKey);
+        if (key) visibilityKeySet.add(key);
+      }
+
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(node);
+      collectVisibilityKeys(
+        getChildren(node, depth) || [],
+        depth + 1,
+        nextAncestors,
+      );
+    }
+  }
+
+  collectVisibilityKeys(matrixNodes);
 
   function getMappedPathInfo(node) {
     const sourceKey = getHomeSourceNodeKey(node, getNodeKey);
@@ -301,36 +566,91 @@ export function buildHomeNavigationMatrix({
   }
 
   function enrichFavoriteLinkItems(items = []) {
-    return Array.from(items || []).map((item) => {
-      const sourceKey = getHomePathValue(item?.homeSourceKey);
-      const href = getHomePathValue(item?.href);
-      const info =
-        pathInfoMaps.bySourceKey.get(sourceKey) ||
-        pathInfoMaps.byHref.get(href);
-      const label = getHomePathLabel(item);
+    return Array.from(items || [])
+      .map((item) => {
+        const sourceKey = getHomePathValue(item?.homeSourceKey);
+        const href = getHomePathValue(item?.href);
+        const info =
+          pathInfoMaps.bySourceKey.get(sourceKey) ||
+          pathInfoMaps.byHref.get(href);
+        const label = getHomePathLabel(item);
+        const homeVisibilityKey = getHomePathValue(
+          item?.homeVisibilityKey || sourceKey,
+        );
+        const homeHidden =
+          !!homeVisibilityKey && hiddenKeys.has(homeVisibilityKey);
 
-      return {
-        ...item,
-        homePathContext:
-          info?.context || getHomePathValue(item?.homePathContext) || "navbar",
-        homePathDetail:
-          info?.detail || getHomePathDetail(item, label ? [label] : []),
-      };
-    });
+        return {
+          ...item,
+          homeHidden,
+          homePathContext:
+            info?.context ||
+            getHomePathValue(item?.homePathContext) ||
+            "navbar",
+          homePathDetail:
+            info?.detail || getHomePathDetail(item, label ? [label] : []),
+          homeVisibilityKey,
+        };
+      })
+      .filter((item) => showHidden || !item.homeHidden);
+  }
+
+  function getNodeVisibility(node) {
+    if (homeSyntheticNodeTypes.has(node?.type)) {
+      return { homeHidden: false, homeVisibilityKey: "" };
+    }
+
+    const homeVisibilityKey = String(
+      node?.homeVisibilityKey || getHomeSourceNodeKey(node, getNodeKey) || "",
+    );
+
+    return {
+      homeHidden: !!homeVisibilityKey && hiddenKeys.has(homeVisibilityKey),
+      homeVisibilityKey,
+    };
+  }
+
+  function recordFullSiblingOrder(children, parentKey, parentNode) {
+    const usesSourceOrder = !!parentNode?.homeFavoriteProjection;
+    const orderParentKey = String(
+      (usesSourceOrder
+        ? getHomeSourceNodeKey(parentNode, getNodeKey)
+        : parentKey) || "",
+    );
+    if (!orderParentKey) return;
+
+    fullSiblingOrderM[orderParentKey] = children
+      .filter(
+        (child) => !child?.homePinned && child?.homeDraggable !== false,
+      )
+      .map((child) =>
+        String(
+          (usesSourceOrder
+            ? getHomeSourceNodeKey(child, getNodeKey)
+            : getHomeMatrixNodeKey(child, getNodeKey)) || "",
+        ),
+      )
+      .filter(Boolean);
   }
 
   function measureNode(node, depth, parentKey) {
     const nodeKey = getNodeKey(node);
-    const children = orderChildren(
-      getChildren(node, depth) ?? [],
-      nodeKey,
-      node,
+    const nodeVisibility = getNodeVisibility(node);
+    if (nodeVisibility.homeHidden && !showHidden) return null;
+
+    const children = Array.from(
+      orderChildren(getChildren(node, depth) ?? [], nodeKey, node) || [],
     );
-    const collapsed = !!children.length && isCollapsed(node, nodeKey);
+    recordFullSiblingOrder(children, nodeKey, node);
+    const visibleChildren = children.filter((child) => {
+      const childVisibility = getNodeVisibility(child);
+      return showHidden || !childVisibility.homeHidden;
+    });
+    const collapsed = !!visibleChildren.length && isCollapsed(node, nodeKey);
     if (collapsed) collapsedCount += 1;
-    const measuredChildren = (collapsed ? [] : children).map((child) =>
-      measureNode(child, depth + 1, nodeKey),
-    );
+    const measuredChildren = (collapsed ? [] : visibleChildren)
+      .map((child) => measureNode(child, depth + 1, nodeKey))
+      .filter(Boolean);
     const rowSpan =
       measuredChildren.reduce((sum, child) => sum + child.rowSpan, 0) || 1;
     columnCount = Math.max(columnCount, depth + 1);
@@ -355,17 +675,23 @@ export function buildHomeNavigationMatrix({
         ...pathProps,
         ...favoriteItems,
         homeCollapsed: collapsed,
-        homeHasChildren: !!children.length,
+        homeHidden: nodeVisibility.homeHidden,
+        homeHasChildren: !!visibleChildren.length,
         homeNodeKey: nodeKey,
         homeParentKey: parentKey,
+        homeVisibilityKey: nodeVisibility.homeVisibilityKey,
       },
       rowSpan,
     };
   }
 
-  const measuredRoots = orderChildren(nodes, rootParentKey, null).map((node) =>
-    measureNode(node, 0, rootParentKey),
+  const orderedRoots = Array.from(
+    orderChildren(matrixNodes, rootParentKey, null) || [],
   );
+  recordFullSiblingOrder(orderedRoots, rootParentKey, null);
+  const measuredRoots = orderedRoots
+    .map((node) => measureNode(node, 0, rootParentKey))
+    .filter(Boolean);
   const cells = [];
 
   function placeNode(entry, depth, rowStart) {
@@ -412,7 +738,10 @@ export function buildHomeNavigationMatrix({
     cells,
     collapsedCount,
     columnCount,
+    fullSiblingOrderM,
     rowCount: Math.max(0, rowStart - 1),
+    searchEntries,
+    visibilityKeys: [...visibilityKeySet],
   };
 }
 
@@ -459,7 +788,7 @@ export function getHomeMatrixMove(
     return currentOrder;
   }
 
-  const siblingKeys = (matrix?.cells || [])
+  const visibleSiblingKeys = (matrix?.cells || [])
     .filter(
       (cell) =>
         cell.node &&
@@ -471,6 +800,13 @@ export function getHomeMatrixMove(
     .map((cell) => getMoveNodeKey(cell.node));
   const draggedKey = getMoveNodeKey(dragNode);
   const targetKey = getMoveNodeKey(targetNode);
+  const fullSiblingKeys = matrix?.fullSiblingOrderM?.[dragParentKey];
+  const siblingKeys =
+    Array.isArray(fullSiblingKeys) &&
+    fullSiblingKeys.includes(draggedKey) &&
+    fullSiblingKeys.includes(targetKey)
+      ? fullSiblingKeys
+      : visibleSiblingKeys;
   if (!siblingKeys.includes(draggedKey) || !siblingKeys.includes(targetKey)) {
     return currentOrder;
   }
@@ -494,27 +830,286 @@ export function getHomeMatrixMove(
   };
 }
 
+const emptyHomeNavigationHistory = [];
+
+function getHomeHistoryHrefLookupKeys(value = "") {
+  const href = String(value || "").trim();
+  if (!href) return [];
+
+  const withoutHash = href.split("#", 1)[0];
+  const withoutQuery = withoutHash.split("?", 1)[0];
+  return [...new Set([href, withoutHash, withoutQuery].filter(Boolean))];
+}
+
+function getHomeHistoryPathname(value = "") {
+  const href = String(value || "").trim();
+  if (!href) return "";
+
+  if (/^\/(?!\/)/.test(href)) {
+    return href.split(/[?#]/, 1)[0] || "/";
+  }
+  return "";
+}
+
+function normalizeHomeHistoryBasePath(value = "/") {
+  let pathname = getHomeHistoryPathname(value);
+  if (!pathname && /^https?:\/\//i.test(String(value || ""))) {
+    try {
+      pathname = new URL(String(value)).pathname;
+    } catch {}
+  }
+  pathname ||= "/";
+  const normalized = pathname.replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+  return normalized || "/";
+}
+
+function buildHomeHistorySearchEntryMap(entries = []) {
+  const result = new Map();
+
+  for (const entry of Array.from(entries || [])) {
+    for (const key of getHomeHistoryHrefLookupKeys(entry?.href)) {
+      if (!result.has(key)) result.set(key, entry);
+    }
+  }
+
+  return result;
+}
+
+function getHomeHistorySearchEntry(entryMap, href = "") {
+  for (const key of getHomeHistoryHrefLookupKeys(href)) {
+    const entry = entryMap.get(key);
+    if (entry) return entry;
+  }
+  return null;
+}
+
+function isHomeHistoryEntryInScope(entry, basePath, searchEntry) {
+  const pathname = getHomeHistoryPathname(entry?.href);
+  if (pathname) {
+    const normalizedPathname = normalizeHomeHistoryBasePath(pathname);
+    if (normalizedPathname == basePath) return false;
+    return (
+      basePath == "/" || normalizedPathname.startsWith(`${basePath}/`)
+    );
+  }
+
+  return basePath == "/" || !!searchEntry;
+}
+
+function buildDefaultHomeHistoryItems({
+  basePath = "/",
+  entries = [],
+  getFavoriteKey,
+  rootKey = "home:auto-history",
+  searchEntries = [],
+} = {}) {
+  const normalizedBasePath = normalizeHomeHistoryBasePath(basePath);
+  const searchEntryMap = buildHomeHistorySearchEntryMap(searchEntries);
+  const result = [];
+
+  for (const entry of parseHomeNavigationHistory(entries)) {
+    const searchEntry = getHomeHistorySearchEntry(
+      searchEntryMap,
+      entry.href,
+    );
+    if (!isHomeHistoryEntryInScope(entry, normalizedBasePath, searchEntry)) {
+      continue;
+    }
+
+    const resolvedFavoriteKey =
+      typeof getFavoriteKey == "function"
+        ? getFavoriteKey(entry, searchEntry)
+        : searchEntry?.favoriteKey;
+    result.push({
+      ...entry,
+      favoriteKey: String(resolvedFavoriteKey || ""),
+      historyContext:
+        searchEntry?.context || entry.context || "navbar",
+      historyValue: entry.href,
+      homeKey: `${rootKey}:item:${encodeURIComponent(entry.href)}`,
+      detail: entry.href,
+    });
+    if (result.length >= homeNavigationHistoryCap) break;
+  }
+
+  return result;
+}
+
+function reorderDefaultHomeHistory(
+  historyEntries = [],
+  currentItems = [],
+  nextItems = [],
+) {
+  const currentHrefSet = new Set(
+    currentItems
+      .map((item) => String(item?.historyValue || item?.href || ""))
+      .filter(Boolean),
+  );
+  const orderedHrefs = nextItems
+    .map((item) => String(item?.historyValue || item?.href || ""))
+    .filter((href) => currentHrefSet.has(href));
+  if (
+    orderedHrefs.length != currentHrefSet.size ||
+    new Set(orderedHrefs).size != currentHrefSet.size
+  ) {
+    return parseHomeNavigationHistory(historyEntries);
+  }
+
+  const historyByHref = new Map(
+    parseHomeNavigationHistory(historyEntries).map((entry) => [
+      entry.href,
+      entry,
+    ]),
+  );
+  let orderedIndex = 0;
+
+  return parseHomeNavigationHistory(historyEntries).map((entry) => {
+    if (!currentHrefSet.has(entry.href)) return entry;
+    const nextHref = orderedHrefs[orderedIndex++];
+    return historyByHref.get(nextHref) || entry;
+  });
+}
+
+function useDefaultHomeNavigationHistory(enabled, initialHistory = []) {
+  const initialHistoryText = JSON.stringify(
+    parseHomeNavigationHistory(initialHistory),
+  );
+  const [historyEntries, setHistoryEntries] = useState(
+    emptyHomeNavigationHistory,
+  );
+
+  useEffect(() => {
+    if (!enabled) {
+      setHistoryEntries(emptyHomeNavigationHistory);
+      return undefined;
+    }
+
+    const serverHistory = JSON.parse(initialHistoryText);
+
+    function refreshHistory(event) {
+      const eventHistory = event?.detail?.history;
+      setHistoryEntries(
+        parseHomeNavigationHistory(
+          Array.isArray(eventHistory)
+            ? eventHistory
+            : getHomeNavigationHistory(serverHistory),
+        ),
+      );
+    }
+
+    refreshHistory();
+    window.addEventListener(homeNavigationHistoryEvent, refreshHistory);
+    return () =>
+      window.removeEventListener(homeNavigationHistoryEvent, refreshHistory);
+  }, [enabled, initialHistoryText]);
+
+  return historyEntries;
+}
+
 export function HomeNavigationMatrix({
+  historyFavoriteKeySet,
+  historyOptions,
   matrix,
   renderNode,
   sortable = false,
+  onMoveHistory,
   onMoveNode,
   onRemoveHistory,
+  onToggleHistoryFavorite,
+  search = true,
+  searchControls,
+  searchOptions,
 }) {
   const [dragNode, setDragNode] = useState(null);
   const [dropSpot, setDropSpot] = useState(null);
+  const autoHistoryNode = matrix?.cells?.find(
+    (cell) => cell?.node?.homeAutoHistory,
+  )?.node;
+  const defaultHistoryEntries = useDefaultHomeNavigationHistory(
+    !!autoHistoryNode,
+    historyOptions?.initialHistory,
+  );
+  const defaultHistoryItems = useMemo(
+    () =>
+      buildDefaultHomeHistoryItems({
+        basePath:
+          historyOptions?.basePath ?? searchOptions?.homeHref ?? "/",
+        entries: defaultHistoryEntries,
+        getFavoriteKey: historyOptions?.getFavoriteKey,
+        rootKey:
+          autoHistoryNode?.homeNodeKey ||
+          autoHistoryNode?.homeKey ||
+          "home:auto-history",
+        searchEntries: matrix?.searchEntries || [],
+      }),
+    [
+      autoHistoryNode?.homeKey,
+      autoHistoryNode?.homeNodeKey,
+      defaultHistoryEntries,
+      historyOptions?.basePath,
+      historyOptions?.getFavoriteKey,
+      matrix?.searchEntries,
+      searchOptions?.homeHref,
+    ],
+  );
+  const resolvedHistoryFavoriteKeySet =
+    historyFavoriteKeySet ?? historyOptions?.favoriteKeySet;
+  const resolvedToggleHistoryFavorite =
+    onToggleHistoryFavorite ?? historyOptions?.onToggleFavorite;
 
-  if (!matrix?.cells?.length) return null;
+  function moveDefaultHistory(items) {
+    const customMoveHistory = historyOptions?.onMoveHistory;
+    if (typeof customMoveHistory == "function") {
+      customMoveHistory(items);
+      return;
+    }
+
+    saveHomeNavigationHistory(
+      reorderDefaultHomeHistory(
+        defaultHistoryEntries,
+        defaultHistoryItems,
+        items,
+      ),
+    );
+  }
+
+  function removeDefaultHistory(href, item) {
+    const customRemoveHistory = historyOptions?.onRemoveHistory;
+    if (typeof customRemoveHistory == "function") {
+      customRemoveHistory(href, item);
+      return;
+    }
+
+    removeHomeNavigationHistory(href);
+  }
+
+  const searchBar = search ? (
+    <HomeNavigationSearch
+      entries={matrix?.searchEntries || []}
+      {...searchOptions}
+    />
+  ) : null;
+  const searchContent =
+    searchBar && searchControls ? (
+      <div className="homeWalletSearchRow">
+        {searchBar}
+        {searchControls}
+      </div>
+    ) : searchBar;
+
+  if (!matrix?.cells?.length) return searchContent;
 
   return (
-    <div
-      className={`homeNavMatrix${sortable ? " customSort" : ""}`}
-      style={{
-        "--home-nav-column-count": matrix.columnCount,
-        "--home-nav-row-count": matrix.rowCount,
-      }}
-    >
-      {matrix.cells.map((cell, index) => {
+    <>
+      {searchContent}
+      <div
+        className={`homeNavMatrix${sortable ? " customSort" : ""}`}
+        style={{
+          "--home-nav-column-count": matrix.columnCount,
+          "--home-nav-row-count": matrix.rowCount,
+        }}
+      >
+        {matrix.cells.map((cell, index) => {
         const node = cell.node;
         const canDrag =
           sortable &&
@@ -539,6 +1134,7 @@ export function HomeNavigationMatrix({
                 : "",
               node?.type === "homeFavorites" ? "favorites" : "",
               node?.type === "homeFavoriteLinks" ? "favoriteLinks" : "",
+              node?.homeHidden ? "homeHidden" : "",
               node?.homeCellClassName || "",
               canDrag ? "sortable" : "",
               dragging ? "dragging" : "",
@@ -638,16 +1234,32 @@ export function HomeNavigationMatrix({
             {!cell.empty &&
               (node.type === "homeVisitHistory" ? (
                 <HomeVisitHistoryRow
-                  node={node}
-                  onRemoveHistory={onRemoveHistory}
+                  historyFavoriteKeySet={resolvedHistoryFavoriteKeySet}
+                  node={
+                    node.homeAutoHistory
+                      ? { ...node, items: defaultHistoryItems }
+                      : node
+                  }
+                  onMoveHistory={
+                    node.homeAutoHistory
+                      ? onMoveHistory || moveDefaultHistory
+                      : onMoveHistory
+                  }
+                  onRemoveHistory={
+                    node.homeAutoHistory
+                      ? onRemoveHistory || removeDefaultHistory
+                      : onRemoveHistory
+                  }
+                  onToggleHistoryFavorite={resolvedToggleHistoryFavorite}
                 />
               ) : (
                 renderNode?.(node, cell, index)
               ))}
           </div>
         );
-      })}
-    </div>
+        })}
+      </div>
+    </>
   );
 }
 
@@ -695,8 +1307,13 @@ export function HomeNavigationPathHover({
   context = "navbar",
   detail = "",
   className = "",
+  hidden = false,
+  label = "table item",
+  onToggleHidden,
+  visibilityKey = "",
 }) {
   const [cardPosition, setCardPosition] = useState(null);
+  const hideable = !!visibilityKey && typeof onToggleHidden == "function";
 
   function positionCard(event) {
     const trigger = event.currentTarget;
@@ -719,9 +1336,23 @@ export function HomeNavigationPathHover({
         {children}
       </span>
       <span
-        className="navQuickFavCard homeVisitHistoryCard homeNavPathCard"
+        className={`navQuickFavCard homeVisitHistoryCard homeNavPathCard${
+          hideable ? " interactive" : ""
+        }`}
         style={cardPosition || undefined}
       >
+        {hideable && (
+          <NavbarHideButton
+            hidden={hidden}
+            label={label}
+            className="homeNavPathHideButton"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleHidden(visibilityKey);
+            }}
+          />
+        )}
         <span className="homeVisitHistoryPathInfo">
           <span className="homeVisitHistoryPathContext">
             {String(context || "navbar")}
@@ -735,10 +1366,22 @@ export function HomeNavigationPathHover({
   );
 }
 
-function HomeVisitHistoryItem({ item, onRemoveHistory }) {
+function HomeVisitHistoryItem({
+  dragClassName = "",
+  dragProps,
+  historyFavoriteKeySet,
+  item,
+  onRemoveHistory,
+  onToggleHistoryFavorite,
+}) {
   const [cardPosition, setCardPosition] = useState(null);
   const href = String(item?.href || "");
   const label = String(item?.label || item?.title || href || "history item");
+  const favoriteKey = String(item?.favoriteKey || "");
+  const canFavorite =
+    !!favoriteKey && typeof onToggleHistoryFavorite == "function";
+  const favoriteActive =
+    canFavorite && historyFavoriteKeySet?.has(favoriteKey);
   const context = String(
     item?.historyContext || item?.context || "navbar",
   );
@@ -749,17 +1392,27 @@ function HomeVisitHistoryItem({ item, onRemoveHistory }) {
   }
 
   return (
-    <NavbarHoverCard className="homeVisitHistoryItem navQuickFavTrigger">
+    <NavbarHoverCard
+      className={[
+        "homeVisitHistoryItem",
+        "navQuickFavTrigger",
+        dragClassName,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {href ? (
         <Link
           href={href}
           className="homeVisitHistoryLink"
+          draggable={!!dragProps}
           data-history-label={label}
           data-history-title={item?.title || label}
           data-history-context={context}
           onFocus={positionCard}
           onMouseEnter={positionCard}
           onPointerDown={positionCard}
+          {...dragProps}
           {...getHomeVisitExternalLinkProps(href)}
         >
           {label}
@@ -767,9 +1420,11 @@ function HomeVisitHistoryItem({ item, onRemoveHistory }) {
       ) : (
         <span
           className="homeVisitHistoryLink disabled"
+          draggable={!!dragProps}
           onFocus={positionCard}
           onMouseEnter={positionCard}
           onPointerDown={positionCard}
+          {...dragProps}
         >
           {label}
         </span>
@@ -778,11 +1433,31 @@ function HomeVisitHistoryItem({ item, onRemoveHistory }) {
         className="navQuickFavCard homeVisitHistoryCard"
         style={cardPosition || undefined}
       >
+        {canFavorite && (
+          <button
+            type="button"
+            className={`homeVisitHistoryFavoriteButton${
+              favoriteActive ? " active" : ""
+            }`}
+            aria-label={`${favoriteActive ? "remove" : "add"} ${label} ${
+              favoriteActive ? "from" : "to"
+            } favorites`}
+            draggable={false}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleHistoryFavorite(favoriteKey, item);
+            }}
+          >
+            {favoriteActive ? "★" : "☆"}
+          </button>
+        )}
         <button
           type="button"
           className="homeVisitHistoryRemoveButton"
           aria-label={`remove ${label} from history`}
           title="remove from history"
+          draggable={false}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -800,11 +1475,21 @@ function HomeVisitHistoryItem({ item, onRemoveHistory }) {
   );
 }
 
-export function HomeVisitHistoryRow({ node, onRemoveHistory }) {
+export function HomeVisitHistoryRow({
+  historyFavoriteKeySet,
+  node,
+  onMoveHistory,
+  onRemoveHistory,
+  onToggleHistoryFavorite,
+}) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
+  const [dragKey, setDragKey] = useState("");
+  const [dropSpot, setDropSpot] = useState(null);
+  const dragKeyRef = useRef("");
   const linksRef = useRef(null);
   const items = node?.items || [];
+  const canDrag = items.length > 1 && typeof onMoveHistory == "function";
   const toggleLabel = `${expanded ? "collapse" : "expand"} page history`;
 
   useEffect(() => {
@@ -824,7 +1509,13 @@ export function HomeVisitHistoryRow({ node, onRemoveHistory }) {
 
   return (
     <div
-      className={`homeVisitHistory ${expanded ? "expanded" : ""}`}
+      className={[
+        "homeVisitHistory",
+        expanded ? "expanded" : "",
+        dragKey ? "historyDragging" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="recently visited pages"
     >
       <button
@@ -839,13 +1530,127 @@ export function HomeVisitHistoryRow({ node, onRemoveHistory }) {
       </button>
       <span ref={linksRef} className="homeVisitHistoryLinks">
         {items.length ? (
-          items.map((item, index) => (
-            <HomeVisitHistoryItem
-              key={item.homeKey || `${item.href}:${index}`}
-              item={item}
-              onRemoveHistory={onRemoveHistory}
-            />
-          ))
+          items.map((item, index) => {
+            const itemKey = getHomeVisitHistoryItemKey(item, index);
+            const isDropSpot = dropSpot?.key == itemKey;
+            const dropClass = isDropSpot
+              ? dropSpot.placeAfter
+                ? "dropAfter"
+                : "dropBefore"
+              : "";
+            const dragProps = canDrag
+              ? {
+                  onDragStart(event) {
+                    event.stopPropagation();
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", itemKey);
+                    dragKeyRef.current = itemKey;
+                    setDragKey(itemKey);
+                  },
+                  onDragOver(event) {
+                    const activeDragKey = dragKeyRef.current || dragKey;
+                    if (!activeDragKey) return;
+                    event.stopPropagation();
+                    const placeAfter = getHomeHorizontalPlaceAfter(
+                      items,
+                      activeDragKey,
+                      itemKey,
+                      getHomeVisitHistoryItemKey,
+                    );
+                    if (placeAfter === null) return;
+
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDropSpot((current) =>
+                      current?.key == itemKey &&
+                      current?.placeAfter == placeAfter
+                        ? current
+                        : { key: itemKey, placeAfter },
+                    );
+                  },
+                  onDragLeave(event) {
+                    if (!dragKeyRef.current && !dragKey) return;
+                    event.stopPropagation();
+                    if (!event.currentTarget.contains(event.relatedTarget)) {
+                      setDropSpot((current) =>
+                        current?.key == itemKey ? null : current,
+                      );
+                    }
+                  },
+                  onDrop(event) {
+                    const rowDragKey = dragKeyRef.current || dragKey;
+                    if (!rowDragKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const activeDragKey =
+                      event.dataTransfer.getData("text/plain") ||
+                      rowDragKey;
+                    const placeAfter = getHomeHorizontalPlaceAfter(
+                      items,
+                      activeDragKey,
+                      itemKey,
+                      getHomeVisitHistoryItemKey,
+                    );
+
+                    if (placeAfter !== null) {
+                      const draggedIndex = items.findIndex(
+                        (entry, entryIndex) =>
+                          getHomeVisitHistoryItemKey(entry, entryIndex) ==
+                          activeDragKey,
+                      );
+                      const draggedItem = items[draggedIndex];
+                      const withoutDragged = items.filter(
+                        (_entry, entryIndex) => entryIndex != draggedIndex,
+                      );
+                      const targetIndex = withoutDragged.findIndex(
+                        (entry, entryIndex) =>
+                          getHomeVisitHistoryItemKey(entry, entryIndex) ==
+                          itemKey,
+                      );
+
+                      if (draggedItem && targetIndex >= 0) {
+                        const insertIndex =
+                          targetIndex + (placeAfter ? 1 : 0);
+                        onMoveHistory([
+                          ...withoutDragged.slice(0, insertIndex),
+                          draggedItem,
+                          ...withoutDragged.slice(insertIndex),
+                        ]);
+                      }
+                    }
+
+                    dragKeyRef.current = "";
+                    setDragKey("");
+                    setDropSpot(null);
+                  },
+                  onDragEnd(event) {
+                    if (dragKeyRef.current || dragKey) {
+                      event.stopPropagation();
+                    }
+                    dragKeyRef.current = "";
+                    setDragKey("");
+                    setDropSpot(null);
+                  },
+                }
+              : undefined;
+
+            return (
+              <HomeVisitHistoryItem
+                dragClassName={[
+                  dragKey == itemKey ? "dragging" : "",
+                  dropClass,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                dragProps={dragProps}
+                historyFavoriteKeySet={historyFavoriteKeySet}
+                key={itemKey}
+                item={item}
+                onRemoveHistory={onRemoveHistory}
+                onToggleHistoryFavorite={onToggleHistoryFavorite}
+              />
+            );
+          })
         ) : (
           <span className="homeVisitHistoryEmpty">empty</span>
         )}
@@ -907,13 +1712,63 @@ export function HomeFavoritesColumn({
   );
 }
 
+function HomeResetSortingButton({ label, onResetSorting }) {
+  const [resetConfirmed, showResetConfirmation] = useResetConfirmation();
+
+  return (
+    <button
+      type="button"
+      className="navQuickUnfav navResetSortingButton"
+      aria-label={`reset ${label} sorting`}
+      title={`reset ${label} sorting`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onResetSorting?.();
+        showResetConfirmation();
+      }}
+    >
+      reset sorting
+      <span
+        className={`navResetConfirmation${resetConfirmed ? " visible" : ""}`}
+        aria-hidden="true"
+      >
+        ✓
+      </span>
+    </button>
+  );
+}
+
+export function HomeSectionSortLabel({ children, label, onResetSorting }) {
+  return (
+    <NavbarHoverCard className="homeNavSectionSortLabel navQuickFavTrigger">
+      <button
+        type="button"
+        className="homeNavSectionSortLabelButton"
+        aria-label={`show ${label} sorting actions`}
+      >
+        {children}
+      </button>
+      <span className="navQuickFavCard homeNavSectionSortResetCard">
+        <HomeResetSortingButton
+          label={label}
+          onResetSorting={onResetSorting}
+        />
+      </span>
+    </NavbarHoverCard>
+  );
+}
+
 export function HomeSectionSortToggle({
   collapsed = false,
   label,
+  onExpandAll,
   onResetSorting,
   onToggle,
+  showExpandAll = false,
 }) {
   const toggleLabel = `${collapsed ? "show" : "hide"} ${label} table`;
+  const showActionCard = !!onResetSorting || showExpandAll;
 
   return (
     <NavbarHoverCard className="homeNavSectionSortToggle navQuickFavTrigger">
@@ -930,21 +1785,30 @@ export function HomeSectionSortToggle({
           aria-hidden="true"
         ></span>
       </button>
-      <span className="navQuickFavCard homeNavSectionSortResetCard">
-        <button
-          type="button"
-          className="navQuickUnfav"
-          aria-label={`reset ${label} sorting`}
-          title={`reset ${label} sorting`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onResetSorting?.();
-          }}
-        >
-          reset sorting
-        </button>
-      </span>
+      {showActionCard && (
+        <span className="navQuickFavCard homeNavSectionSortResetCard">
+          {onResetSorting && (
+            <HomeResetSortingButton
+              label={label}
+              onResetSorting={onResetSorting}
+            />
+          )}
+          {showExpandAll && (
+            <button
+              type="button"
+              className="navQuickUnfav navResetSortingButton homeNavSectionExpandAllButton"
+              aria-label={`expand all ${label}`}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onExpandAll?.();
+              }}
+            >
+              expand all
+            </button>
+          )}
+        </span>
+      )}
     </NavbarHoverCard>
   );
 }

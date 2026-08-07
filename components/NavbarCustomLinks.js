@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import toast from "react-hot-toast";
 import { ckPrefix } from "@/sets";
+import { isLocalEditorHost } from "@/app/_editorData/browserEditorStorage";
+import NavbarHoverCard from "./NavbarHoverCard";
 import NavbarLinkMenu from "./NavbarLinkMenu";
 import SortableNavbarItems from "./SortableNavbarItems";
 import {
@@ -13,6 +16,7 @@ import {
 const storagePrefix = `${ckPrefix ?? ""}navCustomLinks:`;
 const favoriteCookiePrefix = `${ckPrefix ?? ""}navCustomFav_`;
 const customLinksChangeEvent = `${ckPrefix ?? ""}navbarCustomLinksChange`;
+const serverCustomLinksApi = "/editor/custom-nav/api";
 
 function createLinkId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -36,13 +40,12 @@ function cleanLinks(value, depth = 0, ids = new Set()) {
     if (!item || typeof item != "object") return [];
 
     const href = normalizeHref(item.href);
-    if (!href) return [];
+    const label = String(item.label || item.title || href).trim();
+    if (!href && !label) return [];
 
     let id = String(item.id || "");
     while (!id || ids.has(id)) id = createLinkId();
     ids.add(id);
-
-    const label = String(item.label || item.title || href).trim() || href;
 
     return [
       {
@@ -51,6 +54,7 @@ function cleanLinks(value, depth = 0, ids = new Set()) {
         href,
         label,
         title: String(item.title || label),
+        ...(href ? {} : { type: "folder" }),
         children: cleanLinks(item.children, depth + 1, ids),
       },
     ];
@@ -118,16 +122,64 @@ function removeLinkById(links, linkId) {
   return { links: removed ? next : links, removed };
 }
 
-function promptForLink() {
-  const linkInput = String(window.prompt("Link") ?? "").trim();
-  const href = normalizeHref(linkInput);
-  if (!href) return null;
+function hasLinkId(links, linkId) {
+  return links.some(
+    (link) =>
+      link.id == linkId || hasLinkId(link.children || [], linkId),
+  );
+}
 
+function markServerLinks(value) {
+  return cleanLinks(value).map((link) => ({
+    ...link,
+    customNavSource: "server",
+    children: markServerLinks(link.children),
+  }));
+}
+
+function notifyServerLinks(scope, links, available = true) {
+  const notify = () =>
+    window.dispatchEvent(
+      new CustomEvent(customLinksChangeEvent, {
+        detail: {
+          serverScope: scope,
+          serverLinks: links,
+          serverAvailable: available,
+        },
+      }),
+    );
+  if (typeof queueMicrotask == "function") queueMicrotask(notify);
+  else window.setTimeout(notify, 0);
+}
+
+async function requestServerLinks(url, options) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    ...options,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || "custom navbar server request failed");
+  }
+  return result;
+}
+
+function promptForLink() {
+  const linkValue = window.prompt("Link (leave empty for folder)");
+  if (linkValue === null) return null;
+
+  const linkInput = String(linkValue).trim();
+  const href = normalizeHref(linkInput);
   const suggestedTitle = linkInput.replace(/^\/(?!\/)/, "") || href;
-  const title = window.prompt("Link title", suggestedTitle);
+  const title = window.prompt(
+    href ? "Link title" : "Folder title",
+    suggestedTitle,
+  );
   if (title === null) return null;
 
   const label = title.trim() || suggestedTitle;
+  if (!label) return null;
+
   const id = createLinkId();
 
   return {
@@ -136,27 +188,39 @@ function promptForLink() {
     href,
     label,
     title: label,
+    ...(href ? {} : { type: "folder" }),
     children: [],
   };
 }
 
 function useNavbarCustomLinks(scope) {
   const storageKey = `${storagePrefix}${scope}`;
-  const [links, setLinks] = useState([]);
-  const [ready, setReady] = useState(false);
+  const [localLinks, setLocalLinks] = useState([]);
+  const [localReady, setLocalReady] = useState(false);
+  const [serverLinks, setServerLinks] = useState([]);
+  const [serverReady, setServerReady] = useState(false);
+  const [serverAvailable, setServerAvailable] = useState(false);
+  const [serverBusy, setServerBusy] = useState(false);
+  const serverMutationRef = useRef(false);
+  const links = [...localLinks, ...serverLinks];
 
   useEffect(() => {
-    setReady(false);
-    setLinks(readLinks(storageKey));
-    setReady(true);
+    setLocalReady(false);
+    setLocalLinks(readLinks(storageKey));
+    setLocalReady(true);
 
     function syncLinks(event) {
-      if (event.key == storageKey) setLinks(readLinks(storageKey));
+      if (event.key == storageKey) setLocalLinks(readLinks(storageKey));
     }
 
     function syncCurrentTabLinks(event) {
       if (event.detail?.storageKey == storageKey) {
-        setLinks(readLinks(storageKey));
+        setLocalLinks(readLinks(storageKey));
+      }
+      if (event.detail?.serverScope == scope) {
+        setServerLinks(markServerLinks(event.detail.serverLinks));
+        setServerAvailable(event.detail.serverAvailable === true);
+        setServerReady(true);
       }
     }
 
@@ -166,13 +230,54 @@ function useNavbarCustomLinks(scope) {
       window.removeEventListener("storage", syncLinks);
       window.removeEventListener(customLinksChangeEvent, syncCurrentTabLinks);
     };
-  }, [storageKey]);
+  }, [scope, storageKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    setServerLinks([]);
+    setServerAvailable(false);
+    setServerReady(false);
+
+    if (!isLocalEditorHost(window.location.hostname)) {
+      setServerReady(true);
+      return () => controller.abort();
+    }
+
+    requestServerLinks(
+      `${serverCustomLinksApi}?scope=${encodeURIComponent(scope)}`,
+      { signal: controller.signal },
+    )
+      .then((result) => {
+        if (!active) return;
+        setServerLinks(markServerLinks(result.links));
+        setServerAvailable(result.available === true);
+      })
+      .catch((error) => {
+        if (!active || error?.name == "AbortError") return;
+        setServerLinks([]);
+        setServerAvailable(false);
+      })
+      .finally(() => {
+        if (active) setServerReady(true);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [scope]);
 
   function addLink(parentId = "") {
+    if (parentId && hasLinkId(serverLinks, parentId)) {
+      addServerLink(parentId);
+      return;
+    }
+
     const link = promptForLink();
     if (!link) return;
 
-    setLinks((current) => {
+    setLocalLinks((current) => {
       const next = parentId
         ? appendChild(current, parentId, link).links
         : [...current, link];
@@ -182,7 +287,12 @@ function useNavbarCustomLinks(scope) {
   }
 
   function removeLink(linkId) {
-    setLinks((current) => {
+    if (hasLinkId(serverLinks, linkId)) {
+      removeServerLink(linkId);
+      return;
+    }
+
+    setLocalLinks((current) => {
       const next = removeLinkById(current, linkId);
       if (!next.removed) return current;
 
@@ -191,7 +301,69 @@ function useNavbarCustomLinks(scope) {
     });
   }
 
-  return { links, ready, addLink, removeLink };
+  async function addServerLink(parentId = "") {
+    if (!serverAvailable || serverMutationRef.current) return;
+    const link = promptForLink();
+    if (!link) return;
+
+    serverMutationRef.current = true;
+    setServerBusy(true);
+    try {
+      const result = await requestServerLinks(serverCustomLinksApi, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scope,
+          parentId,
+          href: link.href,
+          label: link.label,
+        }),
+      });
+      const next = markServerLinks(result.links);
+      setServerLinks(next);
+      setServerAvailable(result.available === true);
+      notifyServerLinks(scope, next, result.available === true);
+      toast.success(`added ${link.label} on server`);
+    } catch (error) {
+      toast.error(error?.message || "server custom link failed");
+    } finally {
+      serverMutationRef.current = false;
+      setServerBusy(false);
+    }
+  }
+
+  async function removeServerLink(linkId) {
+    if (!serverAvailable || serverMutationRef.current) return;
+
+    serverMutationRef.current = true;
+    setServerBusy(true);
+    try {
+      const result = await requestServerLinks(
+        `${serverCustomLinksApi}?scope=${encodeURIComponent(scope)}&linkId=${encodeURIComponent(linkId)}`,
+        { method: "DELETE" },
+      );
+      const next = markServerLinks(result.links);
+      setServerLinks(next);
+      setServerAvailable(result.available === true);
+      notifyServerLinks(scope, next, result.available === true);
+      toast.success("removed server custom link");
+    } catch (error) {
+      toast.error(error?.message || "server custom link removal failed");
+    } finally {
+      serverMutationRef.current = false;
+      setServerBusy(false);
+    }
+  }
+
+  return {
+    links,
+    ready: localReady && serverReady,
+    addLink,
+    removeLink,
+    addServerLink,
+    serverAvailable,
+    serverBusy,
+  };
 }
 
 export { useNavbarCustomLinks };
@@ -210,12 +382,53 @@ function NavbarAddButton({ onClick }) {
   );
 }
 
+function NavbarAddControl({
+  onAddLocal,
+  onAddServer,
+  serverAvailable,
+  serverBusy,
+}) {
+  if (!serverAvailable) return <NavbarAddButton onClick={onAddLocal} />;
+
+  return (
+    <NavbarHoverCard
+      className="navbarAddControl"
+      openClassName="navbarAddCardOpen"
+      panelClassName="navbarAddServerCard"
+    >
+      <NavbarAddButton onClick={onAddLocal} />
+      <span className="navQuickFavCard navbarAddServerCard">
+        <button
+          type="button"
+          className="navbarAddServerButton"
+          aria-label="add navbar link on server"
+          disabled={serverBusy}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onAddServer();
+          }}
+        >
+          add on server
+        </button>
+      </span>
+    </NavbarHoverCard>
+  );
+}
+
 export default function NavbarCustomLinks({
   scope,
   initialOrderM = {},
   children,
 }) {
-  const { links, addLink, removeLink } = useNavbarCustomLinks(scope);
+  const {
+    links,
+    addLink,
+    removeLink,
+    addServerLink,
+    serverAvailable,
+    serverBusy,
+  } = useNavbarCustomLinks(scope);
   const visibility = useNavbarVisibility(scope);
 
   return (
@@ -242,12 +455,20 @@ export default function NavbarCustomLinks({
               onAddChild={addLink}
               onRemoveItem={removeLink}
               onRemoveTitle={() => removeLink(link.id)}
+              customNavSource={
+                link.customNavSource == "server" ? "server" : ""
+              }
               titleVisibilityKey={titleVisibilityKey}
             />
           );
         })}
       </SortableNavbarItems>
-      <NavbarAddButton onClick={() => addLink()} />
+      <NavbarAddControl
+        onAddLocal={() => addLink()}
+        onAddServer={() => addServerLink()}
+        serverAvailable={serverAvailable}
+        serverBusy={serverBusy}
+      />
     </NavbarVisibilityProvider>
   );
 }

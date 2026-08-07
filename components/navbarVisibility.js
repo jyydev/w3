@@ -8,6 +8,7 @@ import {
 } from "react";
 import { ckPrefix } from "@/sets";
 import useOverlayInteraction from "./useOverlayInteraction";
+import useResetConfirmation from "./useResetConfirmation";
 
 const storagePrefix = `${ckPrefix ?? ""}navHidden:`;
 const emptyHiddenKeys = new Set();
@@ -155,10 +156,10 @@ function NavbarHideButton({ hidden = false, label, onClick, className = "" }) {
   );
 }
 
-function NavbarVisibilityToggle({ visibility }) {
+function NavbarVisibilityToggle({ visibility, label = "links" }) {
   const [resetCardOpen, setResetCardOpen] = useState(false);
+  const [resetConfirmed, showResetConfirmation] = useResetConfirmation();
   const {
-    hiddenCount,
     showHidden,
     setShowHidden,
     resetHidden,
@@ -170,6 +171,8 @@ function NavbarVisibilityToggle({ visibility }) {
     panelClassName: "navHiddenResetCard",
     triggerClassName: "navHiddenToggleButton",
   });
+  const visibilityLabel = String(label || "links");
+  const actionLabel = `${showHidden ? "hide" : "show"} hidden ${visibilityLabel}`;
 
   return (
     <span
@@ -182,8 +185,7 @@ function NavbarVisibilityToggle({ visibility }) {
       <button
         type="button"
         className={`navHiddenToggleButton${showHidden ? " active" : ""}`}
-        title={showHidden ? "hide hidden links" : "show hidden links"}
-        aria-label={showHidden ? "hide hidden links" : "show hidden links"}
+        aria-label={actionLabel}
         aria-expanded={overlayOpen}
         aria-pressed={showHidden}
         onClick={() => setShowHidden((current) => !current)}
@@ -194,14 +196,22 @@ function NavbarVisibilityToggle({ visibility }) {
         <button
           type="button"
           className="navQuickUnfav navHiddenResetButton"
-          disabled={!hiddenCount}
           onClick={() => {
             resetHidden();
-            setResetCardOpen(false);
+            showResetConfirmation();
           }}
         >
-          reset hiding
+          reset
+          <span
+            className={`navResetConfirmation${resetConfirmed ? " visible" : ""}`}
+            aria-hidden="true"
+          >
+            ✓
+          </span>
         </button>
+        <span className="navHiddenResetLabel" aria-hidden="true">
+          {actionLabel}
+        </span>
       </span>
     </span>
   );

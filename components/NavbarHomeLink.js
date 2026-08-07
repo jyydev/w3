@@ -8,6 +8,7 @@ import {
   navbarSortResetEvent,
 } from "./navbarSorting";
 import NavbarHoverCard from "./NavbarHoverCard";
+import useResetConfirmation from "./useResetConfirmation";
 
 function getCookieName(rawCookie = "") {
   const separator = rawCookie.indexOf("=");
@@ -39,20 +40,29 @@ function resetNavbarSorting() {
 }
 
 export default function NavbarHomeLink() {
+  const [resetConfirmed, showResetConfirmation] = useResetConfirmation();
+
   return (
     <NavbarHoverCard className="navbarHomeLink navQuickFavTrigger">
       <Link href="/">⌂ Home</Link>
       <span className="navQuickFavCard">
         <button
           type="button"
-          className="navQuickUnfav"
+          className="navQuickUnfav navResetSortingButton"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
             resetNavbarSorting();
+            showResetConfirmation();
           }}
         >
           reset sorting
+          <span
+            className={`navResetConfirmation${resetConfirmed ? " visible" : ""}`}
+            aria-hidden="true"
+          >
+            ✓
+          </span>
         </button>
       </span>
     </NavbarHoverCard>

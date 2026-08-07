@@ -2,7 +2,6 @@
 
 import { deleteCookie, getCookie, setCookie } from "cookies-next";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listLocalEditorFiles,
@@ -52,18 +51,23 @@ import {
   buildHomeVisitHistoryMatrixNode,
   getHomeMatrixMove,
   getHomeMatrixNodeKey,
+  getHomeQuickFavoritePlaceAfter,
   getHomeSourceNodeKey,
   HomeFavoritesColumn,
+  HomeMatrixVisibilityToggle,
   HomeNavigationMatrix,
   HomeNavigationPathHover,
+  HomeSectionSortLabel,
   HomeSectionSortToggle,
   sortHomeMatrixChildren,
+  useHomeMatrixVisibility,
 } from "./HomeNavigationMatrix";
 import {
   getHomeNavigationHistory,
-  rememberHomeNavigationHistory,
   removeHomeNavigationHistory,
+  saveHomeNavigationHistory,
 } from "./homeNavigationHistoryClient";
+import { buildSearchEntries } from "./HomeNavigationSearch";
 import { buildEditorNavTree } from "./editorNavigation";
 import { useNavbarCustomLinks } from "./NavbarCustomLinks";
 import { buildSiteNavigationMenus } from "./siteNavigation";
@@ -281,9 +285,11 @@ function HomeWalletFavoritesNode({
   node,
   onMoveFavorite,
   onToggleFavorite,
+  onToggleHidden,
 }) {
   const [dragKey, setDragKey] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
+  const dragKeyRef = useRef("");
 
   return (
     <div className="homeNavFavorites" aria-label={ariaLabel}>
@@ -301,6 +307,7 @@ function HomeWalletFavoritesNode({
               <span
                 className={[
                   "homeNavQuickFav",
+                  item.homeHidden ? "homeHidden" : "",
                   dragKey == item.favoriteKey ? "dragging" : "",
                   dropClass,
                 ]
@@ -311,15 +318,20 @@ function HomeWalletFavoritesNode({
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = "move";
                   event.dataTransfer.setData("text/plain", item.favoriteKey);
+                  dragKeyRef.current = item.favoriteKey;
                   setDragKey(item.favoriteKey);
                 }}
                 onDragOver={(event) => {
-                  if (!dragKey || dragKey == item.favoriteKey) return;
+                  const activeDragKey = dragKeyRef.current || dragKey;
+                  const placeAfter = getHomeQuickFavoritePlaceAfter(
+                    node.items,
+                    activeDragKey,
+                    item.favoriteKey,
+                  );
+                  if (placeAfter === null) return;
 
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  const placeAfter = event.clientX > rect.left + rect.width / 2;
                   setDropSpot((current) =>
                     current?.key == item.favoriteKey &&
                     current?.placeAfter == placeAfter
@@ -336,16 +348,28 @@ function HomeWalletFavoritesNode({
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  onMoveFavorite?.(
-                    event.dataTransfer.getData("text/plain"),
+                  const activeDragKey =
+                    event.dataTransfer.getData("text/plain") ||
+                    dragKeyRef.current ||
+                    dragKey;
+                  const placeAfter = getHomeQuickFavoritePlaceAfter(
+                    node.items,
+                    activeDragKey,
                     item.favoriteKey,
-                    event.clientX > rect.left + rect.width / 2,
                   );
+                  if (placeAfter !== null) {
+                    onMoveFavorite?.(
+                      activeDragKey,
+                      item.favoriteKey,
+                      placeAfter,
+                    );
+                  }
+                  dragKeyRef.current = "";
                   setDragKey("");
                   setDropSpot(null);
                 }}
                 onDragEnd={() => {
+                  dragKeyRef.current = "";
                   setDragKey("");
                   setDropSpot(null);
                 }}
@@ -353,6 +377,10 @@ function HomeWalletFavoritesNode({
                 <HomeNavigationPathHover
                   context={item.homePathContext}
                   detail={item.homePathDetail}
+                  hidden={item.homeHidden}
+                  label={item.label}
+                  onToggleHidden={onToggleHidden}
+                  visibilityKey={item.homeVisibilityKey}
                 >
                   <Link
                     href={item.href}
@@ -393,6 +421,7 @@ function NavigationNode({
   getHref,
   onMoveFavorite,
   onToggleFavorite,
+  onToggleHidden,
   onToggleNode,
 }) {
   if (node.type == "homeFavorites") {
@@ -411,6 +440,7 @@ function NavigationNode({
         node={node}
         onMoveFavorite={onMoveFavorite}
         onToggleFavorite={onToggleFavorite}
+        onToggleHidden={onToggleHidden}
       />
     );
   }
@@ -419,7 +449,9 @@ function NavigationNode({
   const hasChildren = !!node.children?.length || !!node.homeHasChildren;
   const favoriteKey = getHomeSourceNodeKey(node, getNodeSortKey);
   const showFavoriteButton =
-    !!onToggleFavorite && !!href && !node.disabled && !node.homePinned;
+    !!onToggleFavorite &&
+    !node.homePinned &&
+    ((!node.disabled && !!href) || hasChildren);
   const favoriteActive = showFavoriteButton && favoriteKeySet?.has(favoriteKey);
   const className = [
     "homeNavNode",
@@ -433,6 +465,10 @@ function NavigationNode({
     <HomeNavigationPathHover
       context={node.homePathContext}
       detail={node.homePathDetail}
+      hidden={node.homeHidden}
+      label={node.label}
+      onToggleHidden={onToggleHidden}
+      visibilityKey={node.homeVisibilityKey}
     >
       {href && !node.disabled ? (
         <Link
@@ -567,6 +603,10 @@ function RouteSection({
       {!sectionCollapsed && (
         <HomeNavigationMatrix
           matrix={matrix}
+          searchOptions={{
+            homeHref: href,
+            homeTitle: `${title} home`,
+          }}
           renderNode={(node) => (
             <NavigationNode
               node={node}
@@ -711,6 +751,7 @@ function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
         seen.add(key);
         entries.push({
           key,
+          label: walletName,
           walletName,
           address,
           context: [
@@ -720,6 +761,8 @@ function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
             .filter(Boolean)
             .join(" > "),
           href: getWalletNavUrl(routeBase, node),
+          searchFields: [walletName, address],
+          title: walletName,
         });
       }
     }
@@ -729,104 +772,6 @@ function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
 
   for (const node of walletTree || []) addNode(node);
   return entries;
-}
-
-function getWalletSearchMatches(entries = [], query = "") {
-  const term = String(query || "").trim().toLowerCase();
-  if (!term) return [];
-
-  return entries
-    .map((entry, index) => {
-      const name = entry.walletName.toLowerCase();
-      const address = entry.address.toLowerCase();
-      let rank = Infinity;
-
-      if (name == term || address == term) rank = 0;
-      else if (name.startsWith(term)) rank = 1;
-      else if (address.startsWith(term)) rank = 2;
-      else if (name.includes(term)) rank = 3;
-      else if (address.includes(term)) rank = 4;
-
-      return { ...entry, index, rank };
-    })
-    .filter((entry) => Number.isFinite(entry.rank))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index);
-}
-
-function getNavbarSearchEntries(navigationTree = []) {
-  const entries = [
-    {
-      key: "navbar:home",
-      walletName: "⌂ Home",
-      context: "navbar",
-      address: "/",
-      href: "/",
-      title: "Home",
-      searchFields: ["home", "⌂ Home", "/"],
-    },
-  ];
-
-  function addNode(node, parents = [], depth = 0) {
-    if (!node || depth > 48) return;
-
-    const label = String(node.label || node.title || node.href || "").trim();
-    const title = String(node.title || label || node.href || "").trim();
-    const href = String(node.href || "").trim();
-    const walletAddress = String(
-      node.address || node.walletAddress || "",
-    ).trim();
-    const context = parents.filter(Boolean).join(" > ") || "navbar";
-
-    if (href && !node.disabled) {
-      entries.push({
-        key: `navbar:${node.homeKey || href}:${entries.length}`,
-        walletName: label || href,
-        context,
-        address: href,
-        href,
-        title: title || href,
-        searchFields: [label, title, href, context, walletAddress],
-      });
-    }
-
-    const nextParents = label ? [...parents, label] : parents;
-    for (const child of node.children || []) {
-      addNode(child, nextParents, depth + 1);
-    }
-  }
-
-  for (const node of navigationTree || []) addNode(node);
-  return entries;
-}
-
-function getNavbarSearchMatches(entries = [], query = "") {
-  const term = String(query || "").trim().toLowerCase();
-  if (!term) return [];
-
-  return entries
-    .map((entry, index) => {
-      const fields = (entry.searchFields || [
-        entry.walletName,
-        entry.title,
-        entry.address,
-        entry.context,
-      ]).map((value) => String(value || "").toLowerCase());
-      const exactIndex = fields.findIndex((value) => value == term);
-      const prefixIndex = fields.findIndex((value) => value.startsWith(term));
-      const includeIndex = fields.findIndex((value) => value.includes(term));
-      const rank =
-        exactIndex >= 0
-          ? exactIndex
-          : prefixIndex >= 0
-            ? 10 + prefixIndex
-            : includeIndex >= 0
-              ? 20 + includeIndex
-              : Infinity;
-
-      return { ...entry, index, rank };
-    })
-    .filter((entry) => Number.isFinite(entry.rank))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index);
 }
 
 function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
@@ -842,157 +787,12 @@ function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
 
   return {
     key: `direct:${walletType}:${address}`,
+    label: "address",
     walletName: "address",
     address,
     context: getWalletTypeSearchLabel(walletType),
     href: getWalletNavUrl(routeBase, { walletType, walletAddress: address }),
   };
-}
-
-function WalletSearch({
-  walletTree = [],
-  routeBase = "/w",
-  navigationTree = [],
-  searchMode = "wallet",
-}) {
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [resultsOpen, setResultsOpen] = useState(false);
-  const walletEntries = useMemo(
-    () => getWalletSearchEntries(walletTree, routeBase),
-    [routeBase, walletTree],
-  );
-  const navbarEntries = useMemo(
-    () => getNavbarSearchEntries(navigationTree),
-    [navigationTree],
-  );
-  const allMode = searchMode == "all";
-  const entries = allMode ? navbarEntries : walletEntries;
-  const matches = useMemo(
-    () =>
-      allMode
-        ? getNavbarSearchMatches(entries, query)
-        : getWalletSearchMatches(entries, query),
-    [allMode, entries, query],
-  );
-  const directEntry = useMemo(
-    () => (allMode ? null : getDirectWalletSearchEntry(query, routeBase)),
-    [allMode, query, routeBase],
-  );
-  const results = matches.length ? matches : directEntry ? [directEntry] : [];
-  const showResults = resultsOpen && !!query.trim();
-  const searchLabel = allMode
-    ? "search all navbar links and titles"
-    : "search added wallets by name or address";
-  const submitLabel = allMode ? "search navbar" : "search wallets";
-
-  function submitSearch(event) {
-    event.preventDefault();
-    const result = results[0];
-    const href = result?.href;
-    if (!href) return;
-
-    rememberHomeNavigationHistory({
-      href,
-      label: result.walletName || result.label || href,
-      title: result.title || result.walletName || result.label || href,
-      context: result.context,
-    });
-
-    if (allMode && /^https?:\/\//i.test(href)) {
-      window.open(href, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (allMode && /^(?:mailto:|tel:)/i.test(href)) {
-      window.location.href = href;
-      return;
-    }
-
-    router.push(href);
-  }
-
-  return (
-    <form
-      className="homeWalletSearch"
-      role="search"
-      onSubmit={submitSearch}
-      onFocus={() => setResultsOpen(true)}
-      onBlur={(event) => {
-        const form = event.currentTarget;
-        if (event.relatedTarget && form.contains(event.relatedTarget)) return;
-
-        requestAnimationFrame(() => {
-          if (!form.contains(document.activeElement)) setResultsOpen(false);
-        });
-      }}
-    >
-      <div className="homeWalletSearchControl">
-        <input
-          type="search"
-          value={query}
-          aria-label={searchLabel}
-          aria-expanded={showResults}
-          aria-controls="home-wallet-search-results"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={allMode ? "navbar link or title" : "wallet name or address"}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setResultsOpen(true);
-          }}
-          onKeyDown={(event) => {
-            if (event.key == "Escape") setResultsOpen(false);
-          }}
-        />
-        <button
-          type="submit"
-          className="homeWalletSearchButton"
-          aria-label={submitLabel}
-          title={submitLabel}
-          disabled={!results.length}
-        >
-          <span className="homeWalletSearchIcon" aria-hidden="true"></span>
-        </button>
-      </div>
-      {showResults && (
-        <span
-          id="home-wallet-search-results"
-          className="homeWalletSearchResults"
-        >
-          {results.length ? (
-            results.map((entry) => (
-              <Link
-                key={entry.key}
-                href={entry.href}
-                className="homeWalletSearchResult"
-                data-history-label={entry.walletName}
-                data-history-title={entry.title || entry.walletName}
-                data-history-context={entry.context}
-                title={[entry.title, entry.context, entry.address]
-                  .filter(Boolean)
-                  .join(" | ")}
-                {...getExternalLinkProps(entry.href)}
-              >
-                <span className="homeWalletSearchName">
-                  {entry.walletName}
-                </span>
-                <span className="homeWalletSearchContext">
-                  {entry.context}
-                </span>
-                <span className="homeWalletSearchAddress">
-                  {entry.address || "-"}
-                </span>
-              </Link>
-            ))
-          ) : (
-            <span className="homeWalletSearchEmpty">
-              {allMode ? "no navbar link matches" : "no added wallet matches"}
-            </span>
-          )}
-        </span>
-      )}
-    </form>
-  );
 }
 
 function WalletSection({
@@ -1030,6 +830,10 @@ function WalletSection({
   }, [mode]);
 
   const routeBase = mode == "trade" ? "/t" : "/w";
+  const walletSearchEntries = useMemo(
+    () => getWalletSearchEntries(walletTree, routeBase),
+    [routeBase, walletTree],
+  );
   const favoriteCatalog = useMemo(
     () => buildWalletFavoriteCatalog(walletTree, routeBase, favAddrs),
     [favAddrs, routeBase, walletTree],
@@ -1167,10 +971,21 @@ function WalletSection({
         )}
       </header>
       {!sectionCollapsed && (
-        <>
-          <WalletSearch walletTree={walletTree} routeBase={routeBase} />
-          <HomeNavigationMatrix
+        <HomeNavigationMatrix
+            historyFavoriteKeySet={favoriteKeySet}
+            historyOptions={{ basePath: routeBase }}
             matrix={matrix}
+            onToggleHistoryFavorite={toggleFavorite}
+            searchOptions={{
+              emptyLabel: "no added wallet matches",
+              entries: walletSearchEntries,
+              getDirectEntry: (query) =>
+                getDirectWalletSearchEntry(query, routeBase),
+              includeHome: false,
+              placeholder: "wallet name or address",
+              searchLabel: "search added wallets by name or address",
+              submitLabel: "search wallets",
+            }}
             sortable
             onMoveNode={moveNode}
             renderNode={(node) => (
@@ -1186,7 +1001,6 @@ function WalletSection({
               />
             )}
           />
-        </>
       )}
     </section>
   );
@@ -1411,6 +1225,8 @@ const homeNavigationRootKey = "home:navigation:root";
 const homeNavigationSectionKey = "home:navigation:section";
 const homeNavigationFavoritesKey = "home:navigation:favorites";
 const homeNavigationHistoryKey = "home:navigation:history";
+const homeNavigationVisibilityStorageKey =
+  "w3_homeMatrixHidden:navigation";
 const navbarTopCustomScope = `${ckPrefix ?? ""}navbarTop`;
 
 function normalizeHomeLinkEntry(item) {
@@ -1532,7 +1348,9 @@ function getExternalLinkProps(href) {
 
 function buildHomeFavoriteCatalog(nodes = [], catalog = new Map()) {
   for (const node of nodes) {
-    if (node.href && !node.disabled) catalog.set(node.homeKey, node);
+    if ((node.href && !node.disabled) || node.children?.length) {
+      catalog.set(node.homeKey, node);
+    }
     buildHomeFavoriteCatalog(node.children || [], catalog);
   }
 
@@ -1556,6 +1374,9 @@ export default function Home({
   );
   const { links: customLinks, ready: customLinksReady } =
     useNavbarCustomLinks(navbarTopCustomScope);
+  const matrixVisibility = useHomeMatrixVisibility(
+    homeNavigationVisibilityStorageKey,
+  );
   const [historyEntries, setHistoryEntries] = useState(() =>
     JSON.parse(initialHistoryText),
   );
@@ -1710,7 +1531,7 @@ export default function Home({
   const historySearchEntryByHref = useMemo(() => {
     const result = new Map();
 
-    for (const entry of getNavbarSearchEntries(tree)) {
+    for (const entry of buildSearchEntries({ tree })) {
       if (entry.href && !result.has(entry.href)) {
         result.set(entry.href, entry);
       }
@@ -1730,6 +1551,7 @@ export default function Home({
 
           return {
             ...entry,
+            favoriteKey: searchEntry?.favoriteKey || "",
             historyContext:
               searchEntry?.context || entry.context || "navbar",
             homeKey: `${homeNavigationHistoryKey}:${entry.href}:${index}`,
@@ -1778,11 +1600,39 @@ export default function Home({
           );
         },
         rootParentKey: homeNavigationRootKey,
+        visibility: {
+          hiddenKeys: matrixVisibility.hiddenKeys,
+          showHidden: matrixVisibility.showHidden,
+        },
       }),
-    [collapsedKeys, customOrderM, matrixNodes],
+    [
+      collapsedKeys,
+      customOrderM,
+      matrixNodes,
+      matrixVisibility.hiddenKeys,
+      matrixVisibility.showHidden,
+    ],
   );
+
+  useEffect(() => {
+    if (!customLinksReady || !dynamicTreesReady) return;
+    matrixVisibility.pruneHiddenKeys(matrix.visibilityKeys);
+  }, [
+    customLinksReady,
+    dynamicTreesReady,
+    matrix.visibilityKeys,
+    matrixVisibility.pruneHiddenKeys,
+  ]);
+
   const sectionCollapsed = collapsedKeys.has(homeNavigationSectionKey);
   const searchRouteBase = searchMode == "trade" ? "/t" : "/w";
+  const searchEntries = useMemo(
+    () =>
+      searchMode == "all"
+        ? matrix.searchEntries
+        : getWalletSearchEntries(mergedWalletTree, searchRouteBase),
+    [matrix.searchEntries, mergedWalletTree, searchMode, searchRouteBase],
+  );
 
   useEffect(() => {
     const serverHistory = JSON.parse(initialHistoryText);
@@ -1894,40 +1744,42 @@ export default function Home({
 
   return (
     <>
-      <div className="flex mb-1">
+      <div className="flex mb-1 homeNavLogoRow">
         <span className="orange">W3</span>
         <span className="homeNavSectionTitle">
-          <span>home</span>
+          <HomeMatrixVisibilityToggle
+            label="home navigation"
+            visibility={matrixVisibility}
+          />
+          <HomeSectionSortLabel
+            label="navigation"
+            onResetSorting={() => setCustomOrderM({})}
+          >
+            home
+          </HomeSectionSortLabel>
           <HomeSectionSortToggle
             collapsed={sectionCollapsed}
             label="navigation"
-            onResetSorting={() => setCustomOrderM({})}
+            onExpandAll={() => setCollapsedKeys(new Set())}
             onToggle={() => toggleNode({ homeKey: homeNavigationSectionKey })}
+            showExpandAll={sectionCollapsed || !!matrix.collapsedCount}
           />
         </span>
-        {(sectionCollapsed || !!matrix.collapsedCount) && (
-          <button
-            type="button"
-            className="homeNavExpandAll"
-            onClick={() => setCollapsedKeys(new Set())}
-          >
-            expand all
-          </button>
-        )}
       </div>
       <nav className="homeNav" aria-label="Site navigation links">
         <section
           className={`homeNavSection ${sectionCollapsed ? "collapsed" : ""}`}
         >
           {!sectionCollapsed && (
-            <>
-              <div className="homeWalletSearchRow">
-                <WalletSearch
-                  walletTree={mergedWalletTree}
-                  routeBase={searchRouteBase}
-                  navigationTree={tree}
-                  searchMode={searchMode}
-                />
+            <HomeNavigationMatrix
+              historyFavoriteKeySet={favoriteKeySet}
+              matrix={matrix}
+              sortable
+              onMoveHistory={saveHomeNavigationHistory}
+              onMoveNode={moveNode}
+              onRemoveHistory={removeHomeNavigationHistory}
+              onToggleHistoryFavorite={toggleFavorite}
+              searchControls={
                 <div
                   className="homeNavMode"
                   aria-label="all, wallet, or trade search"
@@ -1957,24 +1809,42 @@ export default function Home({
                     trade
                   </button>
                 </div>
-              </div>
-              <HomeNavigationMatrix
-                matrix={matrix}
-                sortable
-                onMoveNode={moveNode}
-                onRemoveHistory={removeHomeNavigationHistory}
-                renderNode={(node) => (
-                  <NavigationNode
-                    node={node}
-                    favoriteKeySet={favoriteKeySet}
-                    getHref={(entry) => entry.href || ""}
-                    onMoveFavorite={moveFavorite}
-                    onToggleFavorite={toggleFavorite}
-                    onToggleNode={toggleNode}
-                  />
-                )}
-              />
-            </>
+              }
+              searchOptions={{
+                emptyLabel:
+                  searchMode == "all"
+                    ? "no navbar link matches"
+                    : "no added wallet matches",
+                entries: searchEntries,
+                getDirectEntry:
+                  searchMode == "all"
+                    ? undefined
+                    : (query) =>
+                        getDirectWalletSearchEntry(query, searchRouteBase),
+                includeHome: searchMode == "all",
+                placeholder:
+                  searchMode == "all"
+                    ? "navbar link or title"
+                    : "wallet name or address",
+                searchLabel:
+                  searchMode == "all"
+                    ? "search all navbar links and titles"
+                    : "search added wallets by name or address",
+                submitLabel:
+                  searchMode == "all" ? "search navbar" : "search wallets",
+              }}
+              renderNode={(node) => (
+                <NavigationNode
+                  node={node}
+                  favoriteKeySet={favoriteKeySet}
+                  getHref={(entry) => entry.href || ""}
+                  onMoveFavorite={moveFavorite}
+                  onToggleFavorite={toggleFavorite}
+                  onToggleHidden={matrixVisibility.toggleHidden}
+                  onToggleNode={toggleNode}
+                />
+              )}
+            />
           )}
         </section>
       </nav>

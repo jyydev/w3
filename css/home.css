@@ -91,6 +91,45 @@
   gap: 2px;
 }
 
+.homeNavLogoRow {
+  align-items: center;
+}
+
+.homeNavLogoRow > .orange {
+  transform: translateY(1px);
+}
+
+.homeNavLogoRow > .homeNavSectionTitle > .navHiddenToggle {
+  margin-left: -2px;
+  margin-right: 2px;
+}
+
+.homeNavLogoRow
+  > .homeNavSectionTitle
+  > .navHiddenToggle
+  > .navHiddenResetCard {
+  bottom: 100%;
+}
+
+.homeNavLogoRow
+  > .homeNavSectionTitle
+  > .navHiddenToggle
+  > .navHiddenToggleButton {
+  width: 18px;
+  height: 22px;
+  padding: 1px;
+}
+
+.homeNavLogoRow
+  > .homeNavSectionTitle
+  > .navHiddenToggle
+  > .navHiddenToggleButton
+  svg {
+  width: 15px;
+  height: 15px;
+  transform: translateX(-1px);
+}
+
 .homeNavHeader h2 {
   margin: 0;
   font-size: 17px;
@@ -315,7 +354,7 @@
 
 .homeNavCell.sortable {
   position: relative;
-  cursor: default;
+  cursor: grab;
 }
 
 .homeNavCell.sortable:active,
@@ -353,7 +392,7 @@
 }
 
 .homeNavCell.sortable .homeNavNodeLink.disabled {
-  cursor: default;
+  cursor: grab;
 }
 
 .homeNavCell.sortable:active .homeNavNodeLink,
@@ -365,7 +404,6 @@
   cursor: pointer;
 }
 
-.homeNavHistory,
 .homeVisitHistory {
   display: flex;
   align-items: center;
@@ -378,15 +416,12 @@
   white-space: nowrap;
 }
 
-.homeNavHistoryLabel,
-.homeNavHistoryEmpty,
 .homeVisitHistoryLabel,
 .homeVisitHistoryEmpty {
   flex: 0 0 auto;
   color: #777;
 }
 
-.homeNavHistoryLabel,
 .homeVisitHistoryLabel {
   padding: 0;
   border: 0;
@@ -396,12 +431,10 @@
   cursor: pointer;
 }
 
-.homeNavHistoryLabel:hover,
 .homeVisitHistoryLabel:hover {
   color: var(--orange);
 }
 
-.homeNavHistoryMore,
 .homeVisitHistoryMore {
   flex: 0 0 auto;
   padding: 0;
@@ -413,69 +446,48 @@
   cursor: pointer;
 }
 
-.homeNavHistoryMore:hover,
 .homeVisitHistoryMore:hover {
   color: var(--orange);
 }
 
-.homeNavHistoryLinks,
 .homeVisitHistoryLinks {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
   gap: 10px;
+  margin-inline: -5px;
   min-width: 0;
   overflow: hidden;
+  padding-inline: 5px;
 }
 
-.homeNavHistory.expanded,
 .homeVisitHistory.expanded {
   align-items: flex-start;
 }
 
-.homeNavHistory.expanded .homeNavHistoryLinks,
 .homeVisitHistory.expanded .homeVisitHistoryLinks {
   flex-wrap: wrap;
   row-gap: 3px;
   overflow: visible;
 }
 
-.homeNavHistoryLink,
 .homeVisitHistoryLink {
   flex: 0 0 auto;
   color: #bbb;
+  cursor: pointer;
 }
 
-.homeNavHistoryLink:hover,
 .homeVisitHistoryLink:hover {
   color: var(--orange);
 }
 
-.homeNavHistoryLink.disabled,
 .homeVisitHistoryLink.disabled {
   color: #666;
+  cursor: default;
 }
 
-.homeNavHistoryItem {
-  flex: 0 0 auto;
-}
-
-.infoCard.homeNavHistoryInfoCard {
-  min-width: 0;
-  padding: 2px 4px;
-  font-size: 11px;
-  line-height: 1.15;
-}
-
-.homeNavHistoryInfoRow {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.homeNavHistoryInfoCard .walletHistoryRemoveButton {
-  margin-left: 0;
-  vertical-align: 0;
+.homeVisitHistoryLink.disabled[draggable="true"] {
+  cursor: grab;
 }
 
 .homeVisitHistoryItem {
@@ -483,6 +495,41 @@
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  transition: opacity 120ms ease;
+}
+
+.homeVisitHistoryItem.dragging {
+  opacity: 0.4;
+}
+
+.homeVisitHistoryLink:active,
+.homeVisitHistoryItem.dragging .homeVisitHistoryLink {
+  cursor: grabbing;
+}
+
+.homeVisitHistoryItem.dropBefore::before,
+.homeVisitHistoryItem.dropAfter::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--orange);
+  box-shadow: 0 0 8px rgba(255, 145, 0, 0.65);
+  pointer-events: none;
+}
+
+.homeVisitHistoryItem.dropBefore::before {
+  left: -5px;
+}
+
+.homeVisitHistoryItem.dropAfter::after {
+  right: -5px;
+}
+
+.homeVisitHistory.historyDragging .homeVisitHistoryCard {
+  display: none !important;
 }
 
 .homeVisitHistoryCard {
@@ -539,6 +586,23 @@
   pointer-events: none;
 }
 
+.homeNavPathCard.interactive {
+  gap: 2px;
+  padding-left: 1px;
+  pointer-events: auto;
+}
+
+.homeNavPathHideButton {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.homeNavPathHideButton svg {
+  width: 13px;
+  height: 13px;
+}
+
 .homeNavPathHover.navHoverCardOpen > .homeNavPathCard {
   display: inline-flex;
 }
@@ -556,6 +620,27 @@
   color: #ff7b7b;
   line-height: 0;
   cursor: pointer;
+}
+
+.homeVisitHistoryFavoriteButton {
+  display: inline-flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #777;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.homeVisitHistoryFavoriteButton:hover,
+.homeVisitHistoryFavoriteButton.active {
+  color: var(--orange);
 }
 
 .homeVisitHistoryRemoveButton:hover {
@@ -632,8 +717,10 @@
   flex: 1 1 auto;
   align-items: center;
   gap: 9px;
+  margin-left: -5px;
   min-width: 0;
   overflow-x: auto;
+  padding-left: 5px;
 }
 
 .homeNavQuickFav {
@@ -642,10 +729,8 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  cursor: default;
-  transition:
-    opacity 120ms ease,
-    transform 120ms ease;
+  cursor: grab;
+  transition: opacity 120ms ease;
 }
 
 .homeNavQuickFav:active,
@@ -655,7 +740,22 @@
 
 .homeNavQuickFav.dragging {
   opacity: 0.4;
-  transform: scale(0.96);
+}
+
+.homeNavQuickFav.dragging .homeNavPathCard {
+  display: none !important;
+}
+
+.homeNavCell.homeHidden
+  > .homeNavNode
+  > .homeNavPathHover
+  > .homeNavPathTrigger,
+.homeNavCell.homeHidden > .homeNavNode > .homeNavNodeActions,
+.homeNavQuickFav.homeHidden
+  > .homeNavPathHover
+  > .homeNavPathTrigger,
+.homeNavQuickFav.homeHidden > .homeNavQuickUnfav {
+  opacity: 0.42;
 }
 
 .homeNavQuickFav.dropBefore::before,
@@ -797,14 +897,47 @@
   height: 25px;
 }
 
+.homeNavSectionSortLabel,
 .homeNavSectionSortToggle {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
+.homeNavSectionSortLabelButton {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+  cursor: default;
+}
+
 .homeNavSectionSortResetCard {
   max-width: none;
+}
+
+.homeNavLogoRow
+  .homeNavSectionSortLabel
+  > .homeNavSectionSortResetCard {
+  bottom: calc(100% - 1px);
+}
+
+.homeNavLogoRow
+  .homeNavSectionSortToggle
+  > .homeNavSectionSortResetCard {
+  bottom: calc(100% - 1.5px);
+}
+
+.homeNavSectionExpandAllButton {
+  margin-top: 0;
+}
+
+.homeNavSectionSortResetCard
+  > .navQuickUnfav
+  + .homeNavSectionExpandAllButton {
+  margin-top: 1px;
 }
 
 .homeNavBranchCaret {

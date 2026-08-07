@@ -53,6 +53,8 @@ function getLinkEntry(item) {
 
     return {
       id: item.id ? String(item.id) : "",
+      customNavSource:
+        item.customNavSource == "server" ? "server" : "",
       type: item.type || (!href && !item.children?.length ? "section" : ""),
       editorFolder: item.editorFolder
         ? String(item.editorFolder)
@@ -163,6 +165,12 @@ function getExternalLinkProps(href, custom = false) {
   return custom && /^https?:\/\//i.test(String(href || ""))
     ? { target: "_blank", rel: "noopener noreferrer" }
     : {};
+}
+
+function getCustomNavRemovePrompt(label, source) {
+  return source == "server"
+    ? `Delete server custom nav "${label}"?\n\nThis updates data/editor/system/customNav.json.`
+    : `Remove "${label}"?`;
 }
 
 function FavButton({ active, onClick }) {
@@ -282,12 +290,29 @@ function NavbarLinkNode({
       <button
         type="button"
         className="navTrashBtn"
-        title="remove link"
-        aria-label={`remove ${entry.label}`}
+        title={
+          entry.customNavSource == "server"
+            ? "delete server custom nav"
+            : "remove link"
+        }
+        aria-label={
+          entry.customNavSource == "server"
+            ? `delete server custom nav ${entry.label}`
+            : `remove ${entry.label}`
+        }
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (!window.confirm(`Remove "${entry.label}"?`)) return;
+          if (
+            !window.confirm(
+              getCustomNavRemovePrompt(
+                entry.label,
+                entry.customNavSource,
+              ),
+            )
+          ) {
+            return;
+          }
           onRemoveItem(entry);
         }}
       >
@@ -377,6 +402,7 @@ function NavbarLinkMenu({
   onAddChild,
   onRemoveItem,
   onRemoveTitle,
+  customNavSource = "",
   titleVisibilityKey = "",
 }) {
   const router = useRouter();
@@ -708,6 +734,8 @@ function NavbarLinkMenu({
 
   const quickFavs = visibleFavs.map(renderQuickFav).filter(Boolean);
   const titleRemovable = typeof onRemoveTitle == "function";
+  const titleCustomNavSource =
+    customNavSource == "server" ? "server" : "";
   const titleHidden =
     !!titleVisibilityKey &&
     !!visibility?.toggleHidden &&
@@ -770,21 +798,6 @@ function NavbarLinkMenu({
         >
           {titleMenu}
           <span className="navQuickFavCard navCustomTitleCard">
-            <button
-              type="button"
-              className="navCustomTitleRemove"
-              title="remove custom link"
-              aria-label={`remove ${title}`}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (!window.confirm(`Remove "${title}"?`)) return;
-                onRemoveTitle();
-              }}
-            >
-              <TrashIcon />
-              <span className="gray">{titleHref}</span>
-            </button>
             {!!titleVisibilityKey && visibility?.toggleHidden && (
               <NavbarHideButton
                 hidden={titleHidden}
@@ -797,6 +810,45 @@ function NavbarLinkMenu({
                 }}
               />
             )}
+            <button
+              type="button"
+              className="navCustomTitleRemove"
+              title={
+                titleCustomNavSource == "server"
+                  ? "delete server custom nav"
+                  : "remove custom link"
+              }
+              aria-label={
+                titleCustomNavSource == "server"
+                  ? `delete server custom nav ${title}`
+                  : `remove ${title}`
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (
+                  !window.confirm(
+                    getCustomNavRemovePrompt(
+                      title,
+                      titleCustomNavSource,
+                    ),
+                  )
+                ) {
+                  return;
+                }
+                onRemoveTitle();
+              }}
+            >
+              <TrashIcon />
+              {!!titleCustomNavSource && (
+                <span
+                  className={`navCustomSourceBadge ${titleCustomNavSource}`}
+                >
+                  SV
+                </span>
+              )}
+              <span className="gray">{titleHref}</span>
+            </button>
           </span>
         </NavbarHoverCard>
       )}

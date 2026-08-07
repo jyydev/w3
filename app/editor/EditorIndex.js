@@ -13,11 +13,6 @@ import {
   shouldUseLocalStorageEditor,
 } from "@/app/_editorData/browserEditorStorage";
 import FavoriteButton from "@/components/FavoriteButton";
-import Logo from "@/components/Logo";
-import {
-  HistoryRemoveButton,
-  InteractiveInfoCard,
-} from "@/components/Shared";
 import {
   buildEditorNavTree,
   getEditorFileHref,
@@ -25,14 +20,19 @@ import {
 import {
   buildHomeFavoritesMatrixGroup,
   buildHomeNavigationMatrix,
+  buildHomeVisitHistoryMatrixNode,
   getHomeMatrixMove,
   getHomeMatrixNodeKey,
+  getHomeQuickFavoritePlaceAfter,
   getHomeSourceNodeKey,
   HomeFavoritesColumn,
+  HomeMatrixVisibilityToggle,
   HomeNavigationMatrix,
   HomeNavigationPathHover,
+  HomeSectionSortLabel,
   HomeSectionSortToggle,
   sortHomeMatrixChildren,
+  useHomeMatrixVisibility,
 } from "@/components/HomeNavigationMatrix";
 import {
   editorHomeFavsCookie,
@@ -47,6 +47,7 @@ import {
 
 const editorRootKey = "editor:root";
 const editorSectionKey = "editor:section";
+const editorVisibilityStorageKey = "w3_homeMatrixHidden:editor";
 
 function getCurrentEditorCookie(cookieName, initialValue, emptyValue) {
   if (typeof window == "undefined") return initialValue;
@@ -66,96 +67,20 @@ function buildEditorFavoriteCatalog(nodes = [], catalog = new Map()) {
   return catalog;
 }
 
-function EditorHistoryNode({ node, onRemoveHistory }) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflowing, setOverflowing] = useState(false);
-  const linksRef = useRef(null);
-  const toggleLabel = `${expanded ? "collapse" : "expand"} editor history`;
-
-  useEffect(() => {
-    const links = linksRef.current;
-    if (!links || typeof ResizeObserver == "undefined") return;
-
-    function syncOverflow() {
-      const next = links.scrollWidth > links.clientWidth + 1;
-      setOverflowing((current) => (current == next ? current : next));
-    }
-
-    syncOverflow();
-    const resizeObserver = new ResizeObserver(syncOverflow);
-    resizeObserver.observe(links);
-
-    return () => resizeObserver.disconnect();
-  }, [expanded, node.items]);
-
-  return (
-    <div
-      className={`homeNavHistory ${expanded ? "expanded" : ""}`}
-      aria-label="editor file history"
-    >
-      <button
-        type="button"
-        className="homeNavHistoryLabel"
-        aria-expanded={expanded}
-        aria-label={toggleLabel}
-        title={toggleLabel}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        history:
-      </button>
-      <span ref={linksRef} className="homeNavHistoryLinks">
-        {node.items.length ? (
-          node.items.map((item) => (
-            <InteractiveInfoCard
-              activation="hover"
-              floating
-              className="homeNavHistoryItem"
-              key={item.homeKey}
-            >
-              <Link
-                href={item.href}
-                className="homeNavHistoryLink"
-                title={item.title}
-              >
-                {item.label}
-              </Link>
-              <span className="infoCard homeNavHistoryInfoCard">
-                <span className="homeNavHistoryInfoRow">
-                  <HistoryRemoveButton
-                    label={item.label}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onRemoveHistory(item.historyValue);
-                    }}
-                  />
-                  <span>remove from history</span>
-                </span>
-              </span>
-            </InteractiveInfoCard>
-          ))
-        ) : (
-          <span className="homeNavHistoryEmpty">empty</span>
-        )}
-      </span>
-      {!expanded && overflowing && (
-        <button
-          type="button"
-          className="homeNavHistoryMore"
-          aria-label="expand editor history"
-          title="expand history"
-          onClick={() => setExpanded(true)}
-        >
-          ..
-        </button>
-      )}
-    </div>
-  );
+function getEditorHistoryContext(file = "") {
+  const folders = String(file || "").split("/").slice(0, -1);
+  return ["editor", ...folders].join(" > ");
 }
 
-function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
+function EditorFavoritesNode({
+  node,
+  onMoveFavorite,
+  onToggleFavorite,
+  onToggleHidden,
+}) {
   const [dragKey, setDragKey] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
+  const dragKeyRef = useRef("");
 
   return (
     <div className="homeNavFavorites" aria-label="editor home favorites">
@@ -173,6 +98,7 @@ function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
               <span
                 className={[
                   "homeNavQuickFav",
+                  item.homeHidden ? "homeHidden" : "",
                   dragKey == item.favoriteKey ? "dragging" : "",
                   dropClass,
                 ]
@@ -183,16 +109,20 @@ function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = "move";
                   event.dataTransfer.setData("text/plain", item.favoriteKey);
+                  dragKeyRef.current = item.favoriteKey;
                   setDragKey(item.favoriteKey);
                 }}
                 onDragOver={(event) => {
-                  if (!dragKey || dragKey == item.favoriteKey) return;
+                  const activeDragKey = dragKeyRef.current || dragKey;
+                  const placeAfter = getHomeQuickFavoritePlaceAfter(
+                    node.items,
+                    activeDragKey,
+                    item.favoriteKey,
+                  );
+                  if (placeAfter === null) return;
 
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  const placeAfter =
-                    event.clientX > rect.left + rect.width / 2;
                   setDropSpot((current) =>
                     current?.key == item.favoriteKey &&
                     current?.placeAfter == placeAfter
@@ -209,16 +139,28 @@ function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  onMoveFavorite(
-                    event.dataTransfer.getData("text/plain") || dragKey,
+                  const activeDragKey =
+                    event.dataTransfer.getData("text/plain") ||
+                    dragKeyRef.current ||
+                    dragKey;
+                  const placeAfter = getHomeQuickFavoritePlaceAfter(
+                    node.items,
+                    activeDragKey,
                     item.favoriteKey,
-                    event.clientX > rect.left + rect.width / 2,
                   );
+                  if (placeAfter !== null) {
+                    onMoveFavorite(
+                      activeDragKey,
+                      item.favoriteKey,
+                      placeAfter,
+                    );
+                  }
+                  dragKeyRef.current = "";
                   setDragKey("");
                   setDropSpot(null);
                 }}
                 onDragEnd={() => {
+                  dragKeyRef.current = "";
                   setDragKey("");
                   setDropSpot(null);
                 }}
@@ -226,6 +168,10 @@ function EditorFavoritesNode({ node, onMoveFavorite, onToggleFavorite }) {
                 <HomeNavigationPathHover
                   context={item.homePathContext}
                   detail={item.homePathDetail}
+                  hidden={item.homeHidden}
+                  label={item.label}
+                  onToggleHidden={onToggleHidden}
+                  visibilityKey={item.homeVisibilityKey}
                 >
                   <Link href={item.href} className="homeNavQuickFavLink">
                     {item.label}
@@ -260,15 +206,10 @@ function EditorNavigationNode({
   favoriteFileSet,
   node,
   onMoveFavorite,
-  onRemoveHistory,
   onToggleFavorite,
+  onToggleHidden,
   onToggleNode,
 }) {
-  if (node.type == "history") {
-    return (
-      <EditorHistoryNode node={node} onRemoveHistory={onRemoveHistory} />
-    );
-  }
   if (node.type == "homeFavorites") {
     return (
       <HomeFavoritesColumn
@@ -284,6 +225,7 @@ function EditorNavigationNode({
         node={node}
         onMoveFavorite={onMoveFavorite}
         onToggleFavorite={onToggleFavorite}
+        onToggleHidden={onToggleHidden}
       />
     );
   }
@@ -309,6 +251,10 @@ function EditorNavigationNode({
       <HomeNavigationPathHover
         context={node.homePathContext}
         detail={node.homePathDetail}
+        hidden={node.homeHidden}
+        label={node.title || node.label}
+        onToggleHidden={onToggleHidden}
+        visibilityKey={node.homeVisibilityKey}
       >
         {node.href && !node.disabled ? (
           <Link href={node.href} className="homeNavNodeLink">
@@ -364,6 +310,9 @@ function EditorIndex({
 }) {
   const initialFilesText = JSON.stringify(initialFiles);
   const initialHistoryText = JSON.stringify(initialHistory);
+  const matrixVisibility = useHomeMatrixVisibility(
+    editorVisibilityStorageKey,
+  );
   const [files, setFiles] = useState(() => JSON.parse(initialFilesText));
   const [historyFiles, setHistoryFiles] = useState(() =>
     JSON.parse(initialHistoryText),
@@ -396,22 +345,21 @@ function EditorIndex({
   );
   const matrixNodes = useMemo(
     () => [
-      {
-        type: "history",
-        homeKey: "editor:history",
-        homePinned: true,
-        homeSpanRemaining: true,
-        children: [],
+      buildHomeVisitHistoryMatrixNode({
+        rootKey: "editor:history",
         items: historyFiles
           .filter((file) => validFileSet.has(file))
           .map((file, index) => ({
+            favoriteKey: file,
             homeKey: `editor:history:${file}:${index}`,
             historyValue: file,
-            label: file,
+            historyContext: getEditorHistoryContext(file),
+            detail: file,
+            label: file.split("/").at(-1),
             title: file,
             href: getEditorFileHref(file),
           })),
-      },
+      }),
       buildHomeFavoritesMatrixGroup({
         favoriteKeys: favoriteFiles,
         getFavoriteNode: (file) => favoriteCatalog.get(file),
@@ -451,10 +399,31 @@ function EditorIndex({
             (node) => getHomeSourceNodeKey(node, getEditorNodeKey),
           );
         },
+        pathPrefix: ["editor"],
         rootParentKey: editorRootKey,
+        visibility: {
+          hiddenKeys: matrixVisibility.hiddenKeys,
+          showHidden: matrixVisibility.showHidden,
+        },
       }),
-    [collapsedKeys, customOrder, matrixNodes],
+    [
+      collapsedKeys,
+      customOrder,
+      matrixNodes,
+      matrixVisibility.hiddenKeys,
+      matrixVisibility.showHidden,
+    ],
   );
+
+  useEffect(() => {
+    if (!filesReady) return;
+    matrixVisibility.pruneHiddenKeys(matrix.visibilityKeys);
+  }, [
+    filesReady,
+    matrix.visibilityKeys,
+    matrixVisibility.pruneHiddenKeys,
+  ]);
+
   const sectionCollapsed = collapsedKeys.has(editorSectionKey);
 
   useEffect(() => {
@@ -617,48 +586,63 @@ function EditorIndex({
 
   return (
     <main className="homePage editorIndexPage">
-      <Logo page="editor" />
+      <div className="flex mb-1 homeNavLogoRow">
+        <span className="orange">W3</span>
+        <span className="homeNavSectionTitle">
+          <HomeMatrixVisibilityToggle
+            label="editor"
+            visibility={matrixVisibility}
+          />
+          <HomeSectionSortLabel
+            label="editor"
+            onResetSorting={resetSorting}
+          >
+            editor
+          </HomeSectionSortLabel>
+          <HomeSectionSortToggle
+            collapsed={sectionCollapsed}
+            label="editor"
+            onExpandAll={expandAll}
+            onToggle={() => toggleNode({ homeKey: editorSectionKey })}
+            showExpandAll={sectionCollapsed || !!matrix.collapsedCount}
+          />
+        </span>
+      </div>
       <nav className="homeNav" aria-label="Editor files">
         <section
           className={`homeNavSection ${
             sectionCollapsed ? "collapsed" : ""
           }`}
         >
-          <header className="homeNavHeader">
-            <div className="homeNavSectionTitle">
-              <h2>
-                <Link href="/editor">editor</Link>
-              </h2>
-              <HomeSectionSortToggle
-                collapsed={sectionCollapsed}
-                label="editor"
-                onResetSorting={resetSorting}
-                onToggle={() => toggleNode({ homeKey: editorSectionKey })}
-              />
-            </div>
-            {(sectionCollapsed || !!matrix.collapsedCount) && (
-              <button
-                type="button"
-                className="homeNavExpandAll"
-                onClick={expandAll}
-              >
-                expand all
-              </button>
-            )}
-          </header>
           {!sectionCollapsed && (
             <HomeNavigationMatrix
+              historyFavoriteKeySet={favoriteFileSet}
               matrix={matrix}
+              onMoveHistory={(items) =>
+                setHistoryFiles(
+                  saveEditorHistory(
+                    items
+                      .map((item) => item?.historyValue)
+                      .filter(Boolean),
+                  ),
+                )
+              }
               onMoveNode={moveNode}
+              onRemoveHistory={(_href, item) =>
+                setHistoryFiles(removeEditorHistory(item?.historyValue))
+              }
+              onToggleHistoryFavorite={toggleFavorite}
+              searchOptions={{
+                homeHref: "/editor",
+                homeTitle: "Editor home",
+              }}
               renderNode={(node) => (
                 <EditorNavigationNode
                   favoriteFileSet={favoriteFileSet}
                   node={node}
                   onMoveFavorite={moveFavorite}
-                  onRemoveHistory={(file) =>
-                    setHistoryFiles(removeEditorHistory(file))
-                  }
                   onToggleFavorite={toggleFavorite}
+                  onToggleHidden={matrixVisibility.toggleHidden}
                   onToggleNode={toggleNode}
                 />
               )}
