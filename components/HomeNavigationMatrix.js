@@ -883,11 +883,20 @@ function getHomeHistorySearchEntry(entryMap, href = "") {
   return null;
 }
 
-function isHomeHistoryEntryInScope(entry, basePath, searchEntry) {
+function isHomeHistoryEntryInScope(
+  entry,
+  basePath,
+  searchEntry,
+  includeBasePathEntry,
+) {
   const pathname = getHomeHistoryPathname(entry?.href);
   if (pathname) {
     const normalizedPathname = normalizeHomeHistoryBasePath(pathname);
-    if (normalizedPathname == basePath) return false;
+    if (normalizedPathname == basePath) {
+      return typeof includeBasePathEntry == "function"
+        ? !!includeBasePathEntry(entry, searchEntry)
+        : !!includeBasePathEntry;
+    }
     return (
       basePath == "/" || normalizedPathname.startsWith(`${basePath}/`)
     );
@@ -899,7 +908,9 @@ function isHomeHistoryEntryInScope(entry, basePath, searchEntry) {
 function buildDefaultHomeHistoryItems({
   basePath = "/",
   entries = [],
+  filterEntry,
   getFavoriteKey,
+  includeBasePathEntry,
   rootKey = "home:auto-history",
   searchEntries = [],
 } = {}) {
@@ -912,7 +923,20 @@ function buildDefaultHomeHistoryItems({
       searchEntryMap,
       entry.href,
     );
-    if (!isHomeHistoryEntryInScope(entry, normalizedBasePath, searchEntry)) {
+    if (
+      typeof filterEntry == "function" &&
+      !filterEntry(entry, searchEntry)
+    ) {
+      continue;
+    }
+    if (
+      !isHomeHistoryEntryInScope(
+        entry,
+        normalizedBasePath,
+        searchEntry,
+        includeBasePathEntry,
+      )
+    ) {
       continue;
     }
 
@@ -1035,7 +1059,9 @@ export function HomeNavigationMatrix({
         basePath:
           historyOptions?.basePath ?? searchOptions?.homeHref ?? "/",
         entries: defaultHistoryEntries,
+        filterEntry: historyOptions?.filterEntry,
         getFavoriteKey: historyOptions?.getFavoriteKey,
+        includeBasePathEntry: historyOptions?.includeBasePathEntry,
         rootKey:
           autoHistoryNode?.homeNodeKey ||
           autoHistoryNode?.homeKey ||
@@ -1047,7 +1073,9 @@ export function HomeNavigationMatrix({
       autoHistoryNode?.homeNodeKey,
       defaultHistoryEntries,
       historyOptions?.basePath,
+      historyOptions?.filterEntry,
       historyOptions?.getFavoriteKey,
+      historyOptions?.includeBasePathEntry,
       matrix?.searchEntries,
       searchOptions?.homeHref,
     ],

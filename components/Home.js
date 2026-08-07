@@ -77,7 +77,7 @@ function getCurrentHomeCookie(cookieName, initialValue, emptyValue = "") {
   return getCookie(cookieName) ?? emptyValue;
 }
 
-function getNodeIdentity(node) {
+export function getNodeIdentity(node) {
   if (node.homeKey) return String(node.homeKey);
 
   return [
@@ -92,7 +92,7 @@ function getNodeIdentity(node) {
     .join(":");
 }
 
-function getNodeSortKey(node) {
+export function getNodeSortKey(node) {
   if (node.homeKey) return String(node.homeKey);
   if (node.walletType) {
     if (node.walletName) {
@@ -140,7 +140,7 @@ function getSectionClassName(baseClassName = "", sectionDrag = {}) {
     .join(" ");
 }
 
-function useBranchToggle(cookieName, initialCollapsedKeys = []) {
+export function useBranchToggle(cookieName, initialCollapsedKeys = []) {
   const [collapsedKeys, setCollapsedKeys] = useState(
     () =>
       new Set(
@@ -183,7 +183,7 @@ function useBranchToggle(cookieName, initialCollapsedKeys = []) {
   return { collapsedKeys, expandAll, toggleNode };
 }
 
-function useWalletSort(initialOrderM = {}) {
+export function useWalletSort(initialOrderM = {}) {
   const [customOrderM, setCustomOrderM] = useState(() =>
     parseHomeWalletOrder(
       getCurrentHomeCookie(homeWalletOrderCookie, initialOrderM),
@@ -217,7 +217,7 @@ function useWalletSort(initialOrderM = {}) {
   };
 }
 
-function useWalletFavorites(initialFavoriteKeys = []) {
+export function useWalletFavorites(initialFavoriteKeys = []) {
   const [favoriteKeys, setFavoriteKeys] = useState(() =>
     parseHomeWalletFavKeys(
       getCurrentHomeCookie(homeWalletFavsCookie, initialFavoriteKeys),
@@ -415,7 +415,7 @@ function HomeWalletFavoritesNode({
   );
 }
 
-function NavigationNode({
+export function NavigationNode({
   node,
   favoriteKeySet,
   getHref,
@@ -652,7 +652,7 @@ function getFavoriteWalletChildren(
     .filter((node) => node.walletAddress || node.walletName);
 }
 
-function getWalletNavigationChildren(node, routeBase, favAddrs) {
+export function getWalletNavigationChildren(node, routeBase, favAddrs) {
   const walletType = node.walletType || "evm";
 
   return [
@@ -660,25 +660,35 @@ function getWalletNavigationChildren(node, routeBase, favAddrs) {
       type: "special",
       label: "favs",
       walletType,
-      href: getWalletNavUrl(routeBase, { walletType }),
+      filePath: "favs",
+      href: getWalletNavUrl(routeBase, {
+        walletType,
+        filePath: "favs",
+      }),
       homeKey: `${walletType}:favs`,
       children: getFavoriteWalletChildren(favAddrs, walletType, routeBase),
     },
+    ...(node.children || []).filter(
+      (child) =>
+        !["favs", "all"].includes(
+          String(child.filePath || "").replace(/\/+$/, ""),
+        ),
+    ),
     {
       type: "special",
       label: "all",
       walletType,
+      filePath: "all",
       href: getWalletNavUrl(routeBase, {
         walletType,
         filePath: "all",
       }),
       homeKey: `${walletType}:all`,
     },
-    ...(node.children || []),
   ];
 }
 
-function buildWalletFavoriteCatalog(walletTree, routeBase, favAddrs) {
+export function buildWalletFavoriteCatalog(walletTree, routeBase, favAddrs) {
   const catalog = new Map();
 
   function addNode(node) {
@@ -702,7 +712,7 @@ function buildWalletFavoriteCatalog(walletTree, routeBase, favAddrs) {
   return catalog;
 }
 
-function getWalletFavoriteItem(node, favoriteKey, routeBase) {
+export function getWalletFavoriteItem(node, favoriteKey, routeBase) {
   if (!node) return null;
 
   const detail = [
@@ -735,7 +745,7 @@ function getWalletTypeSearchLabel(walletType = "evm") {
   return "EVM";
 }
 
-function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
+export function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
   const entries = [];
   const seen = new Set();
 
@@ -774,7 +784,7 @@ function getWalletSearchEntries(walletTree = [], routeBase = "/w") {
   return entries;
 }
 
-function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
+export function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
   const address = String(query || "").trim();
   let walletType = "";
 
@@ -789,6 +799,7 @@ function getDirectWalletSearchEntry(query = "", routeBase = "/w") {
     key: `direct:${walletType}:${address}`,
     label: "address",
     walletName: "address",
+    walletType,
     address,
     context: getWalletTypeSearchLabel(walletType),
     href: getWalletNavUrl(routeBase, { walletType, walletAddress: address }),
@@ -1304,9 +1315,36 @@ function decorateHomeNodes(items = [], parentKey, customBranch = false) {
   });
 }
 
-function addWalletHomeHrefs(nodes = [], routeBase = "/w") {
+function addWalletHomeHrefs(nodes = [], routeBase = "/w", depth = 0) {
   return nodes.map((node) => {
     const href = node.href || getWalletNavUrl(routeBase, node);
+    const sourceChildren = node.children || [];
+    const children =
+      depth == 0 && node.walletType
+        ? [
+            {
+              type: "special",
+              label: "favs",
+              walletType: node.walletType,
+              filePath: "favs",
+              homeDefaultOrderAnchor: true,
+              children: [],
+            },
+            ...sourceChildren.filter(
+              (child) =>
+                !["favs", "all"].includes(
+                  String(child.filePath || "").replace(/\/+$/, ""),
+                ),
+            ),
+            {
+              type: "special",
+              label: "all",
+              walletType: node.walletType,
+              filePath: "all",
+              children: [],
+            },
+          ]
+        : sourceChildren;
 
     return {
       ...node,
@@ -1318,7 +1356,7 @@ function addWalletHomeHrefs(nodes = [], routeBase = "/w") {
           .join(" / ") ||
         href,
       disabled: false,
-      children: addWalletHomeHrefs(node.children || [], routeBase),
+      children: addWalletHomeHrefs(children, routeBase, depth + 1),
     };
   });
 }

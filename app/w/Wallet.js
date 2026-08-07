@@ -65,6 +65,7 @@ import {
   getDefaultWalletName,
   getFavAddrKey,
   isAddressOnlyWalletName,
+  notifyFavAddrsChange,
   parseFavAddrs,
 } from "./favAddrs";
 import { readStoredWallet, walletConnectEvent } from "./browserWalletStorage";
@@ -2260,6 +2261,7 @@ function Wallet({
           maxAge: cookieMaxAge,
           path: "/",
         });
+        notifyFavAddrsChange(nextFavAddrs);
       }
 
       toast.success(`deleted ${entry.label || entry.name}`);
@@ -2550,7 +2552,7 @@ function Wallet({
   function getWalletUrl(wallet, type = walletType, queryM = {}) {
     const cleanWallet = String(wallet || "").replace(/\/+$/, "");
     const path = !cleanWallet
-      ? basePath
+      ? `${basePath}/favs`
       : cleanWallet == "all"
         ? `${basePath}/all`
         : `${basePath}/${cleanWallet
@@ -2559,7 +2561,10 @@ function Wallet({
             .map((part) => encodeURIComponent(part))
             .join("/")}`;
     const params = new URLSearchParams();
-    if (type && type != "evm") params.set("chain", type);
+    const normalizedType = String(type || "").toLowerCase();
+    if (["solana", "tron"].includes(normalizedType)) {
+      params.set("chain", normalizedType == "solana" ? "Solana" : "Tron");
+    }
     for (const [key, value] of Object.entries(queryM || {})) {
       if (value !== undefined && value !== null && value !== "") {
         params.set(key, value);
@@ -2579,8 +2584,13 @@ function Wallet({
   }
 
   function getAddressUrl(address, type = walletType) {
+    if (!address) return getWalletUrl("", type);
+
     const params = new URLSearchParams();
-    if (type && type != "evm") params.set("chain", type);
+    const normalizedType = String(type || "").toLowerCase();
+    if (["solana", "tron"].includes(normalizedType)) {
+      params.set("chain", normalizedType == "solana" ? "Solana" : "Tron");
+    }
     if (address) params.set("addr", address);
 
     const query = params.toString();
@@ -2662,6 +2672,7 @@ function Wallet({
       maxAge: cookieMaxAge,
       path: "/",
     });
+    notifyFavAddrsChange(next);
     if (!selectedWallet && !selectedAddress && !selectedWalletName) {
       router.refresh();
     }

@@ -365,21 +365,25 @@ async function WPage({
     selectedWalletAddress,
   );
   const wantsAllWallets = walletFile == "all";
+  const requestsFavWallets = walletFile == "favs";
   const wantsFavWallets =
     !wantsAllWallets &&
-    !walletFile &&
+    (requestsFavWallets || !walletFile) &&
     !selectedWalletAddress &&
     !selectedWalletName;
   const selectedWallet = wantsAllWallets
     ? "all"
-    : getSelectedWallet(walletFile, walletFiles);
+    : requestsFavWallets
+      ? ""
+      : getSelectedWallet(walletFile, walletFiles);
   const walletNotFound =
     !!walletFile &&
     !wantsAllWallets &&
+    !requestsFavWallets &&
     !selectedWallet &&
     !selectedWalletAddress &&
     !selectedWalletName;
-  const selectedWalletFile = wantsAllWallets
+  const selectedWalletFile = wantsAllWallets || requestsFavWallets
     ? ""
     : (selectedWallet || walletFile).replace(/\/+$/, "");
   const favWalletEntries = wantsFavWallets
@@ -623,7 +627,7 @@ async function WPage({
         selectedAddress={selectedWalletAddress}
         selectedWallet={selectedWallet}
         selectedWalletNotFound={walletNotFound}
-        requestedWallet={walletFile}
+        requestedWallet={requestsFavWallets ? "" : walletFile}
         selectedWalletName={selectedWalletName}
         walletEntries={walletEntries}
         allWalletEntries={allWalletEntries}
@@ -659,7 +663,7 @@ async function WPage({
             walletFilesM,
             selectedAddress: selectedWalletAddress,
             selectedWallet,
-            requestedWallet: walletFile,
+            requestedWallet: requestsFavWallets ? "" : walletFile,
             selectedWalletName,
             walletType: selectedWalletType,
             walletTypeOptions,

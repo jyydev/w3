@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { setCookie } from "cookies-next";
+import { getCookie, setCookie } from "cookies-next";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { TrashIcon } from "@/components/Shared";
 import { deleteEmptyWalletPath } from "@/app/w/walletActions";
+import {
+  favAddrCookie,
+  favAddrsChangeEvent,
+  getDefaultWalletName,
+  isAddressOnlyWalletName,
+  parseFavAddrs,
+} from "@/app/w/favAddrs";
 import FavoriteButton from "./FavoriteButton";
 import HoverMenu from "./HoverMenu";
 import NavbarHoverCard from "./NavbarHoverCard";
@@ -30,8 +37,27 @@ import {
 
 const cookieMaxAge = 365 * 24 * 60 * 60;
 
-export function getWalletNavUrl(routeBase, node) {
-  const base = String(routeBase || "/w").replace(/\/+$/, "") || "/w";
+function getWalletType(type = "evm") {
+  const value = String(type || "evm").toLowerCase();
+  return ["solana", "tron"].includes(value) ? value : "evm";
+}
+
+function getWalletChainQuery(type = "evm") {
+  const walletType = getWalletType(type);
+  return walletType == "solana"
+    ? "Solana"
+    : walletType == "tron"
+      ? "Tron"
+      : "evm";
+}
+
+function getWalletRouteBase(routeBase = "/w") {
+  return String(routeBase || "/w").replace(/\/+$/, "") || "/w";
+}
+
+export function getWalletNavUrl(routeBase, node = {}) {
+  const base = getWalletRouteBase(routeBase);
+  const walletType = getWalletType(node.walletType);
   const cleanPath = String(node.filePath || "").replace(/\/+$/, "");
   const pathname = cleanPath
     ? `${base}/${cleanPath
@@ -41,15 +67,80 @@ export function getWalletNavUrl(routeBase, node) {
         .join("/")}`
     : base;
   const params = new URLSearchParams();
+  const typeRoot =
+    !!node.walletType &&
+    !cleanPath &&
+    !node.walletName &&
+    !node.walletAddress;
 
-  if (node.walletType && node.walletType != "evm") {
-    params.set("chain", node.walletType);
+  if ((typeRoot || walletType != "evm") && cleanPath != "favs") {
+    params.set("chain", getWalletChainQuery(walletType));
+  } else if (cleanPath == "favs" && walletType != "evm") {
+    params.set("chain", getWalletChainQuery(walletType));
   }
   if (node.walletName) params.set("w", node.walletName);
   if (node.walletAddress) params.set("addr", node.walletAddress);
 
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
+}
+
+function getFavoriteWalletNodes(favoriteWallets = [], walletType = "evm") {
+  return parseFavAddrs(favoriteWallets)
+    .filter((favorite) => favorite.type == walletType)
+    .map((favorite, index) => {
+      const address = String(favorite.address || "").trim();
+      const label =
+        String(favorite.name || "").trim() ||
+        getDefaultWalletName(address) ||
+        `fav_${index + 1}`;
+      const addressOnly = isAddressOnlyWalletName(label);
+
+      return {
+        type: "wallet",
+        label,
+        walletType,
+        walletAddress: addressOnly ? address : "",
+        walletName: addressOnly ? "" : label,
+        address,
+        navbarWalletFavorite: true,
+        children: [],
+      };
+    });
+}
+
+function addWalletSpecialNodes(tree = [], favoriteWallets = []) {
+  return tree.map((node) => ({
+    ...node,
+    children: [
+      {
+        type: "special",
+        label: "favs",
+        walletType: getWalletType(node.walletType),
+        filePath: "favs",
+        navbarWalletFavs: true,
+        navbarDefaultOrderAnchor: true,
+        children: getFavoriteWalletNodes(
+          favoriteWallets,
+          getWalletType(node.walletType),
+        ),
+      },
+      ...(node.children || []).filter(
+        (child) =>
+          !["favs", "all"].includes(
+            String(child.filePath || "").replace(/\/+$/, ""),
+          ),
+      ),
+      {
+        type: "special",
+        label: "all",
+        walletType: getWalletType(node.walletType),
+        filePath: "all",
+        navbarWalletAll: true,
+        children: [],
+      },
+    ],
+  }));
 }
 
 function getFavEntry(routeBase, node) {
@@ -227,6 +318,7 @@ function addNavbarSortIds(tree = []) {
       node.walletType || "wallet",
       node.filePath || "",
       node.walletName || "",
+      node.walletAddress || node.address || "",
     ].join(":"),
     children: addNavbarSortIds(node.children || []),
   }));
@@ -244,6 +336,41 @@ function normalizeFavs(favs = [], validHrefM = new Map()) {
 
       return true;
     });
+}
+
+function getLowercaseChainHref(href = "") {
+  const [pathname, query = ""] = String(href).split("?");
+  if (!query) return "";
+
+  const params = new URLSearchParams(query);
+  const chain = params.get("chain");
+  if (!chain) return "";
+
+  params.set("chain", chain.toLowerCase());
+  return `${pathname}?${params.toString()}`;
+}
+
+function getValidFavHrefM(favs = [], routeBase = "/w") {
+  const validHrefM = new Map();
+  const base = getWalletRouteBase(routeBase);
+
+  for (const fav of favs) {
+    validHrefM.set(fav.href, fav);
+
+    const lowercaseHref = getLowercaseChainHref(fav.href);
+    if (lowercaseHref) validHrefM.set(lowercaseHref, fav);
+
+    if (
+      fav.node?.walletType == "evm" &&
+      !fav.node?.filePath &&
+      !fav.node?.walletName &&
+      !fav.node?.walletAddress
+    ) {
+      validHrefM.set(base, fav);
+    }
+  }
+
+  return validHrefM;
 }
 
 function WalletNavNode({
@@ -382,6 +509,7 @@ function NavbarWalletMenu({
   routeBase,
   tree = [],
   cookieName,
+  initialFavoriteWallets = [],
   initialFavs = [],
   initialOrderM = {},
 }) {
@@ -389,13 +517,23 @@ function NavbarWalletMenu({
   const visibilityScope = `menu:${cookieName || routeBase || title || "wallets"}`;
   const router = useRouter();
   const [localTree, setLocalTree] = useState([]);
+  const initialFavoriteWalletsText = JSON.stringify(
+    parseFavAddrs(initialFavoriteWallets),
+  );
+  const [favoriteWallets, setFavoriteWallets] = useState(() =>
+    parseFavAddrs(initialFavoriteWallets),
+  );
   const mergedTree = useMemo(
     () => mergeTrees(tree, localTree),
     [tree, localTree],
   );
+  const navigationTree = useMemo(
+    () => addWalletSpecialNodes(mergedTree, favoriteWallets),
+    [favoriteWallets, mergedTree],
+  );
   const sortableTree = useMemo(
-    () => addNavbarSortIds(mergedTree),
-    [mergedTree],
+    () => addNavbarSortIds(navigationTree),
+    [navigationTree],
   );
   const { orderedEntries: orderedTree, sorting } = useNavbarTreeSorting({
     entries: sortableTree,
@@ -407,8 +545,8 @@ function NavbarWalletMenu({
     [routeBase, orderedTree],
   );
   const validHrefM = useMemo(
-    () => new Map(validFavs.map((fav) => [fav.href, fav])),
-    [validFavs],
+    () => getValidFavHrefM(validFavs, routeBase),
+    [routeBase, validFavs],
   );
   const [favs, setFavs] = useState(initialFavs);
   const [dragHref, setDragHref] = useState("");
@@ -420,6 +558,28 @@ function NavbarWalletMenu({
     const localFavs = readLocalNavFavs(cookieName);
     setFavs(localFavs === null ? initialFavs : localFavs);
   }, [cookieName, initialFavs]);
+
+  useEffect(() => {
+    function refreshFavoriteWallets(event) {
+      const eventFavorites = event?.detail?.favs;
+      const cookieFavorites = getCookie(favAddrCookie);
+      setFavoriteWallets(
+        parseFavAddrs(
+          Array.isArray(eventFavorites)
+            ? eventFavorites
+            : cookieFavorites ?? initialFavoriteWalletsText,
+        ),
+      );
+    }
+
+    refreshFavoriteWallets();
+    window.addEventListener(favAddrsChangeEvent, refreshFavoriteWallets);
+    window.addEventListener("focus", refreshFavoriteWallets);
+    return () => {
+      window.removeEventListener(favAddrsChangeEvent, refreshFavoriteWallets);
+      window.removeEventListener("focus", refreshFavoriteWallets);
+    };
+  }, [initialFavoriteWalletsText]);
 
   useEffect(() => {
     function loadLocalTree() {

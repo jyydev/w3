@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { ckPrefix } from "@/sets";
+import { favAddrCookie, parseFavAddrs } from "@/app/w/favAddrs";
 import NavbarLinkMenu from "./NavbarLinkMenu";
 import NavbarWalletMenu from "./NavbarWalletMenu";
 import NavbarHomeLink from "./NavbarHomeLink";
@@ -124,6 +125,7 @@ export default async function Navbar() {
 
   const topOrderScope = getFullCookieName("navbarTop");
   const keyedLinks = getKeyedNavbarLinks(links);
+  const initialFavoriteWallets = parseFavAddrs(allCookies[favAddrCookie]);
 
   return (
     <>
@@ -145,6 +147,7 @@ export default async function Navbar() {
                   routeBase={e[0].routeBase}
                   tree={e[0].items}
                   cookieName={cookieName}
+                  initialFavoriteWallets={initialFavoriteWallets}
                   initialFavs={parseWalletFavs(
                     ck[getWalletFavCookieKey(e[0].routeBase)],
                   )}

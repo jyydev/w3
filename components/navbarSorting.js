@@ -97,7 +97,18 @@ function applyNavbarOrder(
     };
   });
   const order = orderM[parentPath] ?? [];
-  const rankM = new Map(order.map((key, index) => [key, index]));
+  const orderKeySet = new Set(order);
+  const missingDefaultOrderAnchors = keyedEntries
+    .filter(
+      (entry) =>
+        entry.navbarDefaultOrderAnchor &&
+        !orderKeySet.has(entry.navbarSortKey),
+    )
+    .map((entry) => entry.navbarSortKey);
+  const effectiveOrder = [...missingDefaultOrderAnchors, ...order];
+  const rankM = new Map(
+    effectiveOrder.map((key, index) => [key, index]),
+  );
 
   keyedEntries.sort((a, b) => {
     const aRank = rankM.get(a.navbarSortKey);

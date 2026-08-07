@@ -155,9 +155,7 @@ function getWalletType(searchParams) {
 }
 
 function getTypeUrl(routeBase, walletType) {
-  return walletType == "evm"
-    ? routeBase
-    : `${routeBase}?chain=${encodeURIComponent(walletType)}`;
+  return getWalletNavUrl(routeBase, { walletType });
 }
 
 function getSiblings(parent) {
@@ -196,8 +194,12 @@ function getRootWalletOptions(routeBase, typeNode, childOptions = []) {
     {
       value: "__favs__",
       label: "favs",
-      href: getTypeUrl(routeBase, typeNode.walletType),
+      href: getWalletNavUrl(routeBase, {
+        walletType: typeNode.walletType,
+        filePath: "favs",
+      }),
     },
+    ...childOptions.map((node) => getWalletNodeOption(routeBase, node)),
     {
       value: "__all__",
       label: "all",
@@ -206,7 +208,6 @@ function getRootWalletOptions(routeBase, typeNode, childOptions = []) {
         filePath: "all",
       }),
     },
-    ...childOptions.map((node) => getWalletNodeOption(routeBase, node)),
   ];
 }
 
@@ -397,11 +398,22 @@ function WalletCrumbs({ routeBase, tree = [] }) {
   const walletType = getWalletType(searchParams);
   const pathParts = getPathParts(pathname, routeBase);
   const selectedW = searchParams.get("w") || "";
+  const selectedAddress = searchParams.get("addr") || "";
+  const hasTypeSelection = searchParams.has("chain");
   const typeNode =
     tree.find((node) => node.walletType == walletType) ||
     tree.find((node) => node.walletType == "evm") ||
     tree[0];
   const typeOptions = getWalletTypeOptions(routeBase, tree);
+
+  if (
+    !pathParts.length &&
+    !hasTypeSelection &&
+    !selectedW &&
+    !selectedAddress
+  ) {
+    return null;
+  }
 
   if (!typeNode) {
     return (
@@ -434,16 +446,40 @@ function WalletCrumbs({ routeBase, tree = [] }) {
     rootChildOptions,
   );
 
-  if (pathParts.length == 1 && pathParts[0] == "all") {
+  const rootSpecial =
+    pathParts.length == 1 && ["favs", "all"].includes(pathParts[0])
+      ? pathParts[0]
+      : "";
+  if (rootSpecial) {
+    const specialValue = `__${rootSpecial}__`;
     crumbs.push(
       <SelectCrumb
-        key="all"
-        value="__all__"
+        key={rootSpecial}
+        value={specialValue}
         ariaLabel="wallet path"
-        href={rootWalletOptions.find((option) => option.value == "__all__")?.href}
+        href={
+          rootWalletOptions.find((option) => option.value == specialValue)?.href
+        }
         options={rootWalletOptions}
       />,
     );
+
+    if (selectedW || selectedAddress) {
+      const detailLabel =
+        selectedW ||
+        (selectedAddress.length > 18
+          ? `${selectedAddress.slice(0, 8)}…${selectedAddress.slice(-6)}`
+          : selectedAddress);
+      crumbs.push(
+        <SelectCrumb
+          key="wallet-selector"
+          value="selected"
+          disabled
+          ariaLabel={selectedW ? "wallet name" : "wallet address"}
+          options={[{ value: "selected", label: detailLabel }]}
+        />,
+      );
+    }
 
     return crumbs;
   }
@@ -497,18 +533,19 @@ function WalletCrumbs({ routeBase, tree = [] }) {
     crumbs.push(
       <SelectCrumb
         key={`${currentNode.walletType}:${currentNode.filePath}:next`}
-        value={rootCrumb ? "__favs__" : ""}
+        value=""
         ariaLabel="wallet child path"
-        href={rootCrumb ? rootWalletOptions[0]?.href : ""}
-        fallbackLabel={rootCrumb ? "favs" : "select"}
+        href=""
+        fallbackLabel="select"
         options={options}
       />,
     );
   }
 
   const wallets = getWalletChildren(currentNode);
+  let selectedWallet = null;
   if (wallets.length) {
-    const selectedWallet = wallets.find(
+    selectedWallet = wallets.find(
       (wallet) => wallet.walletName == selectedW,
     );
     crumbs.push(
@@ -525,6 +562,23 @@ function WalletCrumbs({ routeBase, tree = [] }) {
             href: getWalletNavUrl(routeBase, wallet),
           })),
         ]}
+      />,
+    );
+  }
+
+  if (selectedAddress || (selectedW && !selectedWallet)) {
+    const detailLabel =
+      selectedW ||
+      (selectedAddress.length > 18
+        ? `${selectedAddress.slice(0, 8)}…${selectedAddress.slice(-6)}`
+        : selectedAddress);
+    crumbs.push(
+      <SelectCrumb
+        key="wallet-selector"
+        value="selected"
+        disabled
+        ariaLabel={selectedW ? "wallet name" : "wallet address"}
+        options={[{ value: "selected", label: detailLabel }]}
       />,
     );
   }

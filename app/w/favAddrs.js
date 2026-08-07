@@ -1,6 +1,7 @@
 import { ckPrefix } from "@/sets";
 
 export const favAddrCookie = `${ckPrefix ?? ""}favAddrs`;
+export const favAddrsChangeEvent = `${favAddrCookie}Change`;
 
 export function getFavAddrKey(type = "evm", address = "") {
   const clean = String(address || "").trim();
@@ -26,7 +27,9 @@ export function isAddressOnlyWalletName(name = "") {
 export function parseFavAddrs(value) {
   try {
     const text = String(value || "[]");
-    const favs = JSON.parse(text.startsWith("%") ? decodeURIComponent(text) : text);
+    const favs = Array.isArray(value)
+      ? value
+      : JSON.parse(text.startsWith("%") ? decodeURIComponent(text) : text);
     if (!Array.isArray(favs)) return [];
 
     const seen = new Set();
@@ -55,5 +58,15 @@ export function parseFavAddrs(value) {
 export function encodeFavAddrs(favs) {
   return JSON.stringify(
     favs.map(({ type, name, address }) => ({ type, name, address })),
+  );
+}
+
+export function notifyFavAddrsChange(value = []) {
+  if (typeof window == "undefined") return;
+
+  window.dispatchEvent(
+    new CustomEvent(favAddrsChangeEvent, {
+      detail: { favs: parseFavAddrs(value) },
+    }),
   );
 }

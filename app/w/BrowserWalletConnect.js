@@ -468,13 +468,20 @@ async function requestSolanaAddress(provider) {
 
 function getWalletUrl({ routeBase = "/w", walletType = "evm", address = "" }) {
   const base = String(routeBase || "/w").replace(/\/+$/, "") || "/w";
+  const pathname = address ? base : `${base}/favs`;
   const params = new URLSearchParams();
+  const normalizedWalletType = String(walletType || "").toLowerCase();
 
-  if (walletType && walletType != "evm") params.set("chain", walletType);
+  if (["solana", "tron"].includes(normalizedWalletType)) {
+    params.set(
+      "chain",
+      normalizedWalletType == "solana" ? "Solana" : "Tron",
+    );
+  }
   if (address) params.set("addr", address);
 
   const query = params.toString();
-  return query ? `${base}?${query}` : base;
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 function getProviderForMeta(meta) {
