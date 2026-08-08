@@ -514,6 +514,11 @@
   color: #ff7b7b;
 }
 
+.navTrashBtn:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
 .navQuickFavs {
   display: inline-flex;
   align-items: center;
@@ -1097,6 +1102,10 @@
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.breadcrumbMenuItem.nonLink {
+  cursor: default;
 }
 
 .breadcrumbMenuCaret {

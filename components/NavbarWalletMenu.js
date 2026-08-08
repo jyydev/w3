@@ -3,10 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getCookie, setCookie } from "cookies-next";
-import { useRouter } from "next/navigation";
-import toast from "react-hot-toast";
-import { TrashIcon } from "@/components/Shared";
-import { deleteEmptyWalletPath } from "@/app/w/walletActions";
 import {
   favAddrCookie,
   favAddrsChangeEvent,
@@ -18,6 +14,11 @@ import FavoriteButton from "./FavoriteButton";
 import HoverMenu from "./HoverMenu";
 import NavbarHoverCard from "./NavbarHoverCard";
 import {
+  EmptyWalletDeleteButton,
+  useWalletEntryDelete,
+  WalletDeleteButton,
+} from "./WalletDeleteButton";
+import {
   NavbarSortableRow,
   useNavbarTreeSorting,
 } from "./NavbarTreeSorting";
@@ -27,7 +28,6 @@ import {
   useNavbarVisibilityContext,
 } from "./navbarVisibility";
 import {
-  deleteLocalEditorFile,
   listLocalWalletFileRecords,
   localEditorStorageEvent,
   readLocalNavFavs,
@@ -374,12 +374,15 @@ function getValidFavHrefM(favs = [], routeBase = "/w") {
 }
 
 function WalletNavNode({
+  deletingEmptyWalletKey,
+  deletingWalletKey,
   node,
   siblings,
   sorting,
   routeBase,
   favHrefM,
   onToggleFav,
+  onDeleteWallet,
   onDeleteEmpty,
   visibility,
   visibilityScope,
@@ -405,21 +408,22 @@ function WalletNavNode({
       }}
     />
   );
-  const trashButton = node.deletable ? (
-    <button
-      type="button"
+  const walletTrashButton = (
+    <WalletDeleteButton
       className="navTrashBtn"
-      title={`delete empty ${node.deletable.kind}`}
-      aria-label={`delete empty ${node.deletable.kind}`}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onDeleteEmpty(node);
-      }}
-    >
-      <TrashIcon />
-    </button>
-  ) : null;
+      deletingWalletKey={deletingWalletKey}
+      node={node}
+      onDelete={onDeleteWallet}
+    />
+  );
+  const emptyTrashButton = (
+    <EmptyWalletDeleteButton
+      className="navTrashBtn"
+      deletingEmptyWalletKey={deletingEmptyWalletKey}
+      node={node}
+      onDelete={onDeleteEmpty}
+    />
+  );
   const hideButton = visibility?.toggleHidden ? (
     <NavbarHideButton
       hidden={hidden}
@@ -451,7 +455,8 @@ function WalletNavNode({
           </Link>
           {favButton}
           {hideButton}
-          {trashButton}
+          {walletTrashButton}
+          {emptyTrashButton}
         </div>
       </NavbarSortableRow>
     );
@@ -474,7 +479,8 @@ function WalletNavNode({
           </Link>
           {favButton}
           {hideButton}
-          {trashButton}
+          {walletTrashButton}
+          {emptyTrashButton}
           <span className="navigationMenuTrigger navSubmenuCaret">{">"}</span>
         </div>
         <div className="navigationMenuPanel navSubmenuContent">
@@ -487,7 +493,10 @@ function WalletNavNode({
               routeBase={routeBase}
               favHrefM={favHrefM}
               onToggleFav={onToggleFav}
+              onDeleteWallet={onDeleteWallet}
               onDeleteEmpty={onDeleteEmpty}
+              deletingEmptyWalletKey={deletingEmptyWalletKey}
+              deletingWalletKey={deletingWalletKey}
               visibility={visibility}
               visibilityScope={visibilityScope}
             />
@@ -515,7 +524,12 @@ function NavbarWalletMenu({
 }) {
   const visibility = useNavbarVisibilityContext();
   const visibilityScope = `menu:${cookieName || routeBase || title || "wallets"}`;
-  const router = useRouter();
+  const {
+    deleteEmptyWallet,
+    deleteWallet,
+    deletingEmptyWalletKey,
+    deletingWalletKey,
+  } = useWalletEntryDelete();
   const [localTree, setLocalTree] = useState([]);
   const initialFavoriteWalletsText = JSON.stringify(
     parseFavAddrs(initialFavoriteWallets),
@@ -646,45 +660,6 @@ function NavbarWalletMenu({
     );
   }
 
-  async function deleteEmptyNode(node) {
-    const target = node.deletable;
-    if (!target) return;
-
-    const label = `${node.walletType}/${target.source}${
-      target.kind == "file" ? ".json" : "/"
-    }`;
-    if (!window.confirm(`Delete empty ${target.kind}?\n\n${label}`)) return;
-
-    try {
-      if (shouldUseLocalStorageEditor()) {
-        if (target.kind != "file") {
-          throw new Error("localStorage has no empty folder record");
-        }
-
-        const res = deleteLocalEditorFile(
-          target.file || `wallets/${node.walletType}/${target.source}.json`,
-        );
-        if (!res.ok) throw new Error(res.msg || "delete failed");
-
-        toast.success(`deleted ${label}`);
-        setLocalTree(getLocalWalletTree());
-        return;
-      }
-
-      const res = await deleteEmptyWalletPath({
-        walletType: node.walletType,
-        source: target.source,
-        kind: target.kind,
-      });
-      if (!res.ok) throw new Error(res.msg || "delete failed");
-
-      toast.success(`deleted ${label}`);
-      router.refresh();
-    } catch (e) {
-      toast.error(e?.message || "delete failed");
-    }
-  }
-
   function renderQuickFav(fav) {
     const visibilityKey = getNavbarVisibilityKey(visibilityScope, fav.node);
     const hidden =
@@ -788,7 +763,10 @@ function NavbarWalletMenu({
                 routeBase={routeBase}
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
-                onDeleteEmpty={deleteEmptyNode}
+                onDeleteWallet={deleteWallet}
+                onDeleteEmpty={deleteEmptyWallet}
+                deletingEmptyWalletKey={deletingEmptyWalletKey}
+                deletingWalletKey={deletingWalletKey}
                 visibility={visibility}
                 visibilityScope={visibilityScope}
               />
@@ -822,7 +800,10 @@ function NavbarWalletMenu({
                 routeBase={routeBase}
                 favHrefM={favHrefM}
                 onToggleFav={toggleFav}
-                onDeleteEmpty={deleteEmptyNode}
+                onDeleteWallet={deleteWallet}
+                onDeleteEmpty={deleteEmptyWallet}
+                deletingEmptyWalletKey={deletingEmptyWalletKey}
+                deletingWalletKey={deletingWalletKey}
                 visibility={visibility}
                 visibilityScope={visibilityScope}
               />

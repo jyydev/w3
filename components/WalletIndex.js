@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { localEditorStorageEvent } from "@/app/_editorData/browserEditorStorage";
+import toast from "react-hot-toast";
+import {
+  addLocalWalletEntry,
+  localEditorStorageEvent,
+  shouldUseLocalStorageEditor,
+} from "@/app/_editorData/browserEditorStorage";
+import { addWalletEntry } from "@/app/w/walletActions";
+import { getDefaultWalletName } from "@/app/w/favAddrs";
 import {
   buildWalletFavoriteCatalog,
   getDirectWalletSearchEntry,
@@ -10,6 +17,7 @@ import {
   getNodeSortKey,
   getWalletFavoriteItem,
   getWalletNavigationChildren,
+  getWalletSearchEntries,
   NavigationNode,
   useBranchToggle,
   useWalletFavorites,
@@ -34,6 +42,8 @@ import {
   mergeTrees,
 } from "./NavbarWalletMenu";
 import { homeCollapsedCookieM } from "./homeNavigationState";
+import WalletAddControls from "./WalletAddControls";
+import { useWalletEntryDelete } from "./WalletDeleteButton";
 
 const walletTypes = new Set(["evm", "solana", "tron"]);
 const walletTypeOptions = [
@@ -76,6 +86,24 @@ function isWalletSelectionHistoryEntry(entry) {
   }
 }
 
+function getWalletFileOptions(tree = []) {
+  const files = new Set();
+
+  function addNode(node) {
+    if (
+      ["file", "mixed"].includes(node?.type) &&
+      String(node?.filePath || "").trim()
+    ) {
+      files.add(String(node.filePath).trim());
+    }
+
+    for (const child of node?.children || []) addNode(child);
+  }
+
+  for (const node of tree || []) addNode(node);
+  return [...files].sort((a, b) => a.localeCompare(b));
+}
+
 export default function WalletIndex({
   favAddrs = [],
   initialCollapsedKeys = [],
@@ -95,6 +123,12 @@ export default function WalletIndex({
   );
   const [localWalletTree, setLocalWalletTree] = useState([]);
   const [walletTreeReady, setWalletTreeReady] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showAddWallet, setShowAddWallet] = useState(false);
+  const [addWalletFile, setAddWalletFile] = useState("");
+  const [draftWalletFile, setDraftWalletFile] = useState("");
+  const [addWalletName, setAddWalletName] = useState("");
+  const [addingWallet, setAddingWallet] = useState(false);
   const { collapsedKeys, expandAll, toggleNode } = useBranchToggle(
     homeCollapsedCookieM.wallet,
     initialCollapsedKeys,
@@ -103,6 +137,12 @@ export default function WalletIndex({
     useWalletSort(initialOrderM);
   const { favoriteKeys, moveFavorite, toggleFavorite } =
     useWalletFavorites(initialFavoriteKeys);
+  const {
+    deleteEmptyWallet,
+    deleteWallet,
+    deletingEmptyWalletKey,
+    deletingWalletKey,
+  } = useWalletEntryDelete();
 
   useEffect(() => {
     function refreshLocalTree() {
@@ -136,6 +176,23 @@ export default function WalletIndex({
         })),
     [mergedWalletTree, routeBase, selectedWalletType],
   );
+  const walletSearchEntries = useMemo(
+    () => getWalletSearchEntries(visibleWalletTree, routeBase),
+    [routeBase, visibleWalletTree],
+  );
+  const walletFileOptions = useMemo(
+    () => getWalletFileOptions(visibleWalletTree),
+    [visibleWalletTree],
+  );
+  const defaultAddWalletFile = walletFileOptions[0] || "";
+  const directSearchEntry = useMemo(
+    () => getDirectWalletSearchEntry(searchQuery, routeBase),
+    [routeBase, searchQuery],
+  );
+  const addWalletAddress =
+    directSearchEntry?.walletType == selectedWalletType
+      ? directSearchEntry.address
+      : "";
   const favoriteCatalog = useMemo(
     () =>
       buildWalletFavoriteCatalog(visibleWalletTree, routeBase, favAddrs),
@@ -204,6 +261,24 @@ export default function WalletIndex({
   const sectionCollapsed = collapsedKeys.has(sectionKey);
 
   useEffect(() => {
+    setShowAddWallet(false);
+    setAddWalletFile("");
+    setDraftWalletFile("");
+    setAddWalletName("");
+  }, [selectedWalletType]);
+
+  useEffect(() => {
+    if (!defaultAddWalletFile) return;
+
+    setAddWalletFile((current) =>
+      current && walletFileOptions.includes(current)
+        ? current
+        : defaultAddWalletFile,
+    );
+    setDraftWalletFile((current) => current || defaultAddWalletFile);
+  }, [defaultAddWalletFile, walletFileOptions]);
+
+  useEffect(() => {
     if (!walletTreeReady || selectedWalletType) return;
     matrixVisibility.pruneHiddenKeys(matrix.visibilityKeys);
   }, [
@@ -223,6 +298,60 @@ export default function WalletIndex({
   const getHistoryFavoriteKey = useCallback((entry, searchEntry) => {
     return searchEntry?.href == entry?.href ? searchEntry.favoriteKey : "";
   }, []);
+
+  async function submitAddWallet(event) {
+    event.preventDefault();
+    const address = String(addWalletAddress || "").trim();
+    const file = String(draftWalletFile || "").trim();
+    const name = String(
+      addWalletName || getDefaultWalletName(address),
+    ).trim();
+    if (!selectedWalletType || !address || !file || addingWallet) return;
+
+    setAddingWallet(true);
+    try {
+      const useBrowserStorage = shouldUseLocalStorageEditor();
+      const res = useBrowserStorage
+        ? addLocalWalletEntry({
+            walletType: selectedWalletType,
+            source: file,
+            name,
+            address,
+          })
+        : await addWalletEntry({
+            walletType: selectedWalletType,
+            source: file,
+            name,
+            address,
+          });
+
+      if (!res.ok) throw new Error(res.msg || "add wallet failed");
+      if (res.exists) {
+        toast(
+          res.reason == "address"
+            ? `${
+                useBrowserStorage
+                  ? "address exists locally"
+                  : "address exists"
+              } as ${res.name}`
+            : `${name} exists${useBrowserStorage ? " locally" : ""}`,
+        );
+        return;
+      }
+
+      setAddWalletFile(file);
+      setDraftWalletFile(file);
+      setAddWalletName("");
+      toast.success(
+        `${useBrowserStorage ? "saved local" : "added"} ${name}`,
+      );
+      if (!useBrowserStorage) router.refresh();
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setAddingWallet(false);
+    }
+  }
 
   function moveNode(dragNode, targetNode, placeAfter) {
     if (
@@ -264,6 +393,31 @@ export default function WalletIndex({
             onToggle={() => toggleNode({ homeKey: sectionKey })}
             showExpandAll={sectionCollapsed || !!matrix.collapsedCount}
           />
+          <span
+            className="homeNavMode"
+            aria-label="all, EVM, Solana, or Tron wallets"
+          >
+            {walletTypeOptions.map(([type, label]) => (
+              <button
+                type="button"
+                className={selectedWalletType == type ? "active" : ""}
+                aria-pressed={selectedWalletType == type}
+                key={type || "all"}
+                onClick={() =>
+                  router.push(
+                    type
+                      ? getWalletNavUrl(routeBase, {
+                          type: "folder",
+                          walletType: type,
+                        })
+                      : routeBase,
+                  )
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </span>
         </span>
       </div>
       <nav className="homeNav" aria-label={`${pageLabel} wallets`}>
@@ -285,12 +439,16 @@ export default function WalletIndex({
               onToggleHistoryFavorite={toggleFavorite}
               renderNode={(node) => (
                 <NavigationNode
+                  deletingEmptyWalletKey={deletingEmptyWalletKey}
+                  deletingWalletKey={deletingWalletKey}
                   node={node}
                   favoriteKeySet={favoriteKeySet}
                   getHref={(entry) =>
                     entry.href || getWalletNavUrl(routeBase, entry)
                   }
                   onMoveFavorite={moveFavorite}
+                  onDeleteEmptyWallet={deleteEmptyWallet}
+                  onDeleteWallet={deleteWallet}
                   onToggleFavorite={toggleFavorite}
                   onToggleHidden={matrixVisibility.toggleHidden}
                   onToggleNode={toggleNode}
@@ -298,6 +456,7 @@ export default function WalletIndex({
               )}
               searchOptions={{
                 emptyLabel: "no added wallet matches",
+                entries: walletSearchEntries,
                 getDirectEntry: (query) => {
                   const entry = getDirectWalletSearchEntry(query, routeBase);
                   return !selectedWalletType ||
@@ -306,36 +465,34 @@ export default function WalletIndex({
                     : null;
                 },
                 includeHome: false,
+                onQueryChange: setSearchQuery,
                 placeholder: "wallet name or address",
                 searchLabel: "search added wallets by name or address",
                 submitLabel: "search wallets",
               }}
               searchControls={
-                <div
-                  className="homeNavMode"
-                  aria-label="all, EVM, Solana, or Tron wallets"
-                >
-                  {walletTypeOptions.map(([type, label]) => (
-                    <button
-                      type="button"
-                      className={selectedWalletType == type ? "active" : ""}
-                      aria-pressed={selectedWalletType == type}
-                      key={type || "all"}
-                      onClick={() =>
-                        router.push(
-                          type
-                            ? getWalletNavUrl(routeBase, {
-                                type: "folder",
-                                walletType: type,
-                              })
-                            : routeBase,
-                        )
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                !!selectedWalletType && (
+                  <WalletAddControls
+                    address={addWalletAddress}
+                    adding={addingWallet}
+                    className="walletIndexAddForm"
+                    file={addWalletFile}
+                    fileOptions={walletFileOptions}
+                    info="Show or hide fields to add the address from search."
+                    label={addWalletName}
+                    open={showAddWallet}
+                    path={draftWalletFile}
+                    onFileChange={(file) => {
+                      setAddWalletFile(file);
+                      setDraftWalletFile(file);
+                    }}
+                    onLabelChange={setAddWalletName}
+                    onOpenChange={setShowAddWallet}
+                    onPathChange={setDraftWalletFile}
+                    onSubmit={submitAddWallet}
+                    toggleLabel="add"
+                  />
+                )
               }
               sortable
             />

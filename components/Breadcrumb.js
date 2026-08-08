@@ -272,10 +272,8 @@ function SelectCrumb({
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.value == value);
   const label = selected?.label || fallbackLabel;
-  const selectableOptions = options.filter(
-    (option) => !option.disabled && option.value != value,
-  );
-  const canOpen = !disabled && selectableOptions.length > 0;
+  const hasMenuOptions = options.some((option) => option.value != value);
+  const canOpen = !disabled && hasMenuOptions;
   const canNavigate = !disabled && !!href;
   const isPlaceholder = !selected && label == fallbackLabel;
 
@@ -291,14 +289,16 @@ function SelectCrumb({
 
   function renderMenuOption(option, key) {
     const hasChildren = !!option.children?.length;
+    const optionCanNavigate = !!option.href && !option.disabled;
     const className = [
       "breadcrumbMenuItem",
       hasChildren ? "navigationMenuTrigger" : "",
+      !optionCanNavigate ? "nonLink" : "",
       option.value == value ? "active" : "",
     ]
       .filter(Boolean)
       .join(" ");
-    const content = option.href && !option.disabled ? (
+    const content = optionCanNavigate ? (
       <Link
         href={option.href}
         className={className}

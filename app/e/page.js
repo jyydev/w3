@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getEditorFileHref } from "@/components/editorNavigation";
+import { getNavigationTrees } from "@/components/navigationTreeServer";
 import EditorIndex from "./EditorIndex";
-import { listEditorDataFiles } from "./editorData";
 import {
   editorHomeFavsCookie,
   editorHomeOrderCookie,
@@ -28,14 +28,15 @@ async function App({ searchParams }) {
     if (requestedHref) redirect(requestedHref);
   }
 
-  const [files, cookieStore] = await Promise.all([
-    listEditorDataFiles(),
-    cookies(),
-  ]);
+  const [
+    { editorFiles, editorEmptyFolders },
+    cookieStore,
+  ] = await Promise.all([getNavigationTrees(), cookies()]);
 
   return (
     <EditorIndex
-      initialFiles={files}
+      initialEmptyFolders={editorEmptyFolders}
+      initialFiles={editorFiles}
       initialHistory={parseEditorHistory(
         cookieStore.get(editorHistoryCookie)?.value,
       )}

@@ -1,4 +1,7 @@
-import { normalizeEditorFilePath } from "@/components/editorNavigation";
+import {
+  normalizeEditorFilePath,
+  normalizeEditorFolderPath,
+} from "@/components/editorNavigation";
 
 export const editorHomeSortModeCookie = "w3_editor_home_sort_mode";
 export const editorHomeOrderCookie = "w3_editor_home_order";
@@ -8,6 +11,7 @@ export const editorHistoryEvent = "w3_editor_history_change";
 
 export const editorStateMaxAge = 60 * 60 * 24 * 365;
 export const editorHistoryCap = 10;
+const editorFolderFavoritePrefix = "editor-folder://";
 
 function parseJson(value, fallback) {
   if (value && typeof value == "object") return value;
@@ -33,6 +37,41 @@ function normalizeEditorPaths(values = [], cap = 100) {
     if (seen.has(file)) continue;
     seen.add(file);
     result.push(file);
+    if (result.length >= cap) break;
+  }
+
+  return result;
+}
+
+export function getEditorFolderFavoriteKey(folder) {
+  return `${editorFolderFavoritePrefix}${encodeURIComponent(
+    normalizeEditorFolderPath(folder),
+  )}`;
+}
+
+function normalizeEditorFavoriteKeys(values = [], cap = 100) {
+  const result = [];
+  const seen = new Set();
+
+  for (const value of Array.isArray(values) ? values : []) {
+    const candidate = String(value || "").trim();
+    let favoriteKey = "";
+
+    try {
+      favoriteKey = candidate.startsWith(editorFolderFavoritePrefix)
+        ? getEditorFolderFavoriteKey(
+            decodeURIComponent(
+              candidate.slice(editorFolderFavoritePrefix.length),
+            ),
+          )
+        : normalizeEditorFilePath(candidate);
+    } catch {
+      continue;
+    }
+
+    if (seen.has(favoriteKey)) continue;
+    seen.add(favoriteKey);
+    result.push(favoriteKey);
     if (result.length >= cap) break;
   }
 
@@ -65,7 +104,7 @@ export function encodeEditorOrder(order = {}) {
 }
 
 export function parseEditorFavs(value = "") {
-  return normalizeEditorPaths(parseJson(value, []));
+  return normalizeEditorFavoriteKeys(parseJson(value, []));
 }
 
 export function encodeEditorFavs(values = []) {

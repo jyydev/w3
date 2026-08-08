@@ -127,6 +127,7 @@ function getSearchMatches(entries = [], query = "") {
 }
 
 export default function HomeNavigationSearch({
+  directSubmitLabel = "",
   emptyLabel = "no navbar link matches",
   entries: providedEntries,
   getDirectEntry,
@@ -135,6 +136,7 @@ export default function HomeNavigationSearch({
   homeLabel = "⌂ Home",
   homeTitle = "Home",
   includeHome = true,
+  onQueryChange,
   placeholder = "navbar link or title",
   searchLabel = "search all navbar links and titles",
   submitLabel = "search navbar",
@@ -180,9 +182,7 @@ export default function HomeNavigationSearch({
       : [];
   const showResults = resultsOpen && !!query.trim();
 
-  function submitSearch(event) {
-    event.preventDefault();
-    const result = results[0];
+  function navigateToResult(result) {
     const href = result?.href;
     if (!href) return;
 
@@ -207,6 +207,17 @@ export default function HomeNavigationSearch({
     router.push(href);
   }
 
+  function submitSearch(event) {
+    event.preventDefault();
+    navigateToResult(results[0]);
+  }
+
+  function submitDirect(event) {
+    event.preventDefault();
+    setResultsOpen(false);
+    navigateToResult(directEntry);
+  }
+
   return (
     <form
       className="homeWalletSearch"
@@ -222,7 +233,11 @@ export default function HomeNavigationSearch({
         });
       }}
     >
-      <div className="homeWalletSearchControl">
+      <div
+        className={`homeWalletSearchControl${
+          directSubmitLabel ? " hasDirectSubmit" : ""
+        }`}
+      >
         <input
           type="search"
           value={query}
@@ -233,7 +248,9 @@ export default function HomeNavigationSearch({
           spellCheck={false}
           placeholder={placeholder}
           onChange={(event) => {
-            setQuery(event.target.value);
+            const nextQuery = event.target.value;
+            setQuery(nextQuery);
+            onQueryChange?.(nextQuery);
             setResultsOpen(true);
           }}
           onKeyDown={(event) => {
@@ -249,6 +266,26 @@ export default function HomeNavigationSearch({
         >
           <span className="homeWalletSearchIcon" aria-hidden="true"></span>
         </button>
+        {!!directSubmitLabel && (
+          <button
+            type="button"
+            className="homeWalletSearchDirectButton"
+            aria-label={
+              directEntry?.href
+                ? `go directly to ${directEntry.href}`
+                : directSubmitLabel
+            }
+            title={
+              directEntry?.href
+                ? `go directly to ${directEntry.href}`
+                : directSubmitLabel
+            }
+            disabled={!directEntry?.href}
+            onClick={submitDirect}
+          >
+            {directSubmitLabel}
+          </button>
+        )}
       </div>
       {showResults && (
         <span id={resultsId} className="homeWalletSearchResults">

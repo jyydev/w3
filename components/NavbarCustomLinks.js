@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { ckPrefix } from "@/sets";
 import { isLocalEditorHost } from "@/app/_editorData/browserEditorStorage";
@@ -22,6 +22,13 @@ function createLinkId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
 
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeCreatedAt(value) {
+  const createdAt = Number(value);
+  return Number.isFinite(createdAt) && createdAt > 0
+    ? Math.trunc(createdAt)
+    : 0;
 }
 
 function normalizeHref(value) {
@@ -54,6 +61,7 @@ function cleanLinks(value, depth = 0, ids = new Set()) {
         href,
         label,
         title: String(item.title || label),
+        createdAt: normalizeCreatedAt(item.createdAt),
         ...(href ? {} : { type: "folder" }),
         children: cleanLinks(item.children, depth + 1, ids),
       },
@@ -188,9 +196,20 @@ function promptForLink() {
     href,
     label,
     title: label,
+    createdAt: Date.now(),
     ...(href ? {} : { type: "folder" }),
     children: [],
   };
+}
+
+function mergeLinksInCreationOrder(localLinks, serverLinks) {
+  return [...serverLinks, ...localLinks]
+    .map((link, index) => ({ link, index }))
+    .sort(
+      (a, b) =>
+        a.link.createdAt - b.link.createdAt || a.index - b.index,
+    )
+    .map(({ link }) => link);
 }
 
 function useNavbarCustomLinks(scope) {
@@ -202,7 +221,10 @@ function useNavbarCustomLinks(scope) {
   const [serverAvailable, setServerAvailable] = useState(false);
   const [serverBusy, setServerBusy] = useState(false);
   const serverMutationRef = useRef(false);
-  const links = [...localLinks, ...serverLinks];
+  const links = useMemo(
+    () => mergeLinksInCreationOrder(localLinks, serverLinks),
+    [localLinks, serverLinks],
+  );
 
   useEffect(() => {
     setLocalReady(false);
@@ -317,6 +339,7 @@ function useNavbarCustomLinks(scope) {
           parentId,
           href: link.href,
           label: link.label,
+          createdAt: link.createdAt,
         }),
       });
       const next = markServerLinks(result.links);

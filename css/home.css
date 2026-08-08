@@ -179,6 +179,27 @@
   width: auto;
 }
 
+.walletIndexPage .homeWalletSearchRow {
+  width: max-content;
+  max-width: none;
+  flex-wrap: nowrap;
+}
+
+.walletIndexPage .homeWalletSearchRow .homeWalletSearch {
+  flex: 0 0 430px;
+}
+
+.walletIndexAddForm {
+  flex: 0 0 auto;
+  min-height: 27px;
+  margin-bottom: 5px;
+}
+
+.walletIndexAddForm .walletAddToggleButton {
+  height: 27px;
+  padding: 0 7px;
+}
+
 .homeWalletSearch {
   position: relative;
   z-index: 30;
@@ -230,6 +251,33 @@
 }
 
 .homeWalletSearchButton:disabled {
+  color: #555;
+  cursor: default;
+}
+
+.homeWalletSearchControl.hasDirectSubmit .homeWalletSearchButton {
+  border-radius: 0;
+}
+
+.homeWalletSearchDirectButton {
+  flex: 0 0 auto;
+  height: 27px;
+  padding: 0 7px;
+  border: 1px solid #3b3b3b;
+  border-left: 0;
+  border-radius: 0 4px 4px 0;
+  background: #181818;
+  color: #aaa;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.homeWalletSearchDirectButton:hover:not(:disabled) {
+  background: #242424;
+  color: var(--orange);
+}
+
+.homeWalletSearchDirectButton:disabled {
   color: #555;
   cursor: default;
 }
@@ -548,6 +596,7 @@
   padding: 0 3px 0 1px;
   overflow: hidden;
   line-height: 0;
+  cursor: auto;
   transform: translateY(-100%);
   z-index: 200;
 }
@@ -583,7 +632,7 @@
 
 .homeNavPathCard {
   padding: 0 3px;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .homeNavPathCard.interactive {
@@ -601,6 +650,31 @@
 .homeNavPathHideButton svg {
   width: 13px;
   height: 13px;
+}
+
+.homeNavPathRemoveButton {
+  display: inline-flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #888;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.homeNavPathRemoveButton:hover,
+.homeNavPathRemoveButton:focus-visible {
+  color: #ff7b7b;
+}
+
+.homeNavPathRemoveButton svg {
+  width: 12px;
+  height: 12px;
 }
 
 .homeNavPathHover.navHoverCardOpen > .homeNavPathCard {
@@ -660,6 +734,7 @@
   overflow: hidden;
   font-size: 9px;
   line-height: 1.1;
+  user-select: text;
 }
 
 .homeVisitHistoryPathContext,
@@ -683,7 +758,19 @@
 }
 
 .homeNavFavoriteColumn .homeNavFavoriteIcon {
+  display: inline-flex;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 23px;
+  align-items: center;
+  justify-content: center;
   color: inherit;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.homeNavFavoriteColumn .homeNavNodeActions {
+  margin-left: auto;
 }
 
 .homeNavFavorites {
@@ -793,6 +880,21 @@
   color: var(--orange);
 }
 
+.homeNavQuickFavLink.disabled {
+  color: #666;
+  cursor: text;
+}
+
+.homeNavLinkFavicon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
+  border-radius: 2px;
+  object-fit: contain;
+  vertical-align: -2px;
+}
+
 .homeNavQuickUnfav {
   display: inline-flex;
   align-items: center;
@@ -850,7 +952,9 @@
   align-items: center;
 }
 
-.homeNavFavBtn {
+.homeNavFavBtn,
+.homeNavDeleteButton,
+.homeNavRowRemoveButton {
   display: inline-flex;
   flex: 0 0 22px;
   align-items: center;
@@ -870,6 +974,25 @@
 .homeNavFavBtn.active {
   background: #252525;
   color: var(--orange);
+}
+
+.homeNavDeleteButton svg,
+.homeNavRowRemoveButton svg {
+  width: 13px;
+  height: 13px;
+}
+
+.homeNavDeleteButton:hover,
+.homeNavRowRemoveButton:hover,
+.homeNavRowRemoveButton:focus-visible {
+  background: #252525;
+  color: #ff7b7b;
+}
+
+.homeNavDeleteButton:disabled,
+.homeNavRowRemoveButton:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 .homeNavBranchToggle {
@@ -916,6 +1039,19 @@
 
 .homeNavSectionSortResetCard {
   max-width: none;
+}
+
+.homeNavExternalFaviconToggle {
+  margin-top: 2px;
+}
+
+.homeNavExternalFaviconToggleStatus {
+  color: #777;
+}
+
+.homeNavExternalFaviconToggle.active
+  .homeNavExternalFaviconToggleStatus {
+  color: #5fcf72;
 }
 
 .homeNavLogoRow

@@ -40,10 +40,16 @@ export async function POST(request) {
   }
 
   try {
-    const { scope, parentId, href, label } = await request.json();
+    const { scope, parentId, href, label, createdAt } = await request.json();
     return NextResponse.json({
       available: true,
-      links: await addCustomNavLink({ scope, parentId, href, label }),
+      links: await addCustomNavLink({
+        scope,
+        parentId,
+        href,
+        label,
+        createdAt,
+      }),
     });
   } catch (error) {
     return errorResponse(error);

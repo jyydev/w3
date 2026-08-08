@@ -19,6 +19,13 @@ function normalizeHref(value) {
   return `/${href.replace(/^\.\//, "")}`;
 }
 
+function normalizeCreatedAt(value) {
+  const createdAt = Number(value);
+  return Number.isFinite(createdAt) && createdAt > 0
+    ? Math.trunc(createdAt)
+    : 0;
+}
+
 function getScope(scope) {
   const value = String(scope || "");
   if (!allowedScopes.has(value)) throw new Error("invalid custom navbar scope");
@@ -61,6 +68,7 @@ function cleanLinks(value, scope, depth = 0, path = "", ids = new Set()) {
         href: href.slice(0, 2048),
         label,
         title: String(item.title || label).trim().slice(0, 240) || label,
+        createdAt: normalizeCreatedAt(item.createdAt),
         ...(href ? {} : { type: "folder" }),
         children: cleanLinks(
           item.children,
@@ -75,11 +83,12 @@ function cleanLinks(value, scope, depth = 0, path = "", ids = new Set()) {
 }
 
 function serializeLinks(links = []) {
-  return links.map(({ id, href, label, title, type, children }) => ({
+  return links.map(({ id, href, label, title, createdAt, type, children }) => ({
     id,
     href,
     label,
     title,
+    createdAt: normalizeCreatedAt(createdAt),
     ...(!href || type == "folder" ? { type: "folder" } : {}),
     children: serializeLinks(children),
   }));
@@ -190,7 +199,13 @@ export async function readCustomNavLinks(scope) {
   return cleanLinks(document.scopes[cleanScope], cleanScope);
 }
 
-export function addCustomNavLink({ scope, parentId = "", href = "", label = "" }) {
+export function addCustomNavLink({
+  scope,
+  parentId = "",
+  href = "",
+  label = "",
+  createdAt = 0,
+}) {
   return queueMutation(async () => {
     const cleanScope = getScope(scope);
     const document = await readDocument();
@@ -210,6 +225,7 @@ export function addCustomNavLink({ scope, parentId = "", href = "", label = "" }
       href: cleanHref,
       label: cleanLabel,
       title: cleanLabel,
+      createdAt: normalizeCreatedAt(createdAt),
       ...(cleanHref ? {} : { type: "folder" }),
       children: [],
     };

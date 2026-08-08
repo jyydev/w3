@@ -2,7 +2,10 @@
 
 import { deleteCookie, getCookie, setCookie } from "cookies-next";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import toast from "react-hot-toast";
+import { deleteEmptyEditorFolder } from "@/app/e/editorActions";
 import {
   editorHistoryEvent,
   getEditorHistory,
@@ -16,6 +19,8 @@ import FavoriteButton from "@/components/FavoriteButton";
 import {
   buildEditorNavTree,
   getEditorFileHref,
+  normalizeEditorFilePath,
+  normalizeEditorFolderPath,
 } from "@/components/editorNavigation";
 import {
   buildHomeFavoritesMatrixGroup,
@@ -29,6 +34,7 @@ import {
   HomeMatrixVisibilityToggle,
   HomeNavigationMatrix,
   HomeNavigationPathHover,
+  HomeNavigationRowRemoveButton,
   HomeSectionSortLabel,
   HomeSectionSortToggle,
   sortHomeMatrixChildren,
@@ -41,6 +47,7 @@ import {
   editorStateMaxAge,
   encodeEditorFavs,
   encodeEditorOrder,
+  getEditorFolderFavoriteKey,
   parseEditorFavs,
   parseEditorOrder,
 } from "./editorNavigationState";
@@ -58,9 +65,21 @@ function getEditorNodeKey(node = {}) {
   return String(node.homeKey || "");
 }
 
+function getEditorFavoriteKey(node = {}) {
+  if (node.editorFile) return node.editorFile;
+  if (node.deletable?.kind != "folder") return "";
+
+  try {
+    return getEditorFolderFavoriteKey(node.deletable.source);
+  } catch {
+    return "";
+  }
+}
+
 function buildEditorFavoriteCatalog(nodes = [], catalog = new Map()) {
   for (const node of nodes) {
-    if (node.editorFile) catalog.set(node.editorFile, node);
+    const favoriteKey = getEditorFavoriteKey(node);
+    if (favoriteKey) catalog.set(favoriteKey, node);
     buildEditorFavoriteCatalog(node.children || [], catalog);
   }
 
@@ -70,6 +89,40 @@ function buildEditorFavoriteCatalog(nodes = [], catalog = new Map()) {
 function getEditorHistoryContext(file = "") {
   const folders = String(file || "").split("/").slice(0, -1);
   return ["editor", ...folders].join(" > ");
+}
+
+function getEditorCreateSearchEntry(query = "", validFiles = new Set()) {
+  const requestedPath = String(query || "").trim();
+  if (!requestedPath) return null;
+
+  const fileName = requestedPath.split("/").at(-1) || "";
+  const hasExtension = fileName.lastIndexOf(".") > 0;
+  let normalizedPath = "";
+
+  try {
+    normalizedPath = hasExtension
+      ? normalizeEditorFilePath(requestedPath)
+      : normalizeEditorFolderPath(requestedPath);
+  } catch {
+    return null;
+  }
+
+  const href = `/e/${normalizedPath
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/")}`;
+  const filePath = hasExtension ? normalizedPath : `${normalizedPath}.txt`;
+  const exists = validFiles.has(filePath);
+
+  return {
+    key: `editor:${exists ? "open" : "create"}:${filePath}`,
+    href,
+    label: `${exists ? "open" : "create"} ${normalizedPath}`,
+    title: `${exists ? "Open editor file" : "Create new editor file"}: ${
+      filePath
+    }`,
+    context: `editor > ${exists ? "existing file" : "new file"}`,
+  };
 }
 
 function EditorFavoritesNode({
@@ -173,9 +226,15 @@ function EditorFavoritesNode({
                   onToggleHidden={onToggleHidden}
                   visibilityKey={item.homeVisibilityKey}
                 >
-                  <Link href={item.href} className="homeNavQuickFavLink">
-                    {item.label}
-                  </Link>
+                  {item.href ? (
+                    <Link href={item.href} className="homeNavQuickFavLink">
+                      {item.label}
+                    </Link>
+                  ) : (
+                    <span className="homeNavQuickFavLink disabled">
+                      {item.label}
+                    </span>
+                  )}
                 </HomeNavigationPathHover>
                 <button
                   type="button"
@@ -205,6 +264,7 @@ function EditorFavoritesNode({
 function EditorNavigationNode({
   favoriteFileSet,
   node,
+  onDeleteEmptyFolder,
   onMoveFavorite,
   onToggleFavorite,
   onToggleHidden,
@@ -231,9 +291,15 @@ function EditorNavigationNode({
   }
 
   const hasChildren = !!node.children?.length || !!node.homeHasChildren;
-  const showFavoriteButton = !!node.editorFile;
+  const favoriteKey = getEditorFavoriteKey(node);
+  const showFavoriteButton = !!favoriteKey;
   const favoriteActive =
-    showFavoriteButton && favoriteFileSet.has(node.editorFile);
+    showFavoriteButton && favoriteFileSet.has(favoriteKey);
+  const deleteEmptyFolder =
+    node.deletable?.kind == "folder" &&
+    typeof onDeleteEmptyFolder == "function"
+      ? () => onDeleteEmptyFolder(node)
+      : undefined;
   const toggleLabel = `${
     node.homeCollapsed ? "show" : "hide"
   } ${node.title || node.label} children`;
@@ -264,21 +330,14 @@ function EditorNavigationNode({
           <span className="homeNavNodeLink disabled">{node.label}</span>
         )}
       </HomeNavigationPathHover>
-      {(showFavoriteButton || hasChildren) && (
+      {(showFavoriteButton || deleteEmptyFolder || hasChildren) && (
         <span className="homeNavNodeActions">
-          {showFavoriteButton && (
-            <FavoriteButton
-              active={favoriteActive}
-              className="homeNavFavBtn"
-              label={node.title || node.label}
-              scope="editor home"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onToggleFavorite(node.editorFile);
-              }}
-            />
-          )}
+          <HomeNavigationRowRemoveButton
+            ariaLabel={`delete empty folder: ${node.title || node.label}`}
+            label={node.title || node.label}
+            onRemove={deleteEmptyFolder}
+            title="delete empty folder"
+          />
           {hasChildren && (
             <button
               type="button"
@@ -296,6 +355,19 @@ function EditorNavigationNode({
               ></span>
             </button>
           )}
+          {showFavoriteButton && (
+            <FavoriteButton
+              active={favoriteActive}
+              className="homeNavFavBtn"
+              label={node.title || node.label}
+              scope="editor home"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleFavorite(favoriteKey);
+              }}
+            />
+          )}
         </span>
       )}
     </div>
@@ -303,11 +375,13 @@ function EditorNavigationNode({
 }
 
 function EditorIndex({
+  initialEmptyFolders = [],
   initialFavoriteFiles = [],
   initialFiles = [],
   initialHistory = [],
   initialOrder = {},
 }) {
+  const router = useRouter();
   const initialFilesText = JSON.stringify(initialFiles);
   const initialHistoryText = JSON.stringify(initialHistory);
   const matrixVisibility = useHomeMatrixVisibility(
@@ -333,7 +407,10 @@ function EditorIndex({
   );
   const [filesReady, setFilesReady] = useState(false);
   const [collapsedKeys, setCollapsedKeys] = useState(() => new Set());
-  const tree = useMemo(() => buildEditorNavTree(files), [files]);
+  const tree = useMemo(
+    () => buildEditorNavTree(files, initialEmptyFolders),
+    [files, initialEmptyFolders],
+  );
   const validFileSet = useMemo(() => new Set(files), [files]);
   const favoriteCatalog = useMemo(
     () => buildEditorFavoriteCatalog(tree),
@@ -362,16 +439,14 @@ function EditorIndex({
       }),
       buildHomeFavoritesMatrixGroup({
         favoriteKeys: favoriteFiles,
-        getFavoriteNode: (file) => favoriteCatalog.get(file),
-        getFavoriteItem: (node, file) =>
-          validFileSet.has(file)
-            ? {
-                favoriteKey: file,
-                label: file.split("/").at(-1),
-                title: file,
-                href: getEditorFileHref(file),
-              }
-            : null,
+        getFavoriteNode: (favoriteKey) =>
+          favoriteCatalog.get(favoriteKey),
+        getFavoriteItem: (node, favoriteKey) => ({
+          favoriteKey,
+          label: node.label,
+          title: node.title || node.label,
+          href: node.editorFile ? getEditorFileHref(node.editorFile) : "",
+        }),
         getNodeKey: getEditorNodeKey,
         rootKey: "editor:homeFavorites",
       }),
@@ -461,13 +536,19 @@ function EditorIndex({
   useEffect(() => {
     if (!filesReady) return;
 
-    const availableFiles = new Set(files);
     setFavoriteFiles((current) => {
       const clean = parseEditorFavs(current);
-      const next = clean.filter((file) => availableFiles.has(file));
+      const next = clean.filter((favoriteKey) =>
+        favoriteCatalog.has(favoriteKey),
+      );
       return next.length == clean.length ? current : next;
     });
+  }, [favoriteCatalog, filesReady]);
 
+  useEffect(() => {
+    if (!filesReady) return;
+
+    const availableFiles = new Set(files);
     const storedHistory = getEditorHistory();
     const nextHistory = storedHistory.filter((file) =>
       availableFiles.has(file),
@@ -580,6 +661,36 @@ function EditorIndex({
     );
   }
 
+  async function deleteEditorFolder(node) {
+    const target = node?.deletable;
+    if (target?.kind != "folder") return;
+
+    const label = `${target.source}/`;
+    if (!window.confirm(`Delete empty folder?\n\n${label}`)) return;
+
+    try {
+      if (shouldUseLocalStorageEditor()) {
+        throw new Error("localStorage has no empty folder record");
+      }
+
+      const result = await deleteEmptyEditorFolder({
+        folder: target.source,
+      });
+      if (!result.ok) throw new Error(result.msg || "delete failed");
+
+      const favoriteKey = getEditorFavoriteKey(node);
+      if (favoriteKey) {
+        setFavoriteFiles((current) =>
+          parseEditorFavs(current).filter((entry) => entry !== favoriteKey),
+        );
+      }
+      toast.success(`deleted ${label}`);
+      router.refresh();
+    } catch (error) {
+      toast.error(error?.message || "delete failed");
+    }
+  }
+
   function resetSorting() {
     setCustomOrder({});
   }
@@ -633,6 +744,9 @@ function EditorIndex({
               }
               onToggleHistoryFavorite={toggleFavorite}
               searchOptions={{
+                directSubmitLabel: "go",
+                getDirectEntry: (query) =>
+                  getEditorCreateSearchEntry(query, validFileSet),
                 homeHref: "/e",
                 homeTitle: "Editor home",
               }}
@@ -640,6 +754,7 @@ function EditorIndex({
                 <EditorNavigationNode
                   favoriteFileSet={favoriteFileSet}
                   node={node}
+                  onDeleteEmptyFolder={deleteEditorFolder}
                   onMoveFavorite={moveFavorite}
                   onToggleFavorite={toggleFavorite}
                   onToggleHidden={matrixVisibility.toggleHidden}

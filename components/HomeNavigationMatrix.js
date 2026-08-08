@@ -1306,6 +1306,75 @@ function HomeVisitHistoryTrashIcon() {
   );
 }
 
+function getHomeCustomNavRemoveAction(label, customNavSource) {
+  const server = customNavSource == "server";
+
+  return {
+    ariaLabel: server
+      ? `delete server custom nav ${label}`
+      : `remove ${label}`,
+    confirmMessage: server
+      ? `Delete server custom nav "${label}"?\n\nThis updates data/editor/system/customNav.json.`
+      : `Remove "${label}"?`,
+    title: server ? "delete server custom nav" : "remove custom link",
+  };
+}
+
+export function isHomeCustomNavEmptyFolder(node = {}) {
+  return (
+    !!node.homeCustomLink &&
+    !!node.id &&
+    !node.href &&
+    !(node.children || []).length
+  );
+}
+
+export function HomeNavigationRowRemoveButton({
+  ariaLabel,
+  confirmMessage = "",
+  label = "table item",
+  onRemove,
+  title = "remove",
+}) {
+  if (typeof onRemove != "function") return null;
+
+  return (
+    <button
+      type="button"
+      className="homeNavRowRemoveButton"
+      title={title}
+      aria-label={ariaLabel || `${title}: ${label}`}
+      draggable={false}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (confirmMessage && !window.confirm(confirmMessage)) return;
+        onRemove();
+      }}
+    >
+      <HomeVisitHistoryTrashIcon />
+    </button>
+  );
+}
+
+export function HomeNavigationCustomNavRowRemoveButton({
+  customNavSource = "",
+  label = "custom link",
+  onRemoveCustomLink,
+}) {
+  const action = getHomeCustomNavRemoveAction(label, customNavSource);
+
+  return (
+    <HomeNavigationRowRemoveButton
+      ariaLabel={action.ariaLabel}
+      confirmMessage={action.confirmMessage}
+      label={label}
+      onRemove={onRemoveCustomLink}
+      title={action.title}
+    />
+  );
+}
+
 function getHomeVisitExternalLinkProps(href) {
   return /^https?:\/\//i.test(String(href || ""))
     ? { target: "_blank", rel: "noopener noreferrer" }
@@ -1331,17 +1400,22 @@ function getHomeFixedCardPosition(element) {
 }
 
 export function HomeNavigationPathHover({
+  actions,
   children,
   context = "navbar",
+  customNavSource = "",
   detail = "",
   className = "",
   hidden = false,
   label = "table item",
+  onRemoveCustomLink,
   onToggleHidden,
   visibilityKey = "",
 }) {
   const [cardPosition, setCardPosition] = useState(null);
   const hideable = !!visibilityKey && typeof onToggleHidden == "function";
+  const removable = typeof onRemoveCustomLink == "function";
+  const removeAction = getHomeCustomNavRemoveAction(label, customNavSource);
 
   function positionCard(event) {
     const trigger = event.currentTarget;
@@ -1365,7 +1439,7 @@ export function HomeNavigationPathHover({
       </span>
       <span
         className={`navQuickFavCard homeVisitHistoryCard homeNavPathCard${
-          hideable ? " interactive" : ""
+          hideable || removable || actions ? " interactive" : ""
         }`}
         style={cardPosition || undefined}
       >
@@ -1380,6 +1454,24 @@ export function HomeNavigationPathHover({
               onToggleHidden(visibilityKey);
             }}
           />
+        )}
+        {actions}
+        {removable && (
+          <button
+            type="button"
+            className="homeNavPathRemoveButton"
+            title={removeAction.title}
+            aria-label={removeAction.ariaLabel}
+            draggable={false}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!window.confirm(removeAction.confirmMessage)) return;
+              onRemoveCustomLink();
+            }}
+          >
+            <HomeVisitHistoryTrashIcon />
+          </button>
         )}
         <span className="homeVisitHistoryPathInfo">
           <span className="homeVisitHistoryPathContext">
@@ -1715,11 +1807,8 @@ export function HomeFavoritesColumn({
       aria-label={label}
       title={label}
     >
-      <span className="homeNavNodeLink homeNavFavoriteIcon" aria-hidden="true">
-        ★
-      </span>
-      {hasChildren && (
-        <span className="homeNavNodeActions">
+      <span className="homeNavNodeActions">
+        {hasChildren && (
           <button
             type="button"
             className="homeNavBranchToggle"
@@ -1734,8 +1823,11 @@ export function HomeFavoritesColumn({
               aria-hidden="true"
             ></span>
           </button>
+        )}
+        <span className="homeNavFavoriteIcon" aria-hidden="true">
+          ★
         </span>
-      )}
+      </span>
     </div>
   );
 }
@@ -1767,7 +1859,17 @@ function HomeResetSortingButton({ label, onResetSorting }) {
   );
 }
 
-export function HomeSectionSortLabel({ children, label, onResetSorting }) {
+export function HomeSectionSortLabel({
+  children,
+  label,
+  onResetSorting,
+  onToggleExternalFavicons,
+  showExternalFavicons = true,
+}) {
+  const faviconActionLabel = `${
+    showExternalFavicons ? "hide" : "show"
+  } external site favicons`;
+
   return (
     <NavbarHoverCard className="homeNavSectionSortLabel navQuickFavTrigger">
       <button
@@ -1782,6 +1884,27 @@ export function HomeSectionSortLabel({ children, label, onResetSorting }) {
           label={label}
           onResetSorting={onResetSorting}
         />
+        {typeof onToggleExternalFavicons == "function" && (
+          <button
+            type="button"
+            className={`navQuickUnfav navResetSortingButton homeNavExternalFaviconToggle${
+              showExternalFavicons ? " active" : ""
+            }`}
+            aria-label={faviconActionLabel}
+            aria-pressed={showExternalFavicons}
+            title={faviconActionLabel}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleExternalFavicons();
+            }}
+          >
+            external favicons:{" "}
+            <span className="homeNavExternalFaviconToggleStatus">
+              {showExternalFavicons ? "on" : "off"}
+            </span>
+          </button>
+        )}
       </span>
     </NavbarHoverCard>
   );

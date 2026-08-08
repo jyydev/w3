@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteCookie, getCookie, setCookie } from "cookies-next";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -16,6 +17,12 @@ import {
 import FavoriteButton from "./FavoriteButton";
 import Logo from "./Logo";
 import { InteractiveInfoCard } from "./Shared";
+import {
+  EmptyWalletDeleteButton,
+  getEmptyWalletDeleteEntry,
+  getWalletDeleteEntry,
+  WalletDeleteButton,
+} from "./WalletDeleteButton";
 import {
   encodeHomeCollapsedKeys,
   encodeHomeSectionOrder,
@@ -55,11 +62,13 @@ import {
   getHomeSourceNodeKey,
   HomeFavoritesColumn,
   HomeMatrixVisibilityToggle,
+  HomeNavigationCustomNavRowRemoveButton,
   HomeNavigationMatrix,
   HomeNavigationPathHover,
   HomeSectionSortLabel,
   HomeSectionSortToggle,
   sortHomeMatrixChildren,
+  isHomeCustomNavEmptyFolder,
   useHomeMatrixVisibility,
 } from "./HomeNavigationMatrix";
 import {
@@ -284,8 +293,10 @@ function HomeWalletFavoritesNode({
   ariaLabel = "home favorites",
   node,
   onMoveFavorite,
+  onRemoveCustomLink,
   onToggleFavorite,
   onToggleHidden,
+  showExternalFavicons = false,
 }) {
   const [dragKey, setDragKey] = useState("");
   const [dropSpot, setDropSpot] = useState(null);
@@ -297,6 +308,14 @@ function HomeWalletFavoritesNode({
         {node.items?.length ? (
           node.items.map((item) => {
             const isDropSpot = dropSpot?.key == item.favoriteKey;
+            const emptyCustomFolder = isHomeCustomNavEmptyFolder(item);
+            const removeCustomLink =
+              item.homeCustomLink &&
+              item.id &&
+              !emptyCustomFolder &&
+              typeof onRemoveCustomLink == "function"
+                ? () => onRemoveCustomLink(item.id)
+                : undefined;
             const dropClass = isDropSpot
               ? dropSpot.placeAfter
                 ? "dropAfter"
@@ -376,19 +395,32 @@ function HomeWalletFavoritesNode({
               >
                 <HomeNavigationPathHover
                   context={item.homePathContext}
+                  customNavSource={item.customNavSource}
                   detail={item.homePathDetail}
                   hidden={item.homeHidden}
                   label={item.label}
+                  onRemoveCustomLink={removeCustomLink}
                   onToggleHidden={onToggleHidden}
                   visibilityKey={item.homeVisibilityKey}
                 >
-                  <Link
-                    href={item.href}
-                    className="homeNavQuickFavLink"
-                    {...getExternalLinkProps(item.href)}
-                  >
-                    {item.label}
-                  </Link>
+                  {item.href ? (
+                    <Link
+                      href={item.href}
+                      className="homeNavQuickFavLink"
+                      {...getExternalLinkProps(item.href)}
+                    >
+                      <ExternalCustomLinkFavicon
+                        custom={item.homeCustomLink}
+                        href={item.href}
+                        visible={showExternalFavicons}
+                      />
+                      {item.label}
+                    </Link>
+                  ) : (
+                    <span className="homeNavQuickFavLink disabled">
+                      {item.label}
+                    </span>
+                  )}
                 </HomeNavigationPathHover>
                 <button
                   type="button"
@@ -416,13 +448,19 @@ function HomeWalletFavoritesNode({
 }
 
 export function NavigationNode({
+  deletingEmptyWalletKey,
+  deletingWalletKey,
   node,
   favoriteKeySet,
   getHref,
+  onDeleteWallet,
+  onDeleteEmptyWallet,
   onMoveFavorite,
+  onRemoveCustomLink,
   onToggleFavorite,
   onToggleHidden,
   onToggleNode,
+  showExternalFavicons = false,
 }) {
   if (node.type == "homeFavorites") {
     return (
@@ -439,8 +477,10 @@ export function NavigationNode({
         ariaLabel="home favorites"
         node={node}
         onMoveFavorite={onMoveFavorite}
+        onRemoveCustomLink={onRemoveCustomLink}
         onToggleFavorite={onToggleFavorite}
         onToggleHidden={onToggleHidden}
+        showExternalFavicons={showExternalFavicons}
       />
     );
   }
@@ -448,11 +488,33 @@ export function NavigationNode({
   const href = getHref(node);
   const hasChildren = !!node.children?.length || !!node.homeHasChildren;
   const favoriteKey = getHomeSourceNodeKey(node, getNodeSortKey);
+  const emptyCustomFolder = isHomeCustomNavEmptyFolder(node);
   const showFavoriteButton =
     !!onToggleFavorite &&
     !node.homePinned &&
-    ((!node.disabled && !!href) || hasChildren);
+    ((!node.disabled && !!href) || hasChildren || emptyCustomFolder);
   const favoriteActive = showFavoriteButton && favoriteKeySet?.has(favoriteKey);
+  const showDeleteButton =
+    typeof onDeleteWallet == "function" && !!getWalletDeleteEntry(node);
+  const showEmptyDeleteButton =
+    typeof onDeleteEmptyWallet == "function" &&
+    !!getEmptyWalletDeleteEntry(node);
+  const removeCustomLink =
+    node.homeCustomLink &&
+    node.id &&
+    typeof onRemoveCustomLink == "function"
+      ? () => onRemoveCustomLink(node.id)
+      : undefined;
+  const hoverRemoveCustomLink = emptyCustomFolder
+    ? undefined
+    : removeCustomLink;
+  const removeEmptyCustomFolder =
+    emptyCustomFolder && removeCustomLink
+      ? () => {
+          if (favoriteActive) onToggleFavorite(node);
+          removeCustomLink();
+        }
+      : undefined;
   const className = [
     "homeNavNode",
     node.type == "wallet" ? "walletLeaf" : "",
@@ -463,10 +525,22 @@ export function NavigationNode({
     .join(" ");
   const label = (
     <HomeNavigationPathHover
+      actions={
+        showDeleteButton ? (
+          <WalletDeleteButton
+            className="homeNavPathRemoveButton"
+            deletingWalletKey={deletingWalletKey}
+            node={node}
+            onDelete={onDeleteWallet}
+          />
+        ) : null
+      }
       context={node.homePathContext}
+      customNavSource={node.customNavSource}
       detail={node.homePathDetail}
       hidden={node.homeHidden}
       label={node.label}
+      onRemoveCustomLink={hoverRemoveCustomLink}
       onToggleHidden={onToggleHidden}
       visibilityKey={node.homeVisibilityKey}
     >
@@ -476,6 +550,11 @@ export function NavigationNode({
           className="homeNavNodeLink"
           {...getExternalLinkProps(href)}
         >
+          <ExternalCustomLinkFavicon
+            custom={node.homeCustomLink}
+            href={href}
+            visible={showExternalFavicons}
+          />
           {node.label}
         </Link>
       ) : (
@@ -490,21 +569,24 @@ export function NavigationNode({
   return (
     <div className={className}>
       {label}
-      {(showFavoriteButton || hasChildren) && (
+      {(showFavoriteButton ||
+        showEmptyDeleteButton ||
+        removeEmptyCustomFolder ||
+        hasChildren) && (
         <span className="homeNavNodeActions">
-          {showFavoriteButton && (
-            <FavoriteButton
-              active={favoriteActive}
-              className="homeNavFavBtn"
-              label={node.label}
-              scope="home"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onToggleFavorite(node);
-              }}
+          {showEmptyDeleteButton && (
+            <EmptyWalletDeleteButton
+              className="homeNavDeleteButton"
+              deletingEmptyWalletKey={deletingEmptyWalletKey}
+              node={node}
+              onDelete={onDeleteEmptyWallet}
             />
           )}
+          <HomeNavigationCustomNavRowRemoveButton
+            customNavSource={node.customNavSource}
+            label={node.title || node.label}
+            onRemoveCustomLink={removeEmptyCustomFolder}
+          />
           {hasChildren && (
             <button
               type="button"
@@ -521,6 +603,19 @@ export function NavigationNode({
                 aria-hidden="true"
               ></span>
             </button>
+          )}
+          {showFavoriteButton && (
+            <FavoriteButton
+              active={favoriteActive}
+              className="homeNavFavBtn"
+              label={node.label}
+              scope="home"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleFavorite(node);
+              }}
+            />
           )}
         </span>
       )}
@@ -1238,6 +1333,8 @@ const homeNavigationFavoritesKey = "home:navigation:favorites";
 const homeNavigationHistoryKey = "home:navigation:history";
 const homeNavigationVisibilityStorageKey =
   "w3_homeMatrixHidden:navigation";
+const homeNavigationExternalFaviconsStorageKey =
+  "w3_homeExternalFavicons:navigation";
 const navbarTopCustomScope = `${ckPrefix ?? ""}navbarTop`;
 
 function normalizeHomeLinkEntry(item) {
@@ -1384,9 +1481,43 @@ function getExternalLinkProps(href) {
     : {};
 }
 
+function getExternalFaviconHref(href) {
+  try {
+    const url = new URL(String(href || ""));
+    if (url.protocol != "http:" && url.protocol != "https:") return "";
+    return `${url.origin}/favicon.ico`;
+  } catch {
+    return "";
+  }
+}
+
+function ExternalCustomLinkFavicon({ custom, href, visible }) {
+  const src = custom && visible ? getExternalFaviconHref(href) : "";
+  if (!src) return null;
+
+  return (
+    <Image
+      src={src}
+      alt=""
+      aria-hidden="true"
+      className="homeNavLinkFavicon"
+      width={14}
+      height={14}
+      unoptimized
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
+
 function buildHomeFavoriteCatalog(nodes = [], catalog = new Map()) {
   for (const node of nodes) {
-    if ((node.href && !node.disabled) || node.children?.length) {
+    if (
+      (node.href && !node.disabled) ||
+      node.children?.length ||
+      isHomeCustomNavEmptyFolder(node)
+    ) {
       catalog.set(node.homeKey, node);
     }
     buildHomeFavoriteCatalog(node.children || [], catalog);
@@ -1410,14 +1541,18 @@ export default function Home({
   const initialHistoryText = JSON.stringify(
     parseHomeNavigationHistory(initialHistory),
   );
-  const { links: customLinks, ready: customLinksReady } =
-    useNavbarCustomLinks(navbarTopCustomScope);
+  const {
+    links: customLinks,
+    ready: customLinksReady,
+    removeLink: removeCustomLink,
+  } = useNavbarCustomLinks(navbarTopCustomScope);
   const matrixVisibility = useHomeMatrixVisibility(
     homeNavigationVisibilityStorageKey,
   );
   const [historyEntries, setHistoryEntries] = useState(() =>
     JSON.parse(initialHistoryText),
   );
+  const [showExternalFavicons, setShowExternalFavicons] = useState(true);
   const [localWalletTree, setLocalWalletTree] = useState([]);
   const [resolvedEditorFiles, setResolvedEditorFiles] = useState(editorFiles);
   const [dynamicTreesReady, setDynamicTreesReady] = useState(false);
@@ -1477,6 +1612,30 @@ export default function Home({
       window.removeEventListener("storage", refreshLocalTrees);
     };
   }, [editorFiles]);
+
+  useEffect(() => {
+    function readPreference() {
+      try {
+        return (
+          window.localStorage.getItem(
+            homeNavigationExternalFaviconsStorageKey,
+          ) != "0"
+        );
+      } catch {
+        return true;
+      }
+    }
+
+    function syncPreference(event) {
+      if (event.key == homeNavigationExternalFaviconsStorageKey) {
+        setShowExternalFavicons(readPreference());
+      }
+    }
+
+    setShowExternalFavicons(readPreference());
+    window.addEventListener("storage", syncPreference);
+    return () => window.removeEventListener("storage", syncPreference);
+  }, []);
 
   useEffect(() => {
     setCookie(homeWalletModeCookie, searchMode, {
@@ -1602,7 +1761,10 @@ export default function Home({
         getFavoriteItem: (node, favoriteKey) => ({
           favoriteKey,
           href: node.href,
+          homeCustomLink: node.homeCustomLink,
+          id: node.id,
           label: node.label,
+          customNavSource: node.customNavSource,
           title: node.title || node.href,
         }),
         getNodeKey: getNodeSortKey,
@@ -1780,6 +1942,19 @@ export default function Home({
     );
   }
 
+  function toggleExternalFavicons() {
+    setShowExternalFavicons((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(
+          homeNavigationExternalFaviconsStorageKey,
+          next ? "1" : "0",
+        );
+      } catch {}
+      return next;
+    });
+  }
+
   return (
     <>
       <div className="flex mb-1 homeNavLogoRow">
@@ -1792,6 +1967,8 @@ export default function Home({
           <HomeSectionSortLabel
             label="navigation"
             onResetSorting={() => setCustomOrderM({})}
+            onToggleExternalFavicons={toggleExternalFavicons}
+            showExternalFavicons={showExternalFavicons}
           >
             home
           </HomeSectionSortLabel>
@@ -1877,9 +2054,11 @@ export default function Home({
                   favoriteKeySet={favoriteKeySet}
                   getHref={(entry) => entry.href || ""}
                   onMoveFavorite={moveFavorite}
+                  onRemoveCustomLink={removeCustomLink}
                   onToggleFavorite={toggleFavorite}
                   onToggleHidden={matrixVisibility.toggleHidden}
                   onToggleNode={toggleNode}
+                  showExternalFavicons={showExternalFavicons}
                 />
               )}
             />

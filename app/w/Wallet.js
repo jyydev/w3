@@ -32,6 +32,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import WalletAddControls from "@/components/WalletAddControls";
 import {
   addLocalCustomCoin,
   addLocalWalletEntry,
@@ -3033,12 +3034,6 @@ function Wallet({
     });
   }
 
-  function selectAddWalletFile(e) {
-    const file = e.target.value;
-    setAddWalletFile(file);
-    setDraftWalletFile(file);
-  }
-
   function selectWalletType(e) {
     goWalletType(e.target.value);
   }
@@ -5188,75 +5183,25 @@ function Wallet({
                 go
               </button>
             </form>
-            <form
-              className="walletAddForm walletCaptionAddForm"
+            <WalletAddControls
+              address={customAddress}
+              adding={addingWallet}
+              className="walletCaptionAddForm"
+              file={addWalletFile}
+              fileOptions={saveWalletFileOptions}
+              info="Toggle on to add this address or add a new coin."
+              label={addWalletName}
+              open={showAddWallet}
+              path={draftWalletFile}
+              onFileChange={(file) => {
+                setAddWalletFile(file);
+                setDraftWalletFile(file);
+              }}
+              onLabelChange={setAddWalletName}
+              onOpenChange={setShowAddWallet}
+              onPathChange={setDraftWalletFile}
               onSubmit={submitAddWallet}
-            >
-              <PassiveInfoCard content="Toggle on to add this address or add a new coin.">
-                <label
-                  className="switch small walletAddSwitch"
-                  title="show add controls"
-                >
-                  <input
-                    type="checkbox"
-                    checked={showAddWallet}
-                    onChange={(e) => setShowAddWallet(e.target.checked)}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </PassiveInfoCard>
-              {showAddWallet && (
-                <>
-                  <select
-                    value={addWalletFile}
-                    onChange={selectAddWalletFile}
-                    disabled={addingWallet || !saveWalletFileOptions.length}
-                  >
-                    {!saveWalletFileOptions.length && (
-                      <option value="">new file</option>
-                    )}
-                    {saveWalletFileOptions.map((file) => (
-                      <option key={file} value={file}>
-                        {file}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    value={draftWalletFile}
-                    onChange={(e) => setDraftWalletFile(e.target.value)}
-                    placeholder="folder/file"
-                    disabled={addingWallet}
-                    style={{
-                      width: `${
-                        Math.max(draftWalletFile.length || 0, 10) + 2
-                      }ch`,
-                    }}
-                  />
-                  <input
-                    type="text"
-                    value={addWalletName}
-                    onChange={(e) => setAddWalletName(e.target.value)}
-                    placeholder={"label"}
-                    disabled={addingWallet}
-                    style={{
-                      width: `${Math.max(addWalletName.length || 0, 8) + 2}ch`,
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    className="btn small bgGray"
-                    disabled={
-                      addingWallet ||
-                      !customAddress.trim() ||
-                      !draftWalletFile.trim()
-                    }
-                  >
-                    {addingWallet ? "..." : "save"}
-                  </button>
-                </>
-              )}
-            </form>
+            />
             <form
               className="walletCoinForm walletCaptionCoinForm"
               onSubmit={submitCustomCoin}
